@@ -423,10 +423,10 @@ fn plain_path(path: &Path) -> PathBuf {
         if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
             return PathBuf::from(format!(r"\\{rest}"));
         }
-        if let Some(rest) = s.strip_prefix(r"\\?\") {
-            if rest.as_bytes().get(1) == Some(&b':') {
-                return PathBuf::from(rest);
-            }
+        if let Some(rest) = s.strip_prefix(r"\\?\")
+            && rest.as_bytes().get(1) == Some(&b':')
+        {
+            return PathBuf::from(rest);
         }
     }
     path.to_path_buf()
