@@ -39,9 +39,10 @@ Now:
 - `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
 - `cargo deny check licenses bans sources` (CI runs it; locally when dependencies change)
+- `cargo test -p kumikit-protocol` also fails when generated TypeScript is stale;
+  `KUMIKIT_BLESS=1 cargo test -p kumikit-protocol` regenerates `web/protocol/`.
+- `npx -p typescript@7.0.2 tsc --noEmit -p web/protocol` when protocol types change.
 
-From M0 (add each command here when it starts to exist):
-- `cargo test -p kumikit-protocol` also fails when generated TypeScript is stale.
 From M2:
 - `npm run check` (svelte-check + tsc) and `npm test` (Vitest) in `web/`
 - `npx playwright test` in `web/` against the browser build

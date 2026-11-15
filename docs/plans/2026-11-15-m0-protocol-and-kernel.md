@@ -60,7 +60,7 @@ Each step ends with the Verify checks (`sh scripts/check-docs.sh`, then from ste
   used by core dispatch, TS generation and fixture coverage), `version.rs`. No I/O, deps:
   serde, serde_json, ts-rs. Verify: unit tests for serde shapes (tag names, casing,
   optional fields skipped, unknown fields tolerated). Commit: `feat: add protocol types`.
-- [ ] **4. TypeScript generation.** `crates/kumikit-protocol/tests/typescript.rs` exports
+- [x] **4. TypeScript generation.** `crates/kumikit-protocol/tests/typescript.rs` exports
   every root type with `export_all_to` into a temp dir, plus a hand-written `methods.ts`
   (the method map `{ "thread.create": { params; result } … }` produced from the
   `methods!` table) and `index.ts`, then compares the tree with `web/protocol/src/`.
@@ -262,4 +262,10 @@ platforms ship in M0 (see the resolution under it).
   (`/tmp/kk-XXXX/s.sock`), not the long per-test temp path macOS gives.
 - Only `x86_64-unknown-linux-gnu` is installed locally (Arch rust, no rustup
   toolchain), so macOS and Windows code is compile-checked only in CI.
+- Step 4: ts-rs 12 has `Config::with_large_int("number")`, so no per-field `u64`
+  annotations are needed (ADR 0008 corrected). `web/protocol/` is fully generated,
+  including `package.json` and `tsconfig.json`; CI type-checks it with TypeScript 7.0.2.
+- Gotcha: clippy's `allow-unwrap-in-tests` does not cover helper functions in
+  integration-test crates (`tests/*.rs`); those files carry a crate-level
+  `#![allow(clippy::unwrap_used, clippy::expect_used)]`.
 - Footprint numbers: _to be filled in at step 12_.

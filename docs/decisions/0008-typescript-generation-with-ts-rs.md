@@ -27,6 +27,9 @@ protocol type exists.
 ## Consequences
 
 - A normal `cargo test` never writes into the source tree; CI catches stale types.
-- ts-rs maps `u64` to `bigint`, which `JSON.parse` never produces. Protocol integers
-  (`seq`, token counts) are annotated as `number`; they stay below 2^53.
+- ts-rs maps 64-bit integers to `bigint` by default, which `JSON.parse` never produces.
+  The generator sets `large_int = "number"`; protocol integers (`seq`, token counts) stay
+  below 2^53.
+- `web/protocol/` (sources, `package.json`, `tsconfig.json`) is entirely generated. CI
+  also type-checks it with a pinned TypeScript version.
 - If Kumikit later needs generated types for another language, revisit specta in a new ADR.

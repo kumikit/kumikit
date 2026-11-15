@@ -33,6 +33,16 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
+  protocol-ts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # The generated package must type-check; the version matches web/protocol/package.json.
+      - run: npx --yes -p typescript@7.0.2 tsc --noEmit -p web/protocol
+
   licenses:
     runs-on: ubuntu-latest
     steps:

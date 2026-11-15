@@ -1,0 +1,12 @@
+{
+  "name": "@kumikit/protocol",
+  "version": "0.1.0",
+  "description": "Kumikit client–core protocol types, generated from crates/kumikit-protocol. Do not edit.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "check": "tsc --noEmit -p ." },
+  "devDependencies": { "typescript": "7.0.2" }
+}
