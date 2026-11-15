@@ -65,7 +65,8 @@ to install a core plugin:
   plugin stays installed but not enabled.
 - `remove` asks before deleting the plugin's data; `--keep-data` keeps it.
 - The SHA-256 of the package is recorded for the lockfile. Installing an id that is
-  already installed fails until updates exist; remove it first.
+  already installed fails until updates exist; remove it first. Adding the same version
+  of a plugin that is installed but not enabled asks again for the grant.
 
 ## Lockfiles
 

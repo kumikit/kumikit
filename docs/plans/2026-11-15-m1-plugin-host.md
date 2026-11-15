@@ -380,7 +380,7 @@ Steps marked *(CI)* contain macOS/Windows code that is only compiled and run in 
   fake; `exit_m0` runs on the probe plugin; ADR 0009 → `Superseded by 0011`; AGENTS.md
   architecture rule loses its exception; agent reference updated. Commit:
   `refactor: serve providers from plugins and remove the scripted provider`.
-- [ ] **11. CLI.** `kumikit plugin add/list/remove/pack`, online and offline paths,
+- [x] **11. CLI.** `kumikit plugin add/list/remove/pack`, online and offline paths,
   prompts. Tests: add/list/remove against a running core (sees `core.pluginsChanged`) and
   offline; non-interactive without `--yes` leaves it installed; remove asks about data.
   Commit: `feat: add kumikit plugin add, list and remove`.
@@ -599,3 +599,6 @@ live smoke test's agent.
   (M0: 7.1 MB), both within budget. **Release binary 24.9 MiB (M0: 4.2 MiB)**: over the
   20 MB installer budget (checked from M2) on its own. Step 14 must look at what takes
   the space (wasmtime with Cranelift, jsonschema's Unicode tables) and report options.
+- Step 11: `kumikit plugin add` reads the manifest from the package before installing,
+  so adding an installed-but-not-enabled plugin again finishes its grant instead of
+  failing with `conflict`. `remove` without a terminal and without flags keeps data.

@@ -88,7 +88,8 @@ pub async fn open_core(data_dir: &Path) -> io::Result<PluginHost> {
     Ok(PluginHost::open(manager, HostConfig::default()).await)
 }
 
-fn prepare_data_dir(dir: &std::path::Path) -> io::Result<()> {
+/// Creates the data directory if needed (0700 on Unix; an existing one must be private).
+pub fn prepare_data_dir(dir: &std::path::Path) -> io::Result<()> {
     #[cfg(unix)]
     {
         transport::ensure_private_dir(dir, transport::current_uid())
