@@ -158,16 +158,19 @@ async fn cwd_defaults_to_the_workspace_root_and_may_be_a_subdirectory() {
     let f = fixture(&[]);
     let root = std::fs::canonicalize(f.workspace.path()).unwrap();
     let child = f.spawn(req(&["cwd"])).await.unwrap();
-    assert_eq!(PathBuf::from(read_all(&child).await.trim()), root);
+    let cwd = read_all(&child).await;
+    assert!(
+        !cwd.starts_with(r"\\?\"),
+        "the child gets a plain path: {cwd}"
+    );
+    assert_eq!(std::fs::canonicalize(cwd.trim()).unwrap(), root);
 
     std::fs::create_dir(root.join("sub")).unwrap();
     let mut r = req(&["cwd"]);
     r.cwd = Some("sub".into());
     let child = f.spawn(r).await.unwrap();
-    assert_eq!(
-        PathBuf::from(read_all(&child).await.trim()),
-        root.join("sub")
-    );
+    let cwd = read_all(&child).await;
+    assert_eq!(std::fs::canonicalize(cwd.trim()).unwrap(), root.join("sub"));
 }
 
 #[tokio::test]
@@ -291,6 +294,20 @@ async fn dropping_the_last_handle_kills_the_tree() {
     };
     drop(child);
     while rx.recv().await.is_some() {}
+}
+
+#[cfg(windows)]
+#[test]
+fn verbatim_paths_become_plain() {
+    assert_eq!(
+        plain_path(Path::new(r"\\?\C:\x\y")),
+        PathBuf::from(r"C:\x\y")
+    );
+    assert_eq!(
+        plain_path(Path::new(r"\\?\UNC\srv\share\x")),
+        PathBuf::from(r"\\srv\share\x")
+    );
+    assert_eq!(plain_path(Path::new(r"C:\x")), PathBuf::from(r"C:\x"));
 }
 
 #[test]

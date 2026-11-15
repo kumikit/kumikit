@@ -234,7 +234,7 @@ impl Supervisor {
         })?;
         let mut cmd = Command::new(&checked.resolved);
         cmd.args(&req.args)
-            .current_dir(&checked.cwd)
+            .current_dir(plain_path(&checked.cwd))
             .env_clear()
             .envs(checked.env)
             .stdin(Stdio::piped())
@@ -411,6 +411,25 @@ struct Checked {
     resolved: PathBuf,
     cwd: PathBuf,
     env: Vec<(OsString, OsString)>,
+}
+
+/// The path to hand to a child. On Windows, `canonicalize` returns verbatim paths
+/// (`\\?\C:\x`), which many programs mishandle as a working directory; this returns the
+/// plain form (`C:\x`, `\\server\share`). Containment checks use the canonical form.
+fn plain_path(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let s = path.to_string_lossy();
+        if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = s.strip_prefix(r"\\?\") {
+            if rest.as_bytes().get(1) == Some(&b':') {
+                return PathBuf::from(rest);
+            }
+        }
+    }
+    path.to_path_buf()
 }
 
 /// A name without any path: no separators, not `.` or `..`, not empty.
