@@ -47,7 +47,8 @@ From M2:
 ## Architecture rules (do not break these)
 
 - **The kernel knows no plugin by name.** No provider, bot, theme or tool id or name in
-  `crates/` or `web/kernel/`. A special case for one plugin means the plugin API is
+  `crates/` or `web/kernel/` (sole, temporary exception: the M0 scripted provider,
+  [ADR 0009](docs/decisions/0009-temporary-scripted-provider.md)). A special case for one plugin means the plugin API is
   missing something: add the general API instead. ([ADR 0006](docs/decisions/0006-kernel-owns-domain-model.md))
 - **First-party plugins use only public SDKs** (`wit/`, `sdk/rust`, `@kumikit/ui-sdk`,
   `@kumikit/protocol`). No private hooks for them.
@@ -67,7 +68,7 @@ From M2:
 ## Interfaces and versioning
 
 - Protocol types live only in `crates/kumikit-protocol`. `web/protocol/` is generated;
-  never edit it by hand.
+  never edit it by hand. JSON field names are camelCase, enum values snake_case.
 - Adding a method, optional field or event kind is a protocol minor change; removing or
   changing anything is major and needs an ADR. Update the recorded fixtures with the change.
 - WIT packages in `wit/` are versioned. Never change a published version in place: add a

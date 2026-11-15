@@ -6,10 +6,12 @@ framework; later milestones add plugins on top of it.
 ## M0 — Protocol and kernel
 
 - Cargo workspace with `kumikit-protocol`, `kumikit-kernel`, `kumikit-core`.
-- `kumikit serve` on the local socket; `core.hello`, `workspace.*`, `thread.*`,
+- `kumikit serve` on the local socket (Linux, macOS) and named pipe (Windows); `core.hello`, `workspace.*`, `thread.*`,
   `events.subscribe` with replay from a cursor.
 - SQLite storage with migrations; event log.
-- One provider compiled into the core behind an internal trait (temporary; removed in M1).
+- A deterministic scripted provider compiled into the core behind an internal trait, so
+  tests need no real agent (temporary; deleted in M1, see
+  [ADR 0009](../decisions/0009-temporary-scripted-provider.md)).
 - TypeScript generation for `@kumikit/protocol`.
 
 **Exit:** a test client script creates a thread, sends a message, receives streamed
