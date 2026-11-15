@@ -1,46 +1,36 @@
 [
   {
-    "jsonrpc": "2.0",
     "id": 9,
+    "jsonrpc": "2.0",
     "method": "thread.get",
     "params": {
       "thread": "01JCTH00000000000000000001"
     }
   },
   {
-    "jsonrpc": "2.0",
     "id": 9,
+    "jsonrpc": "2.0",
     "result": {
+      "pendingApprovals": [],
+      "seq": 11,
       "thread": {
-        "id": "01JCTH00000000000000000001",
-        "workspace": "01JCWS00000000000000000001",
-        "provider": "example",
-        "model": "default",
-        "status": "awaiting_approval",
         "created": "2026-11-15T10:00:00.000Z",
-        "updated": "2026-11-15T10:00:01.000Z"
+        "id": "01JCTH00000000000000000001",
+        "model": "tool-approval",
+        "provider": "example",
+        "status": "idle",
+        "updated": "2026-11-15T10:00:04.000Z",
+        "workspace": "01JCWS00000000000000000001"
       },
       "turns": [
         {
+          "ended": "2026-11-15T10:00:04.000Z",
           "id": "01JCTU00000000000000000001",
-          "thread": "01JCTH00000000000000000001",
-          "started": "2026-11-15T10:00:00.000Z"
+          "outcome": "done",
+          "started": "2026-11-15T10:00:00.000Z",
+          "thread": "01JCTH00000000000000000001"
         }
-      ],
-      "pendingApprovals": [
-        {
-          "id": "01JCAP00000000000000000001",
-          "thread": "01JCTH00000000000000000001",
-          "turn": "01JCTU00000000000000000001",
-          "kind": "tool",
-          "summary": "Run `ls`",
-          "detail": {
-            "command": "ls"
-          },
-          "status": "pending"
-        }
-      ],
-      "seq": 5
+      ]
     }
   }
 ]

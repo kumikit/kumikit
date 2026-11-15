@@ -3,18 +3,18 @@
     "jsonrpc": "2.0",
     "method": "events.event",
     "params": {
-      "topic": "thread:01JCTH00000000000000000001",
-      "seq": 4,
-      "time": "2026-11-15T10:00:01.000Z",
-      "kind": "tool.started",
       "data": {
-        "turn": "01JCTU00000000000000000001",
-        "call": "c1",
-        "name": "shell",
+        "call": "call-1",
         "input": {
           "command": "ls"
-        }
-      }
+        },
+        "name": "shell",
+        "turn": "01JCTU00000000000000000001"
+      },
+      "kind": "tool.started",
+      "seq": 3,
+      "time": "2026-11-15T10:00:01.000Z",
+      "topic": "thread:01JCTH00000000000000000001"
     }
   }
 ]

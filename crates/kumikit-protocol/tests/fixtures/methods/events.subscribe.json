@@ -1,18 +1,18 @@
 [
   {
-    "jsonrpc": "2.0",
     "id": 15,
+    "jsonrpc": "2.0",
     "method": "events.subscribe",
     "params": {
-      "topic": "thread:01JCTH00000000000000000001",
-      "after": 1042
+      "after": 0,
+      "topic": "thread:01JCTH00000000000000000001"
     }
   },
   {
-    "jsonrpc": "2.0",
     "id": 15,
+    "jsonrpc": "2.0",
     "result": {
-      "head": 1050
+      "head": 0
     }
   },
   {

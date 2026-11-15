@@ -133,7 +133,7 @@ Each step ends with the Verify checks (`sh scripts/check-docs.sh`, then from ste
   socket. Verify: tests for socket mode 0600, peer check (pure function with a foreign
   uid), parse error, unknown method, call before hello, oversized line.
   Commit: `feat: add kumikit serve on the local socket`.
-- [ ] **11. Exit-criteria test.** `crates/kumikit-core/tests/exit_m0.rs` with a small
+- [x] **11. Exit-criteria test.** `crates/kumikit-core/tests/exit_m0.rs` with a small
   NDJSON client in `tests/support/`. Spawns `CARGO_BIN_EXE_kumikit serve` with a temp data
   dir and a short temp socket path; waits for `ready`. Client A: hello, `workspace.open`
   on a temp dir, `thread.create { model: "tool-approval" }`, subscribe `after: 0`,
@@ -273,4 +273,6 @@ platforms ship in M0 (see the resolution under it).
   been compiled here; the first Windows CI run is its first build.
 - Gotcha: tempfile creates directories with the umask's mode (0755 here), and the core
   refuses non-private socket and data directories, so tests chmod their temp dirs to 0700.
+- Step 11: the exit tests passed 50 of 50 local runs. Scrubbed recordings replaced the
+  first entry of 17 fixture files (provenance in the fixtures README).
 - Footprint numbers: _to be filled in at step 12_.

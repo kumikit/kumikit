@@ -1,27 +1,25 @@
 [
   {
-    "jsonrpc": "2.0",
     "id": 8,
+    "jsonrpc": "2.0",
     "method": "thread.create",
     "params": {
-      "workspace": "01JCWS00000000000000000001",
-      "model": "default",
-      "title": "Try it"
+      "model": "tool-approval",
+      "workspace": "01JCWS00000000000000000001"
     }
   },
   {
-    "jsonrpc": "2.0",
     "id": 8,
+    "jsonrpc": "2.0",
     "result": {
       "thread": {
-        "id": "01JCTH00000000000000000001",
-        "workspace": "01JCWS00000000000000000001",
-        "provider": "example",
-        "model": "default",
-        "status": "idle",
         "created": "2026-11-15T10:00:00.000Z",
+        "id": "01JCTH00000000000000000001",
+        "model": "tool-approval",
+        "provider": "example",
+        "status": "idle",
         "updated": "2026-11-15T10:00:00.000Z",
-        "title": "Try it"
+        "workspace": "01JCWS00000000000000000001"
       }
     }
   }

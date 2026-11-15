@@ -1,7 +1,7 @@
 [
   {
-    "jsonrpc": "2.0",
     "id": 12,
+    "jsonrpc": "2.0",
     "method": "thread.respondApproval",
     "params": {
       "approval": "01JCAP00000000000000000001",
@@ -9,8 +9,8 @@
     }
   },
   {
-    "jsonrpc": "2.0",
     "id": 12,
+    "jsonrpc": "2.0",
     "result": {}
   },
   {

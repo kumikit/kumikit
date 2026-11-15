@@ -1,31 +1,31 @@
 [
   {
-    "jsonrpc": "2.0",
     "id": 1,
+    "jsonrpc": "2.0",
     "method": "core.hello",
     "params": {
-      "protocol": "0.1",
       "client": {
-        "name": "kumikit-desktop",
-        "version": "0.1.0"
-      }
+        "name": "kumikit-test",
+        "version": "0.0.0"
+      },
+      "protocol": "0.1"
     }
   },
   {
-    "jsonrpc": "2.0",
     "id": 1,
+    "jsonrpc": "2.0",
     "result": {
-      "protocol": "0.1",
-      "core": {
-        "version": "0.1.0",
-        "name": "devbox",
-        "os": "linux"
-      },
-      "plugins": [],
       "capabilities": [
         "threads",
         "approvals"
-      ]
+      ],
+      "core": {
+        "name": "devbox",
+        "os": "linux",
+        "version": "0.1.0"
+      },
+      "plugins": [],
+      "protocol": "0.1"
     }
   },
   {

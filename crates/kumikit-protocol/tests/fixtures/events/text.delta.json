@@ -3,14 +3,14 @@
     "jsonrpc": "2.0",
     "method": "events.event",
     "params": {
-      "topic": "thread:01JCTH00000000000000000001",
+      "data": {
+        "text": "I'll list the files.",
+        "turn": "01JCTU00000000000000000001"
+      },
+      "kind": "text.delta",
       "seq": 2,
       "time": "2026-11-15T10:00:01.000Z",
-      "kind": "text.delta",
-      "data": {
-        "turn": "01JCTU00000000000000000001",
-        "text": "Looking at…"
-      }
+      "topic": "thread:01JCTH00000000000000000001"
     }
   }
 ]

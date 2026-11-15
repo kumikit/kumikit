@@ -1,15 +1,15 @@
 [
   {
-    "jsonrpc": "2.0",
     "id": 4,
+    "jsonrpc": "2.0",
     "method": "workspace.open",
     "params": {
       "path": "/home/user/proj"
     }
   },
   {
-    "jsonrpc": "2.0",
     "id": 4,
+    "jsonrpc": "2.0",
     "result": {
       "workspace": {
         "id": "01JCWS00000000000000000001",
