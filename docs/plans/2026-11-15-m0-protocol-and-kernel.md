@@ -77,7 +77,7 @@ Each step ends with the Verify checks (`sh scripts/check-docs.sh`, then from ste
   examples, then replaced by scrubbed recordings from the step 11 test (fixed ULIDs and
   times). Verify: tests; deleting a field from a type breaks a fixture.
   Commit: `test: add protocol contract fixtures`.
-- [ ] **6. Storage.** `crates/kumikit-kernel/src/store/`: open with WAL,
+- [x] **6. Storage.** `crates/kumikit-kernel/src/store/`: open with WAL,
   `foreign_keys=ON`, `busy_timeout`, `synchronous` per Q12; migration runner over an
   ordered `&[&str]` of embedded SQL files (`migrations/0001_init.sql`), each in its own
   transaction that also sets `user_version`; refuses a database newer than the binary
