@@ -1,11 +1,14 @@
 //! The plugin manifest, `plugin.toml` (`docs/spec/04-plugin-host.md#manifest`).
 //!
-//! Parsing is strict (unknown fields are refused, so a typo is an error, not a silently
-//! ignored setting), and [`Manifest::check`] adds the rules a schema cannot express.
-//! Every problem found is reported, not only the first.
+//! Parsing validates the manifest against the JSON Schema published with the SDK
+//! (`sdk/schema/plugin-manifest.schema.json`), then reads it into strict types (unknown
+//! fields are refused, so a typo is an error, not a silently ignored setting), and
+//! [`Manifest::check`] adds the rules a schema cannot express. Every problem found is
+//! reported, not only the first.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::sync::OnceLock;
 
 use kumikit_kernel::grants::{FilesGrant, Grants};
 use serde::Deserialize;
@@ -24,6 +27,55 @@ pub const WORLDS: &[&str] = &[WORLD_PLUGIN, WORLD_PROVIDER];
 
 /// Manifest file name inside a package.
 pub const MANIFEST_FILE: &str = "plugin.toml";
+
+/// The manifest schema, as published in `sdk/schema/`.
+pub const SCHEMA: &str = include_str!("../../../sdk/schema/plugin-manifest.schema.json");
+
+fn schema_validator() -> Result<&'static jsonschema::Validator, ManifestError> {
+    static VALIDATOR: OnceLock<Result<jsonschema::Validator, String>> = OnceLock::new();
+    VALIDATOR
+        .get_or_init(|| {
+            let schema: serde_json::Value =
+                serde_json::from_str(SCHEMA).map_err(|e| e.to_string())?;
+            jsonschema::validator_for(&schema).map_err(|e| e.to_string())
+        })
+        .as_ref()
+        .map_err(|e| ManifestError::one(format!("the manifest schema is broken: {e}")))
+}
+
+/// Validates `instance` against a JSON Schema; returns one message per problem, each
+/// prefixed with where it is (`/permissions/spawn/0: …`).
+pub fn schema_problems(
+    validator: &jsonschema::Validator,
+    instance: &serde_json::Value,
+) -> Vec<String> {
+    validator
+        .iter_errors(instance)
+        .map(|e| {
+            let at = e.instance_path().to_string();
+            if at.is_empty() {
+                e.to_string()
+            } else {
+                format!("{at}: {e}")
+            }
+        })
+        .collect()
+}
+
+/// Checks a delegated provider entry's table (`acp = { … }`) against the schema its
+/// backend publishes. `schema` is the schema file's JSON text.
+pub fn check_backend_entry(schema: &str, entry: &serde_json::Value) -> Result<(), ManifestError> {
+    let schema: serde_json::Value = serde_json::from_str(schema)
+        .map_err(|e| ManifestError::one(format!("backend schema is not JSON: {e}")))?;
+    let validator = jsonschema::validator_for(&schema)
+        .map_err(|e| ManifestError::one(format!("backend schema is not a JSON Schema: {e}")))?;
+    let problems = schema_problems(&validator, entry);
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(ManifestError { problems })
+    }
+}
 
 /// A manifest that could not be read, with every problem found.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -281,9 +333,16 @@ fn is_package_path(s: &str) -> bool {
 }
 
 impl Manifest {
-    /// Parses `plugin.toml` text. Fails on syntax errors and unknown fields.
+    /// Parses `plugin.toml` text: TOML syntax, then the JSON Schema, then the types.
     pub fn parse(text: &str) -> Result<Manifest, ManifestError> {
-        toml::from_str(text).map_err(|e| ManifestError::one(e.message().to_owned()))
+        let value: toml::Value =
+            toml::from_str(text).map_err(|e| ManifestError::one(e.message().to_owned()))?;
+        let json = serde_json::to_value(&value).map_err(|e| ManifestError::one(e.to_string()))?;
+        let problems = schema_problems(schema_validator()?, &json);
+        if !problems.is_empty() {
+            return Err(ManifestError { problems });
+        }
+        serde_json::from_value(json).map_err(|e| ManifestError::one(e.to_string()))
     }
 
     /// Parses and checks a manifest inside an unpacked package at `package`.

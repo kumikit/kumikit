@@ -346,7 +346,7 @@ Steps marked *(CI)* contain macOS/Windows code that is only compiled and run in 
   `forget_session`, sink carries the plugin id, `core.lock`. Tests: migration from schema
   1, kv namespacing and limits, secrets file mode, lock refusal. Commit: `feat: add plugin
   records, kv and secret store`.
-- [ ] **6. Manifest and packages.** `kumikit-plugin-host/src/manifest/` (TOML → JSON →
+- [x] **6. Manifest and packages.** `kumikit-plugin-host/src/manifest/` (TOML → JSON →
   JSON Schema at `sdk/schema/plugin-manifest.schema.json` → typed `Manifest`; semantic
   checks: id format, semver, `api` range, worlds known, runtime file present, unique
   provider ids, backend keys, bare spawn names, limits within caps, trigger syntax),
@@ -559,10 +559,12 @@ live smoke test's agent.
   Sessions remember their provider, so `unregister_provider` can cancel that provider's
   turns and forget its sessions without a database read. The data-directory lock is in
   `kumikit-core` (`lock.rs`), taken before the socket is bound.
-- Step 6 (partly done): manifest parsing is strict (unknown fields refused) and every
-  semantic rule has a test; packages pack reproducibly and unpack defensively;
-  `Manager` installs, enables, disables and removes plugins over the kernel's records.
-  Open: validating against the JSON Schema. Both Rust validators (`jsonschema`, `boon`)
-  depend on `fluent-uri`, licensed MIT-0, which is not on the AGENTS.md allowlist;
-  waiting for a decision. Backend entries (`acp = { … }`) also need a schema validator
-  to be checked against the backend's schema at enable.
+- Step 6: manifest parsing is TOML, then the JSON Schema, then strict types (unknown
+  fields refused), then the semantic rules, each with a test. The schema
+  (`sdk/schema/plugin-manifest.schema.json`) covers structure only (names, types,
+  enums); patterns and ranges are semantic checks, because their messages are clearer
+  and they report together with the other rules. The validator (`jsonschema`) needs
+  `fluent-uri`, licensed MIT-0, accepted 2026-11-15 and added to `deny.toml` and the
+  AGENTS.md list. `check_backend_entry` validates `acp = { … }` tables against a
+  backend's schema (used from step 8). Packages pack reproducibly and unpack
+  defensively; `Manager` installs, enables, disables and removes plugins.

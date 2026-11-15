@@ -230,3 +230,30 @@ fn sidecars_are_refused_for_now() {
     );
     assert!(has(&p, "sidecar plugins are not supported"), "{p:?}");
 }
+
+#[test]
+fn schema_problems_say_where() {
+    let p = with(PROVIDER, "files = \"workspace\"", "files = \"everything\"");
+    assert!(has(&p, "/permissions/files"), "{p:?}");
+    let p = with(PROVIDER, "memory-mb = 128", "memory-mb = \"lots\"");
+    assert!(has(&p, "/limits/memory-mb"), "{p:?}");
+    let p = problems("name = 3");
+    assert!(p.len() >= 2, "every missing field and wrong type: {p:?}");
+}
+
+#[test]
+fn backend_entries_are_checked_against_the_backend_schema() {
+    let schema = r#"{
+        "type": "object", "additionalProperties": false, "required": ["command"],
+        "properties": { "command": { "type": "string" }, "args": { "type": "array", "items": { "type": "string" } } }
+    }"#;
+    check_backend_entry(
+        schema,
+        &serde_json::json!({ "command": "gemini", "args": ["-x"] }),
+    )
+    .unwrap();
+    let err =
+        check_backend_entry(schema, &serde_json::json!({ "args": [1], "cmd": "x" })).unwrap_err();
+    assert!(err.problems.len() >= 2, "{err:?}");
+    assert!(check_backend_entry("not json", &serde_json::json!({})).is_err());
+}

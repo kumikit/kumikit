@@ -108,7 +108,7 @@ From M2:
 ## Security and privacy
 
 - Kumikit is MIT-licensed ([LICENSE](LICENSE)); every crate and package declares
-  `license = "MIT"`. Add a dependency only if its license is compatible (MIT, Apache-2.0,
+  `license = "MIT"`. Add a dependency only if its license is compatible (MIT, MIT-0, Apache-2.0,
   BSD, ISC, Zlib, MPL-2.0); ask before adding anything else.
 
 - No telemetry, no accounts, no network traffic the user did not start or opt into. Any

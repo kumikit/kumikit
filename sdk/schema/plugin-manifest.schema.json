@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kumikit.dev/schema/plugin-manifest-0.1.json",
+  "title": "Kumikit plugin manifest (plugin.toml), plugin API 0.1",
+  "description": "Structure of plugin.toml: field names, types and allowed values. The core then checks the rules this schema leaves out, with clearer messages: id and name formats, semver, the api range, bare program names, limits, backend keys, files present in the package and activation triggers (docs/spec/04-plugin-host.md).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "version",
+    "kind",
+    "api"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "license": {
+      "type": "string"
+    },
+    "repository": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "provider",
+          "tool",
+          "bot",
+          "integration",
+          "ui",
+          "theme"
+        ]
+      }
+    },
+    "api": {
+      "type": "string"
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wasm": {
+          "type": "string"
+        },
+        "sidecar": {},
+        "worlds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "activation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "spawn": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "network": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "files": {
+          "enum": [
+            "none",
+            "read-workspace",
+            "workspace"
+          ]
+        },
+        "secrets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tools": {
+          "type": "boolean"
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "memory-mb": {
+          "type": "integer"
+        },
+        "call-timeout-s": {
+          "type": "integer"
+        }
+      }
+    },
+    "contributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "providers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "name"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "description": "Any other key names a provider backend; its value is a table checked against that backend's schema."
+          }
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "title"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "settings": {
+          "type": "string"
+        },
+        "provider-backends": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
