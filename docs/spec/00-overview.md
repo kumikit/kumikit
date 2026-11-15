@@ -46,8 +46,11 @@ in [AGENTS.md](../../AGENTS.md).
 
 ## Footprint budgets
 
-Measured on a release build, idle, with the preinstalled plugins only. These become CI
-benchmarks once the code exists (see [12-roadmap.md](12-roadmap.md)).
+Measured on a release build, idle, with the preinstalled plugins only. The core's two
+budgets are checked by `sh scripts/footprint.sh` (median of 5 runs, each from a fresh
+data directory; memory is sampled one second after a client's `core.hello`), which CI
+runs on Linux. The others become checks when their parts exist (see
+[12-roadmap.md](12-roadmap.md)).
 
 | Measure | Budget |
 |---|---|

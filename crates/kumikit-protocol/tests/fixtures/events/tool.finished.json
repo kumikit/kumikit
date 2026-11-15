@@ -1,0 +1,35 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "data": {
+        "call": "call-1",
+        "ok": true,
+        "result": {
+          "exitCode": 0
+        },
+        "turn": "01JCTU00000000000000000001"
+      },
+      "kind": "tool.finished",
+      "seq": 7,
+      "time": "2026-11-15T10:00:03.000Z",
+      "topic": "thread:01JCTH00000000000000000001"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 8,
+      "time": "2026-11-15T10:00:01.000Z",
+      "kind": "tool.finished",
+      "data": {
+        "turn": "01JCTU00000000000000000001",
+        "call": "c1",
+        "ok": false
+      }
+    }
+  }
+]

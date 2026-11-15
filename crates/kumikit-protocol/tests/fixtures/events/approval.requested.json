@@ -1,0 +1,25 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "data": {
+        "approval": {
+          "detail": {
+            "command": "ls"
+          },
+          "id": "01JCAP00000000000000000001",
+          "kind": "tool",
+          "status": "pending",
+          "summary": "Run `ls` in the workspace",
+          "thread": "01JCTH00000000000000000001",
+          "turn": "01JCTU00000000000000000001"
+        }
+      },
+      "kind": "approval.requested",
+      "seq": 4,
+      "time": "2026-11-15T10:00:01.000Z",
+      "topic": "thread:01JCTH00000000000000000001"
+    }
+  }
+]

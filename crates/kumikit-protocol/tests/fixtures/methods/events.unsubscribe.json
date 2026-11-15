@@ -1,0 +1,15 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 17,
+    "method": "events.unsubscribe",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 17,
+    "result": {}
+  }
+]

@@ -28,8 +28,14 @@ Event     { thread, seq, time, kind, data }
 Approval  { id, thread, turn, kind, summary, detail, status }
 ```
 
-- IDs are ULIDs.
+- IDs are ULIDs, assigned by the kernel (including approval ids).
 - `status` of a thread: `idle`, `running`, `awaiting_approval`, `failed`, `archived`.
+  It is derived from the log (`turn.started` → `running`, `approval.requested` →
+  `awaiting_approval`, `approval.resolved` → `running`, `turn.ended` → `idle` or `failed`),
+  except `archived`, which `thread.archive` sets.
+- `status` of an approval: `pending`, `allowed`, `denied`, `cancelled`. A decision is
+  `allow`, `allow_always` or `deny`.
+- `Turn.outcome`: `done`, `cancelled`, `failed`.
 - The domain model is the shared language of providers and clients. It is the reason the
   kernel, not a plugin, owns threads ([ADR 0006](../decisions/0006-kernel-owns-domain-model.md)).
 
@@ -37,7 +43,7 @@ Approval  { id, thread, turn, kind, summary, detail, status }
 
 | Kind | Data | Emitted by |
 |---|---|---|
-| `turn.started` | `turn`, `input` (user message, attachments) | kernel |
+| `turn.started` | `turn`, `input` (`{ text }`; attachments are a later optional field) | kernel |
 | `text.delta` | `turn`, `text` | provider |
 | `text.done` | `turn`, `text` (full message) | provider |
 | `reasoning.delta` | `turn`, `text` | provider |
@@ -46,13 +52,25 @@ Approval  { id, thread, turn, kind, summary, detail, status }
 | `tool.finished` | `turn`, `call`, `ok`, `result?` | provider |
 | `file.changed` | `turn`, `path`, `diff?` | provider |
 | `approval.requested` | `approval` | provider |
-| `approval.resolved` | `approval`, `decision`, `by` (device) | kernel |
-| `usage` | `turn`, `input_tokens`, `output_tokens`, `cost?` | provider |
+| `approval.resolved` | `approval`, `decision` (`allow`, `allow_always`, `deny`, `cancelled`), `by?` (device id; absent for local connections) | kernel |
+| `usage` | `turn`, `inputTokens`, `outputTokens`, `cost?` | provider |
 | `turn.ended` | `turn`, `outcome` (`done`, `cancelled`, `failed`), `error?` | kernel |
 | `plugin.event` | `plugin`, `kind`, `data` | any plugin, namespaced |
 
 Providers emit through the host; the kernel validates every event (a provider cannot emit
-`turn.ended` or events for another thread) and assigns `seq` and `time`.
+`turn.started`, `turn.ended` or `approval.resolved`, events for another thread or turn,
+or anything after its turn ended) and assigns `seq` and `time`. A provider asks for an
+approval and gets its id from the kernel; the answer can reach the provider before that
+call returns, so providers keep early answers.
+
+Turn rules:
+- One turn runs per thread. Messages sent during a turn wait in an in-memory queue (lost
+  if the core stops) and start in order when the turn ends.
+- Cancelling a turn first resolves its pending approvals with `decision: "cancelled"`,
+  then emits `turn.ended { outcome: "cancelled" }`, and drops the queue.
+- On startup the kernel ends every turn left open by a previous run: pending approvals
+  are resolved as `cancelled`, then `turn.ended { outcome: "failed", error:
+  "core_restarted" }` is appended.
 
 `plugin.event` lets a plugin add its own event kinds without a protocol change. Clients
 that do not understand one skip it; a UI plugin can register a renderer for it.
@@ -60,7 +78,15 @@ that do not understand one skip it; a UI plugin can register a renderer for it.
 ## Storage
 
 - One SQLite database per core, WAL mode. Schema migrations are numbered, forward-only,
-  and run at startup; the schema version lives in `PRAGMA user_version`.
+  and run at startup; the schema version lives in `PRAGMA user_version`. The core refuses
+  to open a database with a newer version than it knows.
+- One writer thread owns the only write connection. It assigns `seq`, and it commits
+  queued appends together in one transaction (group commit). `synchronous=FULL`: an event
+  is on disk before any client sees it, so a power loss can never take back a `seq` a
+  client has already read. Reads use separate read-only connections.
+- Derived columns (thread `status`, `updated`, turn `ended`/`outcome`, approval `status`)
+  are written in the same transaction as the event that changes them, so they cannot
+  disagree with the log.
 - Core tables (workspaces, threads, events, approvals, devices, plugins) belong to the
   kernel. Plugins never get SQL access to them.
 - Each plugin gets a namespaced key-value store (`kv.get/set/delete/list` with prefix

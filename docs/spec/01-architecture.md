@@ -95,6 +95,11 @@ wit/              ←  kumikit-plugin-host, sdk/rust, plugins/*
 | macOS | `~/Library/Application Support/dev.kumikit/core` | `…/dev.kumikit/client` |
 | Windows | `%APPDATA%\kumikit\core` | `%APPDATA%\kumikit\client` |
 
+`kumikit serve --data-dir <path>` overrides the core data directory (created with mode
+0700 on Linux and macOS). Logs go to stderr; `KUMIKIT_LOG` sets the level (`info`,
+`kumikit_core=debug`, …, default `warn`), and message bodies are never logged at `info`
+or above.
+
 Core data holds the database, installed core plugins, plugin data and the secret store.
 Client data holds connection profiles, layout, installed UI plugins and themes. Neither
 directory is shared between the two.

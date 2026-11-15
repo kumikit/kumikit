@@ -12,7 +12,9 @@ spec, not here.
 
 ## Status
 
-Design phase: the spec exists, the code does not. Build in milestone order
+M0 (protocol and kernel) is built: `kumikit serve`, the protocol crate and the kernel
+([plan](docs/plans/2026-11-15-m0-protocol-and-kernel.md)). M1 (plugin host) is next. Build
+in milestone order
 ([roadmap](docs/spec/12-roadmap.md)); do not start a later milestone's code before the
 earlier one's exit criteria pass.
 
@@ -35,11 +37,15 @@ earlier one's exit criteria pass.
 
 Now:
 - `sh scripts/check-docs.sh`: AGENTS.md size, and every relative Markdown link resolves.
-
-From M0 (add each command here when it starts to exist):
 - `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
-- `cargo test -p kumikit-protocol` also fails when generated TypeScript is stale.
+- `cargo deny check licenses bans sources` (CI runs it; locally when dependencies change)
+- `cargo test -p kumikit-protocol` also fails when generated TypeScript is stale;
+  `KUMIKIT_BLESS=1 cargo test -p kumikit-protocol` regenerates `web/protocol/`.
+- `npx -p typescript@7.0.2 tsc --noEmit -p web/protocol` when protocol types change.
+- `sh scripts/footprint.sh`: core cold start and idle memory against the budgets
+  (release build; CI runs it on Linux).
+
 From M2:
 - `npm run check` (svelte-check + tsc) and `npm test` (Vitest) in `web/`
 - `npx playwright test` in `web/` against the browser build
@@ -47,7 +53,8 @@ From M2:
 ## Architecture rules (do not break these)
 
 - **The kernel knows no plugin by name.** No provider, bot, theme or tool id or name in
-  `crates/` or `web/kernel/`. A special case for one plugin means the plugin API is
+  `crates/` or `web/kernel/` (sole, temporary exception: the M0 scripted provider,
+  [ADR 0009](docs/decisions/0009-temporary-scripted-provider.md)). A special case for one plugin means the plugin API is
   missing something: add the general API instead. ([ADR 0006](docs/decisions/0006-kernel-owns-domain-model.md))
 - **First-party plugins use only public SDKs** (`wit/`, `sdk/rust`, `@kumikit/ui-sdk`,
   `@kumikit/protocol`). No private hooks for them.
@@ -67,7 +74,7 @@ From M2:
 ## Interfaces and versioning
 
 - Protocol types live only in `crates/kumikit-protocol`. `web/protocol/` is generated;
-  never edit it by hand.
+  never edit it by hand. JSON field names are camelCase, enum values snake_case.
 - Adding a method, optional field or event kind is a protocol minor change; removing or
   changing anything is major and needs an ADR. Update the recorded fixtures with the change.
 - WIT packages in `wit/` are versioned. Never change a published version in place: add a
@@ -150,6 +157,5 @@ Area → where the code will live → spec section (read it before touching the 
 | Threat model | everywhere | [11-security](docs/spec/11-security.md) |
 | Milestones, open questions | — | [12-roadmap](docs/spec/12-roadmap.md) |
 
-When an area gains code with non-obvious details (gotchas, invariants, why a test
-exists), add them to that area's spec section or to `docs/agent-reference.md` and link
-them here.
+Code gotchas, invariants and why some tests exist: [agent reference](docs/agent-reference.md).
+When an area gains more of them, add them there (or to the area's spec section).

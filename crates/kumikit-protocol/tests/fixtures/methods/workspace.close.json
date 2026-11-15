@@ -1,0 +1,15 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 6,
+    "method": "workspace.close",
+    "params": {
+      "workspace": "01JCWS00000000000000000001"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 6,
+    "result": {}
+  }
+]
