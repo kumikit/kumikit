@@ -13,7 +13,7 @@ use kumikit_protocol::model::{
 use tokio::sync::oneshot;
 
 use crate::error::{KernelError, KernelResult};
-use crate::kernel::Kernel;
+use crate::kernel::{Kernel, Session};
 use crate::provider::{EventSink, Provider, SessionConfig};
 use crate::repo;
 
@@ -22,6 +22,8 @@ use crate::repo;
 pub(crate) struct ThreadRun {
     /// The running turn.
     pub(crate) turn: TurnId,
+    /// The thread's provider.
+    provider: String,
     /// Fires to cancel the running turn. Dropping it (kernel close) abandons the turn.
     cancel: Option<oneshot::Sender<()>>,
     /// Messages waiting for the running turn to end.
@@ -49,6 +51,35 @@ impl Kernel {
         }
         providers.push(provider);
         Ok(())
+    }
+
+    /// Removes a provider. Its running turns are cancelled, queued messages dropped and
+    /// its sessions forgotten (the caller ends them). Returns false if it was not
+    /// registered.
+    pub fn unregister_provider(&self, id: &str) -> bool {
+        let removed = {
+            let mut providers = self.lock_providers();
+            let before = providers.len();
+            providers.retain(|p| p.id() != id);
+            providers.len() != before
+        };
+        for run in self.lock_runs().values_mut() {
+            if run.provider == id {
+                run.queue.clear();
+                if let Some(tx) = run.cancel.take() {
+                    let _ = tx.send(());
+                }
+            }
+        }
+        self.lock_sessions().retain(|_, s| s.provider != id);
+        removed
+    }
+
+    /// Forgets a thread's provider session, so its next turn starts one again with
+    /// `resume`. Providers call this when they lose a session (for example, after
+    /// unloading the instance that ran it).
+    pub fn forget_session(&self, thread: &ThreadId) {
+        self.lock_sessions().remove(thread);
     }
 
     fn provider(&self, id: &str) -> Option<Arc<dyn Provider>> {
@@ -128,6 +159,7 @@ impl Kernel {
                 thread.clone(),
                 ThreadRun {
                     turn: turn.clone(),
+                    provider: row.thread.provider.clone(),
                     cancel: Some(tx),
                     queue: VecDeque::new(),
                 },
@@ -189,7 +221,7 @@ impl Kernel {
         let session = self.lock_sessions().get(&thread).cloned();
         if let (Some(provider), Some(session)) = (self.provider(&row.thread.provider), session) {
             provider
-                .respond_approval(session, approval.clone(), decision)
+                .respond_approval(session.id, approval.clone(), decision)
                 .await
                 .map_err(|e| KernelError::PluginFailed(e.message))?;
         }
@@ -258,7 +290,7 @@ impl Kernel {
             self.clone(),
             thread.clone(),
             turn.clone(),
-            provider.id().to_owned(),
+            provider.plugin_id().to_owned(),
         );
         let ending = match self.session_for(meta, provider).await {
             Err(message) => Ending::Failed(message),
@@ -325,7 +357,7 @@ impl Kernel {
         provider: &Arc<dyn Provider>,
     ) -> Result<String, String> {
         if let Some(s) = self.lock_sessions().get(&meta.id) {
-            return Ok(s.clone());
+            return Ok(s.id.clone());
         }
         let (id, ws) = (meta.id.clone(), meta.workspace.clone());
         let (row, workspace) = self
@@ -354,8 +386,13 @@ impl Kernel {
             .write(move |c| repo::thread_set_session(c, &id, &s))
             .await
             .map_err(|e: KernelError| e.to_string())?;
-        self.lock_sessions()
-            .insert(meta.id.clone(), session.clone());
+        self.lock_sessions().insert(
+            meta.id.clone(),
+            Session {
+                provider: provider.id().to_owned(),
+                id: session.clone(),
+            },
+        );
         Ok(session)
     }
 
@@ -367,18 +404,10 @@ impl Kernel {
     /// Drops all runs (abandoning their turns) and ends all provider sessions.
     pub(crate) async fn stop_turns(&self) {
         self.lock_runs().clear();
-        let sessions: Vec<(ThreadId, String)> = self.lock_sessions().drain().collect();
-        for (thread, session) in sessions {
-            let id = thread.clone();
-            let provider = self
-                .inner
-                .store
-                .read(move |c| repo::thread_require(c, &id))
-                .await
-                .ok()
-                .and_then(|row| self.provider(&row.thread.provider));
-            if let Some(p) = provider {
-                p.end_session(session).await;
+        let sessions: Vec<Session> = self.lock_sessions().drain().map(|(_, s)| s).collect();
+        for session in sessions {
+            if let Some(p) = self.provider(&session.provider) {
+                p.end_session(session.id).await;
             }
         }
     }

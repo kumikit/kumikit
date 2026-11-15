@@ -140,9 +140,9 @@ struct Env {
 
 fn config(dir: &tempfile::TempDir) -> KernelConfig {
     KernelConfig {
-        database: dir.path().join("core.sqlite"),
         clock: Arc::new(StepClock::default()),
         ids: Arc::new(SequentialIds::new("ID")),
+        ..KernelConfig::new(dir.path().join("core.sqlite"))
     }
 }
 
@@ -504,4 +504,39 @@ async fn close_abandons_running_turns_for_recovery() {
         turn_ended(&events).error.as_deref(),
         Some(crate::CORE_RESTARTED)
     );
+}
+
+#[tokio::test]
+async fn unregistering_a_provider_cancels_its_running_turn() {
+    let e = env().await;
+    e.send("block").await;
+    e.until(0, "turn.started").await;
+    assert!(e.kernel.unregister_provider("fake"));
+    let events = e.until(0, "turn.ended").await;
+    assert_eq!(turn_ended(&events).outcome, TurnOutcome::Cancelled);
+    assert!(!e.kernel.unregister_provider("fake"), "already gone");
+    let err = e
+        .kernel
+        .thread_send(
+            &e.thread,
+            UserInput {
+                text: "echo x".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), ErrorCode::PluginFailed);
+}
+
+#[tokio::test]
+async fn a_forgotten_session_is_started_again_with_resume() {
+    let e = env().await;
+    e.send("echo a").await;
+    let first = e.until(0, "turn.ended").await;
+    e.kernel.forget_session(&e.thread);
+    e.send("echo b").await;
+    e.until(first.last().unwrap().seq, "turn.ended").await;
+    let resumes = e.fake.resumes.lock().unwrap().clone();
+    let session = format!("session-{}", e.thread);
+    assert_eq!(resumes, [None, Some(session)]);
 }

@@ -79,6 +79,11 @@ pub struct SessionConfig {
 pub trait Provider: Send + Sync + fmt::Debug {
     /// Provider id, unique on this core.
     fn id(&self) -> &str;
+    /// The plugin named in this provider's `plugin.event`s. Defaults to [`Provider::id`];
+    /// plugin-backed providers return the id of the plugin whose code emits them.
+    fn plugin_id(&self) -> &str {
+        self.id()
+    }
     /// Models this provider offers; the first is the default.
     fn list_models(&self) -> BoxFuture<'_, ProviderResult<Vec<Model>>>;
     /// Starts (or resumes) a session; returns the provider's session id.
@@ -183,7 +188,8 @@ pub struct EventSink {
     kernel: Kernel,
     thread: ThreadId,
     turn: TurnId,
-    provider: String,
+    /// Stamped on `plugin.event`.
+    plugin: String,
     open: Arc<AtomicBool>,
 }
 
@@ -198,12 +204,12 @@ impl fmt::Debug for EventSink {
 }
 
 impl EventSink {
-    pub(crate) fn new(kernel: Kernel, thread: ThreadId, turn: TurnId, provider: String) -> Self {
+    pub(crate) fn new(kernel: Kernel, thread: ThreadId, turn: TurnId, plugin: String) -> Self {
         EventSink {
             kernel,
             thread,
             turn,
-            provider,
+            plugin,
             open: Arc::new(AtomicBool::new(true)),
         }
     }
@@ -271,7 +277,7 @@ impl EventSink {
                 cost,
             }),
             ProviderEvent::Plugin { kind, data } => ThreadEvent::PluginEvent(PluginEvent {
-                plugin: self.provider.clone(),
+                plugin: self.plugin.clone(),
                 kind,
                 data,
             }),

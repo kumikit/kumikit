@@ -222,3 +222,30 @@ async fn second_core_on_the_same_address_is_refused() {
     })
     .await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn second_core_on_the_same_data_directory_is_refused() {
+    within(async {
+        let dirs = Dirs::new();
+        let core = Core::start(&dirs).await;
+        #[cfg(unix)]
+        let other = dirs.address.replace("s.sock", "s2.sock");
+        #[cfg(windows)]
+        let other = format!("{}-2", dirs.address);
+        let out = tokio::process::Command::new(env!("CARGO_BIN_EXE_kumikit"))
+            .args(["serve", "--socket", &other, "--data-dir"])
+            .arg(dirs.data())
+            .output()
+            .await
+            .unwrap();
+        assert!(!out.status.success());
+        assert!(
+            out.stdout.is_empty(),
+            "the second core must not report ready"
+        );
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("data directory"), "{stderr}");
+        core.stop().await;
+    })
+    .await;
+}

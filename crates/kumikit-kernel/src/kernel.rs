@@ -15,8 +15,10 @@ use tokio::sync::watch;
 use crate::clock::{Clock, IdGen, SystemClock, UlidGen};
 use crate::error::{KernelError, KernelResult};
 use crate::fold::Fold;
+use crate::process::{Supervisor, SupervisorConfig};
 use crate::provider::Provider;
 use crate::repo::{self, StoredEvent};
+use crate::secrets::SecretStore;
 use crate::store::{MIGRATIONS, Store, StoreError};
 use crate::turns::ThreadRun;
 
@@ -35,15 +37,23 @@ pub struct KernelConfig {
     pub clock: Arc<dyn Clock>,
     /// Id source.
     pub ids: Arc<dyn IdGen>,
+    /// Secret store file.
+    pub secrets: PathBuf,
+    /// Process supervisor settings.
+    pub supervisor: SupervisorConfig,
 }
 
 impl KernelConfig {
-    /// System clock and ULIDs, database at `database`.
+    /// System clock and ULIDs, database at `database`, secrets in `secrets.json` next to
+    /// it, the supervisor using this process's environment.
     pub fn new(database: impl Into<PathBuf>) -> Self {
+        let database = database.into();
         KernelConfig {
-            database: database.into(),
+            secrets: database.with_file_name("secrets.json"),
+            database,
             clock: Arc::new(SystemClock),
             ids: Arc::new(UlidGen::default()),
+            supervisor: SupervisorConfig::from_process(),
         }
     }
 }
@@ -66,7 +76,18 @@ pub(crate) struct Inner {
     /// Threads with a running turn.
     runs: Mutex<HashMap<ThreadId, ThreadRun>>,
     /// Provider session per thread, started on first use in this process.
-    sessions: Mutex<HashMap<ThreadId, String>>,
+    sessions: Mutex<HashMap<ThreadId, Session>>,
+    pub(crate) secrets: SecretStore,
+    pub(crate) supervisor: Supervisor,
+}
+
+/// A started provider session.
+#[derive(Debug, Clone)]
+pub(crate) struct Session {
+    /// The provider's id.
+    pub(crate) provider: String,
+    /// The provider's session id.
+    pub(crate) id: String,
 }
 
 /// Locks a mutex, recovering from poisoning. Every kernel mutex guards plain maps or
@@ -91,6 +112,8 @@ impl Kernel {
                 providers: Mutex::new(Vec::new()),
                 runs: Mutex::new(HashMap::new()),
                 sessions: Mutex::new(HashMap::new()),
+                secrets: SecretStore::new(config.secrets),
+                supervisor: Supervisor::new(config.supervisor),
             }),
         };
         kernel.recover().await?;
@@ -98,9 +121,11 @@ impl Kernel {
     }
 
     /// Abandons running turns (the next start ends them as `core_restarted`), ends
-    /// provider sessions and subscriptions, and closes the database after queued writes.
+    /// provider sessions and subscriptions, kills supervised processes, and closes the
+    /// database after queued writes.
     pub async fn close(&self) {
         self.stop_turns().await;
+        self.inner.supervisor.shutdown().await;
         self.lock_heads().clear();
         self.inner.store.close().await;
     }
@@ -117,8 +142,18 @@ impl Kernel {
         lock(&self.inner.runs)
     }
 
-    pub(crate) fn lock_sessions(&self) -> MutexGuard<'_, HashMap<ThreadId, String>> {
+    pub(crate) fn lock_sessions(&self) -> MutexGuard<'_, HashMap<ThreadId, Session>> {
         lock(&self.inner.sessions)
+    }
+
+    /// The secret store.
+    pub fn secrets(&self) -> &SecretStore {
+        &self.inner.secrets
+    }
+
+    /// The process supervisor.
+    pub fn supervisor(&self) -> &Supervisor {
+        &self.inner.supervisor
     }
 
     /// A new id from the configured generator.

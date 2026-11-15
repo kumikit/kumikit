@@ -340,7 +340,7 @@ Steps marked *(CI)* contain macOS/Windows code that is only compiled and run in 
   refusal, secret-env undeclared, resolved path recorded, kill on owner kill reaches a
   grandchild (`fake-acp-agent spawn-tree`), kill on shutdown. *(CI: Windows job objects,
   macOS groups)* Commit: `feat: add process supervisor`.
-- [ ] **5. Plugin records, kv, secrets.** Migration `0002_plugins.sql` (`plugins`,
+- [x] **5. Plugin records, kv, secrets.** Migration `0002_plugins.sql` (`plugins`,
   `plugin_kv`), kernel kv API (writer thread, 1 MB cap, prefix list), secret store with a
   0600 file backend (`<data>/secrets.json`), `Kernel::unregister_provider`,
   `forget_session`, sink carries the plugin id, `core.lock`. Tests: migration from schema
@@ -553,3 +553,9 @@ live smoke test's agent.
   object on Windows), not per owner, so `child.kill` and dropping a child's last handle
   kill just that tree; killing an owner kills each of its trees concurrently. The
   Windows job-object module was not compiled locally; CI is its first build.
+- Step 5: the kernel owns the supervisor (`Kernel::supervisor`, killed in `close`) and
+  the secret store (`Kernel::secrets`, `secrets.json` next to the database by default).
+  `Provider::plugin_id` (default: the provider id) names the plugin in `plugin.event`.
+  Sessions remember their provider, so `unregister_provider` can cancel that provider's
+  turns and forget its sessions without a database read. The data-directory lock is in
+  `kumikit-core` (`lock.rs`), taken before the socket is bound.

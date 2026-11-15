@@ -5,7 +5,8 @@
 use std::collections::BTreeSet;
 
 /// Workspace file access a plugin may have.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FilesGrant {
     /// No workspace files.
     #[default]
@@ -16,8 +17,10 @@ pub enum FilesGrant {
     Workspace,
 }
 
-/// The permissions granted to a plugin. The default grants nothing.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// The permissions granted to a plugin. The default grants nothing. Stored as JSON in
+/// the `plugins` table.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default, rename_all = "camelCase")]
 pub struct Grants {
     /// Program names it may start.
     pub spawn: BTreeSet<String>,

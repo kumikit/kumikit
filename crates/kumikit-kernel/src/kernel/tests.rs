@@ -19,9 +19,9 @@ struct Env {
 
 fn config(dir: &tempfile::TempDir) -> KernelConfig {
     KernelConfig {
-        database: dir.path().join("core.sqlite"),
         clock: Arc::new(StepClock::default()),
         ids: Arc::new(SequentialIds::new("ID")),
+        ..KernelConfig::new(dir.path().join("core.sqlite"))
     }
 }
 

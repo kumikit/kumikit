@@ -6,7 +6,10 @@ use super::{StoreError, StoreResult};
 
 /// The kernel's migrations, in order. Migration `i` (0-based) moves the schema from
 /// version `i` to `i + 1`. Never edit one that has shipped; append a new one.
-pub const MIGRATIONS: &[&str] = &[include_str!("../../migrations/0001_init.sql")];
+pub const MIGRATIONS: &[&str] = &[
+    include_str!("../../migrations/0001_init.sql"),
+    include_str!("../../migrations/0002_plugins.sql"),
+];
 
 /// Applies the migrations `conn` has not seen yet, each in its own transaction. Fails
 /// with [`StoreError::NewerSchema`] if the database is newer than `migrations`.
@@ -38,17 +41,40 @@ mod tests {
     #[test]
     fn fresh_database_reaches_latest() {
         let mut conn = Connection::open_in_memory().unwrap();
-        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 1);
-        assert_eq!(version(&conn), 1);
+        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 2);
+        assert_eq!(version(&conn), 2);
         let tables: i64 = conn
             .query_row(
                 "SELECT count(*) FROM sqlite_master WHERE type = 'table'
-                 AND name IN ('workspaces','threads','events','turns','approvals')",
+                 AND name IN ('workspaces','threads','events','turns','approvals',
+                              'plugins','plugin_kv')",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(tables, 5);
+        assert_eq!(tables, 7);
+    }
+
+    #[test]
+    fn schema_1_upgrades_to_2_and_keeps_its_rows() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn, &MIGRATIONS[..1]).unwrap();
+        conn.execute(
+            "INSERT INTO workspaces (id, name, root, created) VALUES ('w', 'w', '/w', 't')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 2);
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM workspaces", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
+        conn.execute(
+            "INSERT INTO plugins (id, version, state, sha256, installed)
+             VALUES ('a.b', '0.1.0', 'installed', 'x', 't')",
+            [],
+        )
+        .unwrap();
     }
 
     #[test]
@@ -83,7 +109,7 @@ mod tests {
         let err = migrate(&mut conn, MIGRATIONS).unwrap_err();
         assert!(matches!(
             err,
-            StoreError::NewerSchema { found: 7, known: 1 }
+            StoreError::NewerSchema { found: 7, known: 2 }
         ));
     }
 }

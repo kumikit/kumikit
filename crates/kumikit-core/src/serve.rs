@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use kumikit_kernel::{Kernel, KernelConfig};
 
+use crate::lock::DataDirLock;
 use crate::rpc::{self, ServerInfo};
 use crate::scripted_provider::ScriptedProvider;
 use crate::transport::{self, Listener};
@@ -32,7 +33,10 @@ pub async fn serve(
     shutdown: impl Future<Output = ()>,
 ) -> io::Result<()> {
     prepare_data_dir(&options.data_dir)?;
-    // Bind first: a second core fails here, before it touches the database.
+    // A second core on this data directory fails here, before it binds or touches the
+    // database. Held until `serve` returns.
+    let _lock = DataDirLock::acquire(&options.data_dir)?;
+    // Bind next: a second core on this address fails here.
     #[cfg(unix)]
     let listener = Listener::bind(std::path::Path::new(&options.address)).await?;
     #[cfg(windows)]

@@ -6,9 +6,11 @@ pub mod error;
 pub mod fold;
 pub mod grants;
 mod kernel;
+pub mod plugins;
 pub mod process;
 pub mod provider;
 pub mod repo;
+pub mod secrets;
 pub mod store;
 mod turns;
 
