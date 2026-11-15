@@ -67,10 +67,10 @@ impl Client {
         let r = self
             .call(
                 "core.hello",
-                json!({"protocol":"0.1","client":{"name":"t","version":"1"}}),
+                json!({"protocol":"0.2","client":{"name":"t","version":"1"}}),
             )
             .await;
-        assert_eq!(r["result"]["protocol"], "0.1", "{r}");
+        assert_eq!(r["result"]["protocol"], "0.2", "{r}");
     }
 
     fn dir(&self) -> String {
@@ -141,12 +141,12 @@ async fn hello_describes_the_core() {
     let r = c
         .call(
             "core.hello",
-            json!({"protocol":"0.1","client":{"name":"t","version":"1"}}),
+            json!({"protocol":"0.2","client":{"name":"t","version":"1"}}),
         )
         .await;
     assert_eq!(
         r["result"],
-        json!({"protocol":"0.1","core":{"version":"0.0.0","name":"test","os":"test"},
+        json!({"protocol":"0.2","core":{"version":"0.0.0","name":"test","os":"test"},
                "plugins":[],"capabilities":["threads","approvals"]})
     );
 }

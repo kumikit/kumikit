@@ -1,0 +1,139 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 15,
+    "method": "plugin.enable",
+    "params": {
+      "plugin": "community.provider-gemini",
+      "grant": {
+        "spawn": [
+          "gemini"
+        ],
+        "network": [],
+        "files": "none",
+        "secrets": [],
+        "tools": false
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 15,
+    "result": {
+      "plugin": {
+        "id": "community.provider-gemini",
+        "name": "Gemini CLI",
+        "version": "0.1.0",
+        "state": "enabled",
+        "requested": {
+          "spawn": [
+            "gemini"
+          ],
+          "network": [],
+          "files": "none",
+          "secrets": [],
+          "tools": false
+        },
+        "contributes": {
+          "providers": [
+            "community.provider-gemini/gemini"
+          ],
+          "commands": [],
+          "settings": false
+        },
+        "signed": false,
+        "granted": {
+          "spawn": [
+            "gemini"
+          ],
+          "network": [],
+          "files": "none",
+          "secrets": [],
+          "tools": false
+        }
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 16,
+    "method": "plugin.enable",
+    "params": {
+      "plugin": "community.provider-gemini",
+      "grant": {
+        "spawn": [],
+        "network": [],
+        "files": "none",
+        "secrets": [],
+        "tools": false
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 16,
+    "error": {
+      "code": -32000,
+      "message": "the grant for community.provider-gemini does not match the permissions it requests; they are granted as a whole",
+      "data": {
+        "code": "conflict"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 17,
+    "method": "plugin.enable",
+    "params": {
+      "plugin": "test.limits",
+      "grant": {
+        "spawn": [],
+        "network": [],
+        "files": "none",
+        "secrets": [],
+        "tools": false,
+        "limits": {
+          "memoryMb": 128
+        }
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 17,
+    "result": {
+      "plugin": {
+        "id": "test.limits",
+        "name": "Limits",
+        "version": "0.1.0",
+        "state": "enabled",
+        "requested": {
+          "spawn": [],
+          "network": [],
+          "files": "none",
+          "secrets": [],
+          "tools": false,
+          "limits": {
+            "memoryMb": 128
+          }
+        },
+        "granted": {
+          "spawn": [],
+          "network": [],
+          "files": "none",
+          "secrets": [],
+          "tools": false,
+          "limits": {
+            "memoryMb": 128
+          }
+        },
+        "contributes": {
+          "providers": [],
+          "commands": [],
+          "settings": false
+        },
+        "signed": false
+      }
+    }
+  }
+]

@@ -123,7 +123,7 @@ and both sides ignore fields they do not know.
 | `thread.archive` | `thread` | `{}`. Sets `status` to `archived`; no thread event is appended (archiving is not thread content). Fails with `conflict` while a turn runs or waits; an archived thread refuses `thread.send`. |
 | `events.subscribe` | `topic`, `after` | `head` (the topic's last `seq` at subscribe time) |
 | `events.unsubscribe` | `topic` | `{}` |
-| `plugin.list` | — | `plugins`: every installed plugin (`id`, `name`, `version`, `description?`, `repository?`, `state`, `requested`, `granted?`, `contributes`, `failure?`) |
+| `plugin.list` | — | `plugins`: every installed plugin (`id`, `name`, `version`, `description?`, `repository?`, `state`, `requested`, `granted?`, `contributes`, `signed`, `failure?`, `error?`) |
 | `plugin.install` | `path` (a `.kkp` file on the core's machine) | `plugin`, in state `installed`. Invalid packages and manifests fail with `invalid_params`, listing the problems; an id that is already installed fails with `conflict`. |
 | `plugin.enable` | `plugin`, `grant` | `plugin`. `grant` must equal the plugin's requested permissions (they are granted as a whole), otherwise `conflict`. Compiles the component. |
 | `plugin.disable` | `plugin` | `plugin`. Cancels the plugin's running turns and unloads it. |
@@ -132,8 +132,10 @@ and both sides ignore fields they do not know.
 `state` is `installed`, `enabled` or `disabled`. `requested` and `granted` are
 `Permissions { spawn, network, files, secrets, tools, limits? }`, with `files` one of
 `none`, `read_workspace`, `workspace` and `limits { memoryMb, callTimeoutS }` present only
-when raised above the defaults. `failure { message, retryAt? }` describes the last trap or
-limit breach while the plugin is in backoff.
+when raised above the defaults. `failure { message, retryInSeconds? }` describes the last
+trap or limit breach; `retryInSeconds` is present while the plugin is in backoff. `signed`
+is false until package signing exists. `error` says why an installed package cannot be
+loaded (for example, its files were removed).
 
 ### Notifications
 

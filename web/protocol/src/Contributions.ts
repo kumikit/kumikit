@@ -5,7 +5,7 @@
  */
 export type Contributions = { 
 /**
- * Provider ids.
+ * Provider ids, qualified: `<plugin id>/<local id>`.
  */
 providers: Array<string>, 
 /**

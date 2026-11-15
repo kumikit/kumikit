@@ -1,0 +1,65 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 18,
+    "method": "plugin.disable",
+    "params": {
+      "plugin": "community.provider-gemini"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 18,
+    "result": {
+      "plugin": {
+        "id": "community.provider-gemini",
+        "name": "Gemini CLI",
+        "version": "0.1.0",
+        "state": "disabled",
+        "requested": {
+          "spawn": [
+            "gemini"
+          ],
+          "network": [],
+          "files": "none",
+          "secrets": [],
+          "tools": false
+        },
+        "contributes": {
+          "providers": [],
+          "commands": [],
+          "settings": false
+        },
+        "signed": false,
+        "granted": {
+          "spawn": [
+            "gemini"
+          ],
+          "network": [],
+          "files": "none",
+          "secrets": [],
+          "tools": false
+        }
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 19,
+    "method": "plugin.disable",
+    "params": {
+      "plugin": "nobody.nothing"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 19,
+    "error": {
+      "code": -32000,
+      "message": "plugin nobody.nothing is not installed",
+      "data": {
+        "code": "not_found"
+      }
+    }
+  }
+]

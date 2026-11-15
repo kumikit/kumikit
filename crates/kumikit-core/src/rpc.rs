@@ -303,6 +303,15 @@ impl Conn {
                 }
                 reply::<m::EventsUnsubscribe>(Empty {})
             }
+            // Served once the plugin host is wired in (M1 step 10).
+            m::PluginList::NAME
+            | m::PluginInstall::NAME
+            | m::PluginEnable::NAME
+            | m::PluginDisable::NAME
+            | m::PluginUninstall::NAME => Err(RpcError::new(
+                ErrorCode::Unsupported,
+                "this core has no plugin host",
+            )),
             other => Err(RpcError::new(
                 ErrorCode::MethodNotFound,
                 format!("no method {other}"),

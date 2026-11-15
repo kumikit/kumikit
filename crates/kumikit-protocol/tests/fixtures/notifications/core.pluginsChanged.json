@@ -1,0 +1,37 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "core.pluginsChanged",
+    "params": {
+      "plugins": [
+        {
+          "id": "community.provider-gemini",
+          "version": "0.1.0",
+          "contributes": {
+            "providers": [
+              "community.provider-gemini/gemini"
+            ],
+            "commands": [],
+            "settings": false
+          }
+        },
+        {
+          "id": "kumikit.provider-acp",
+          "version": "0.1.0",
+          "contributes": {
+            "providers": [],
+            "commands": [],
+            "settings": false
+          }
+        }
+      ]
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "core.pluginsChanged",
+    "params": {
+      "plugins": []
+    }
+  }
+]

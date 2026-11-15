@@ -1,0 +1,29 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 20,
+    "method": "plugin.uninstall",
+    "params": {
+      "plugin": "community.provider-gemini"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 20,
+    "result": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 21,
+    "method": "plugin.uninstall",
+    "params": {
+      "plugin": "community.provider-gemini",
+      "deleteData": true
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 21,
+    "result": {}
+  }
+]

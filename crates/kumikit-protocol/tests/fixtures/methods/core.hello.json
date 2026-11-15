@@ -8,7 +8,7 @@
         "name": "kumikit-test",
         "version": "0.0.0"
       },
-      "protocol": "0.1"
+      "protocol": "0.2"
     }
   },
   {
@@ -17,15 +17,37 @@
     "result": {
       "capabilities": [
         "threads",
-        "approvals"
+        "approvals",
+        "plugins"
       ],
       "core": {
         "name": "devbox",
         "os": "linux",
         "version": "0.1.0"
       },
-      "plugins": [],
-      "protocol": "0.1"
+      "plugins": [
+        {
+          "id": "community.provider-gemini",
+          "version": "0.1.0",
+          "contributes": {
+            "providers": [
+              "community.provider-gemini/gemini"
+            ],
+            "commands": [],
+            "settings": false
+          }
+        },
+        {
+          "id": "kumikit.provider-acp",
+          "version": "0.1.0",
+          "contributes": {
+            "providers": [],
+            "commands": [],
+            "settings": false
+          }
+        }
+      ],
+      "protocol": "0.2"
     }
   },
   {
@@ -45,7 +67,7 @@
     "id": 2,
     "error": {
       "code": -32000,
-      "message": "core speaks protocol 0.1",
+      "message": "core speaks protocol 0.2",
       "data": {
         "code": "protocol_mismatch"
       }

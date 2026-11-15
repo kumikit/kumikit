@@ -370,7 +370,7 @@ Steps marked *(CI)* contain macOS/Windows code that is only compiled and run in 
   failed → backoff window → restart; cancel during an approval and during a blocked read;
   disable cancels running turns; backend enabled after contributor. Commit:
   `feat: add plugin lifecycle and WASM providers`.
-- [ ] **9. Protocol.** Types and table entries from the protocol table above, version
+- [x] **9. Protocol.** Types and table entries from the protocol table above, version
   0.2, regenerated TypeScript, fixtures for every new method and notification (hand-written
   first, replaced by scrubbed recordings in step 13). Verify: TS check. Commit:
   `feat: add plugin methods to the protocol`.
@@ -584,3 +584,8 @@ live smoke test's agent.
   `unload_idle(now)`, so tests never sleep. Found and fixed a race: `disable` during a
   session's start left an instance behind. Not tested: the race itself (no
   deterministic way to hit the window).
+- Step 9: protocol 0.2 adds the `plugin.*` methods, `core.pluginsChanged` and the
+  permission types; fixtures are hand-written (`notifications/` is a new fixture
+  directory with its own coverage test). `failure.retryAt` became `retryInSeconds`
+  (no clock arithmetic in the core). Until step 10 the core answers `plugin.*` with
+  `unsupported`.
