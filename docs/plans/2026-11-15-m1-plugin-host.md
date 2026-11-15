@@ -319,7 +319,7 @@ Steps marked *(CI)* contain macOS/Windows code that is only compiled and run in 
   providers, compile at enable, CPU limit wording), 05 (provider world, ids, ACP backend),
   10 (local install in M1, unsigned packages), 12 (WASI open question resolved). Verify:
   check-docs. Commit: `docs: settle M1 plugin host design`.
-- [ ] **2. Toolchain spike and skeleton.** `rust-toolchain.toml` gains `targets =
+- [x] **2. Toolchain spike and skeleton.** `rust-toolchain.toml` gains `targets =
   ["wasm32-wasip2"]`. New members: `crates/kumikit-plugin-host`, `sdk/rust`
   (`kumikit-plugin`), `test-plugins/kumikit-test-plugins` (nested-build crate), a minimal
   guest. A host test instantiates the guest with the pooling allocator, cache, epoch call
@@ -527,3 +527,15 @@ live smoke test's agent.
 - Local machine: only `x86_64-unknown-linux-gnu` std is installed for both the Arch and
   rustup toolchains. macOS and Windows code (job objects, process groups on macOS) is
   verified only in CI; each such step says so in its commit.
+- Step 2 spike (Linux, debug build): compiling the hello component takes 233 ms; loading
+  it from wasmtime's cache, instantiating and calling `activate` takes 1.4 ms (median of
+  5). The safe cache API works, so Choice C needs no `unsafe` fallback. The guest is 15 KB.
+- Step 2: wasmtime's call hook gets no access to the epoch deadline, so the call-time
+  limit is the hook recording when the guest last entered wasm or returned from the host,
+  plus an epoch deadline callback (every tick) that traps once the limit has passed and
+  otherwise yields. Same behavior as planned.
+- Step 2: wit-bindgen needs `generate_all` for imports from other packages, and a
+  `cdylib` exporting `kumikit:plugin/lifecycle@0.1.0#activate` does not link natively
+  (the symbol name breaks the linker's version script). The SDK's `export_plugin!`
+  therefore expands to nothing off `wasm32`, which keeps native builds and unit tests of
+  plugin crates working.

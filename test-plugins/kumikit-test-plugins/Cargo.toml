@@ -1,0 +1,13 @@
+[package]
+name = "kumikit-test-plugins"
+description = "Builds the test plugins and helper programs for tests (dev-dependency only)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[lints]
+workspace = true
