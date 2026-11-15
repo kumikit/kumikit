@@ -209,6 +209,9 @@ impl Kernel {
             let finished = self
                 .run_one(&thread, &meta, &provider, &turn, input, &mut cancel)
                 .await;
+            if let Err(e) = &finished {
+                tracing::warn!(%thread, %turn, error = %e, "turn could not be recorded");
+            }
             let next = {
                 let mut runs = self.lock_runs();
                 let next = match (&finished, runs.get_mut(&thread)) {

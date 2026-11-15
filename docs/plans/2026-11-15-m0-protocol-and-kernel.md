@@ -117,7 +117,7 @@ Each step ends with the Verify checks (`sh scripts/check-docs.sh`, then from ste
   `text.done`, `usage`; on deny `tool.finished { ok: false }`), `fail` (one delta, then an
   error). No timers or randomness. Verify: tests driving it through the kernel.
   Commit: `feat: add temporary scripted provider`.
-- [ ] **10. `kumikit serve`.** `crates/kumikit-core/src/`: `main.rs` (clap: `serve
+- [x] **10. `kumikit serve`.** `crates/kumikit-core/src/`: `main.rs` (clap: `serve
   [--socket PATH] [--data-dir PATH]`), `paths.rs` (data dir per
   [01-architecture](../spec/01-architecture.md#data-directories), socket path per Q10),
   `transport/unix.rs` (create the socket directory 0700 and verify its owner, refuse a
@@ -268,4 +268,9 @@ platforms ship in M0 (see the resolution under it).
 - Gotcha: clippy's `allow-unwrap-in-tests` does not cover helper functions in
   integration-test crates (`tests/*.rs`); those files carry a crate-level
   `#![allow(clippy::unwrap_used, clippy::expect_used)]`.
+- Step 10: the Windows pipe code (`transport/windows.rs`) is written against the
+  windows-sys 0.61 and tokio 1.54 signatures read from their sources, but it has not
+  been compiled here; the first Windows CI run is its first build.
+- Gotcha: tempfile creates directories with the umask's mode (0755 here), and the core
+  refuses non-private socket and data directories, so tests chmod their temp dirs to 0700.
 - Footprint numbers: _to be filled in at step 12_.
