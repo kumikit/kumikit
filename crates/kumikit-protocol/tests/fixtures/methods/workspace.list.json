@@ -1,0 +1,20 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "workspace.list"
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "result": {
+      "workspaces": [
+        {
+          "id": "01JCWS00000000000000000001",
+          "name": "proj",
+          "root": "/home/user/proj"
+        }
+      ]
+    }
+  }
+]

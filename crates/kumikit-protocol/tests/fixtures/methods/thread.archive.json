@@ -1,0 +1,15 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 14,
+    "method": "thread.archive",
+    "params": {
+      "thread": "01JCTH00000000000000000001"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 14,
+    "result": {}
+  }
+]

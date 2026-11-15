@@ -1,0 +1,36 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 12,
+    "method": "thread.respondApproval",
+    "params": {
+      "approval": "01JCAP00000000000000000001",
+      "decision": "allow"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 12,
+    "result": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 13,
+    "method": "thread.respondApproval",
+    "params": {
+      "approval": "01JCAP00000000000000000001",
+      "decision": "deny"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 13,
+    "error": {
+      "code": -32000,
+      "message": "approval already resolved",
+      "data": {
+        "code": "conflict"
+      }
+    }
+  }
+]

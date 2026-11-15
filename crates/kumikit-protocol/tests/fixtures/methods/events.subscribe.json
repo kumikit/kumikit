@@ -1,0 +1,38 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 15,
+    "method": "events.subscribe",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "after": 1042
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 15,
+    "result": {
+      "head": 1050
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 16,
+    "method": "events.subscribe",
+    "params": {
+      "topic": "core",
+      "after": 0
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 16,
+    "error": {
+      "code": -32000,
+      "message": "topic core is reserved",
+      "data": {
+        "code": "unsupported"
+      }
+    }
+  }
+]

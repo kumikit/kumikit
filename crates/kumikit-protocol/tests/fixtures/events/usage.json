@@ -1,0 +1,33 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 10,
+      "time": "2026-11-15T10:00:01.000Z",
+      "kind": "usage",
+      "data": {
+        "turn": "01JCTU00000000000000000001",
+        "inputTokens": 120,
+        "outputTokens": 40
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 10,
+      "time": "2026-11-15T10:00:01.000Z",
+      "kind": "usage",
+      "data": {
+        "turn": "01JCTU00000000000000000001",
+        "inputTokens": 120,
+        "outputTokens": 40,
+        "cost": 0.0012
+      }
+    }
+  }
+]

@@ -1,0 +1,21 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 10,
+    "method": "thread.send",
+    "params": {
+      "thread": "01JCTH00000000000000000001",
+      "input": {
+        "text": "list files"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 10,
+    "result": {
+      "turn": "01JCTU00000000000000000001",
+      "queued": false
+    }
+  }
+]

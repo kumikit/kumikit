@@ -1,0 +1,40 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 4,
+    "method": "workspace.open",
+    "params": {
+      "path": "/home/user/proj"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 4,
+    "result": {
+      "workspace": {
+        "id": "01JCWS00000000000000000001",
+        "name": "proj",
+        "root": "/home/user/proj"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 5,
+    "method": "workspace.open",
+    "params": {
+      "path": "/does/not/exist"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 5,
+    "error": {
+      "code": -32000,
+      "message": "no such directory",
+      "data": {
+        "code": "not_found"
+      }
+    }
+  }
+]

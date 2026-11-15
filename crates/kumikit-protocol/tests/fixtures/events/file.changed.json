@@ -1,0 +1,17 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 8,
+      "time": "2026-11-15T10:00:01.000Z",
+      "kind": "file.changed",
+      "data": {
+        "turn": "01JCTU00000000000000000001",
+        "path": "src/main.rs",
+        "diff": "@@ -1 +1 @@\n-a\n+b\n"
+      }
+    }
+  }
+]

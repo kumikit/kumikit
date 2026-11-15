@@ -1,0 +1,31 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 6,
+      "time": "2026-11-15T10:00:01.000Z",
+      "kind": "approval.resolved",
+      "data": {
+        "approval": "01JCAP00000000000000000001",
+        "decision": "allow"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 6,
+      "time": "2026-11-15T10:00:01.000Z",
+      "kind": "approval.resolved",
+      "data": {
+        "approval": "01JCAP00000000000000000001",
+        "decision": "cancelled",
+        "by": "01JCDV00000000000000000001"
+      }
+    }
+  }
+]

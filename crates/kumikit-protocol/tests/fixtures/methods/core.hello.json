@@ -1,0 +1,54 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "core.hello",
+    "params": {
+      "protocol": "0.1",
+      "client": {
+        "name": "kumikit-desktop",
+        "version": "0.1.0"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "protocol": "0.1",
+      "core": {
+        "version": "0.1.0",
+        "name": "devbox",
+        "os": "linux"
+      },
+      "plugins": [],
+      "capabilities": [
+        "threads",
+        "approvals"
+      ]
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "core.hello",
+    "params": {
+      "protocol": "9.0",
+      "client": {
+        "name": "old",
+        "version": "0.0.1"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "error": {
+      "code": -32000,
+      "message": "core speaks protocol 0.1",
+      "data": {
+        "code": "protocol_mismatch"
+      }
+    }
+  }
+]

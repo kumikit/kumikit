@@ -70,7 +70,7 @@ Each step ends with the Verify checks (`sh scripts/check-docs.sh`, then from ste
   edit" in each file. AGENTS.md Verify: move the stale-TS line to "Now". Verify: test
   passes; editing a generated file makes it fail; changing a Rust type makes it fail.
   Commit: `feat: generate TypeScript protocol types`.
-- [ ] **5. Contract fixtures.** `crates/kumikit-protocol/tests/fixtures/<method-or-kind>/*.json`,
+- [x] **5. Contract fixtures.** `crates/kumikit-protocol/tests/fixtures/<method-or-kind>/*.json`,
   each `{ "type": "...", "message": {…} }`. A test parses each into its Rust type,
   re-serializes and compares as `serde_json::Value`; another test fails when a method in
   the table or an event kind has no fixture. Fixtures are first hand-written from the spec
