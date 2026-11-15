@@ -1,0 +1,22 @@
+# Rust
+/target/
+
+# Node / web
+node_modules/
+dist/
+.svelte-kit/
+playwright-report/
+test-results/
+
+# Plugin build output
+*.kkp
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local environment
+.env
+.env.*

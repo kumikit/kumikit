@@ -1,0 +1,155 @@
+# Kumikit — working notes for agents
+
+Kumikit is a pluggable framework for working with coding agents: a headless Rust **core**
+(kernel + WASM plugins) and a thin **client** (Tauri 2 shell + Svelte 5 UI kernel in the
+system webview) that can connect to several cores, local or remote. Agent providers,
+themes, bots and most UI are plugins.
+
+These are the rules to follow before writing code. They are short on purpose. Detail
+lives in [docs/spec/](docs/spec/README.md) (what) and [docs/decisions/](docs/decisions/README.md)
+(why). Keep this file under 32 KB (`scripts/check-docs.sh` enforces it); add detail to the
+spec, not here.
+
+## Status
+
+Design phase: the spec exists, the code does not. Build in milestone order
+([roadmap](docs/spec/12-roadmap.md)); do not start a later milestone's code before the
+earlier one's exit criteria pass.
+
+## How to work
+
+1. **Read before you change.** Find the area in the index below, read its spec section and
+   the ADRs it links. The spec is the source of truth.
+2. **Plan multi-step work.** For anything that spans several files or a milestone step,
+   write a plan in `docs/plans/` first ([how](docs/plans/README.md)), then follow it and
+   tick it off.
+3. **Keep the spec true.** A change in behavior updates the spec in the same commit. If
+   the code and spec disagree, fix the wrong one; never leave both.
+4. **Record decisions.** Choosing a technology, changing a published interface or making
+   an exception to a rule here needs an ADR ([how](docs/decisions/README.md)).
+5. **Verify before claiming done.** Run the checks below that apply and report failures
+   as they are. Do not skip or weaken a test to get green.
+6. **Small, focused changes.** One concern per commit; no drive-by refactors.
+
+## Verify
+
+Now:
+- `sh scripts/check-docs.sh`: AGENTS.md size, and every relative Markdown link resolves.
+
+From M0 (add each command here when it starts to exist):
+- `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings`
+- `cargo test --workspace`
+- `cargo test -p kumikit-protocol` also fails when generated TypeScript is stale.
+From M2:
+- `npm run check` (svelte-check + tsc) and `npm test` (Vitest) in `web/`
+- `npx playwright test` in `web/` against the browser build
+
+## Architecture rules (do not break these)
+
+- **The kernel knows no plugin by name.** No provider, bot, theme or tool id or name in
+  `crates/` or `web/kernel/`. A special case for one plugin means the plugin API is
+  missing something: add the general API instead. ([ADR 0006](docs/decisions/0006-kernel-owns-domain-model.md))
+- **First-party plugins use only public SDKs** (`wit/`, `sdk/rust`, `@kumikit/ui-sdk`,
+  `@kumikit/protocol`). No private hooks for them.
+- **The protocol is the only client–core contract.** `kumikit-shell` and `web/` never
+  depend on `kumikit-kernel`. Respect the dependency rules in
+  [01-architecture](docs/spec/01-architecture.md#dependency-rules).
+- **The shell has no feature commands.** Features go in the core or in plugins.
+- **Core plugins contribute declarative UI only**; UI code comes from client-installed UI
+  plugins. ([ADR 0007](docs/decisions/0007-core-plugins-declarative-ui.md))
+- **Default deny.** Every host import checks the plugin's granted permissions. Never add
+  a host capability without a permission that gates it.
+- **WASM only in the core.** No native plugin loading. Sidecars only via the documented
+  escape hatch. ([ADR 0003](docs/decisions/0003-wasm-first-core-plugins.md))
+- **Lazy by default.** Nothing instantiates at startup unless its activation says so.
+  Keep within the [footprint budgets](docs/spec/00-overview.md#footprint-budgets).
+
+## Interfaces and versioning
+
+- Protocol types live only in `crates/kumikit-protocol`. `web/protocol/` is generated;
+  never edit it by hand.
+- Adding a method, optional field or event kind is a protocol minor change; removing or
+  changing anything is major and needs an ADR. Update the recorded fixtures with the change.
+- WIT packages in `wit/` are versioned. Never change a published version in place: add a
+  new version.
+- The manifest format, the token set (`tokens@N`) and the slot list are public APIs
+  under the same rules.
+
+## Rust
+
+- Stable toolchain, edition 2024, tokio. `clippy -D warnings` clean, `rustfmt` default.
+- No `unwrap`/`expect` outside tests and provably infallible spots (comment why). Errors:
+  `thiserror` in libraries, `anyhow` only in binaries.
+- No blocking calls on async tasks; use `spawn_blocking` for SQLite and file I/O.
+- External programs run only through the kernel's process supervisor.
+- Every public item in `kumikit-protocol` and `sdk/rust` has a doc comment.
+
+## TypeScript and Svelte
+
+- TypeScript strict, no `any` in exported types. Svelte 5 runes, no legacy stores in new code.
+- The public UI SDK is framework-agnostic: no Svelte types in `@kumikit/ui-sdk`.
+- No literal colors, radii, font sizes or shadows in UI-kernel components: use theme
+  tokens (`--kk-*`, [08-themes](docs/spec/08-themes.md)).
+- Input is never gated on animation, plugins or the network; every motion has an instant
+  path and respects `prefers-reduced-motion`.
+- Enter/Escape handlers in text inputs ignore IME composition (`event.isComposing` or
+  keyCode 229).
+
+## Security and privacy
+
+- Kumikit is MIT-licensed ([LICENSE](LICENSE)); every crate and package declares
+  `license = "MIT"`. Add a dependency only if its license is compatible (MIT, Apache-2.0,
+  BSD, ISC, Zlib, MPL-2.0); ask before adding anything else.
+
+- No telemetry, no accounts, no network traffic the user did not start or opt into. Any
+  new automatic request goes into the README privacy section in the same change.
+- Secrets never reach the webview or a log; the protocol can set secrets, never read them.
+- Never commit secrets, tokens, personal paths or real user data (fixtures are scrubbed).
+- Remote access is off by default. See [11-security](docs/spec/11-security.md).
+
+## Tests
+
+- Every change ships with tests for what it changes. Bug fixes start with a failing test.
+- Protocol: recorded fixtures replayed in `kumikit-protocol`.
+- Providers: recorded real agent output replayed through the adapter; one `#[ignore]`d
+  live smoke test per provider.
+- Plugin host: a test per permission proving the denied path returns `permission_denied`.
+- Tests are deterministic: no real network, no sleeps for timing, temp dirs for data.
+
+## Docs and writing
+
+- Write for a reader who has not seen the conversation: plain words, short sentences,
+  concrete examples.
+- Spec sections describe behavior, not implementation history.
+- Link with relative paths; `scripts/check-docs.sh` checks them.
+
+## Git
+
+- Branch from `main`; commit only when asked. Conventional commit prefixes: `feat:`,
+  `fix:`, `docs:`, `refactor:`, `test:`, `chore:`.
+- Commit messages say why, not only what.
+- Do not rewrite published history.
+
+## Area index
+
+Area → where the code will live → spec section (read it before touching the area).
+
+| Area | Code | Spec |
+|---|---|---|
+| Goals, principles, budgets, glossary | — | [00-overview](docs/spec/00-overview.md) |
+| Processes, crates, layout | workspace root | [01-architecture](docs/spec/01-architecture.md) |
+| Protocol, transports, pairing, events | `crates/kumikit-protocol`, `crates/kumikit-core` | [02-protocol](docs/spec/02-protocol.md) |
+| Domain model, storage, secrets, processes, tool gateway | `crates/kumikit-kernel` | [03-kernel](docs/spec/03-kernel.md) |
+| WASM host, manifest, permissions, lifecycle | `crates/kumikit-plugin-host`, `wit/`, `sdk/rust` | [04-plugin-host](docs/spec/04-plugin-host.md) |
+| Agent providers | `plugins/provider-*` | [05-providers](docs/spec/05-providers.md) |
+| Desktop shell, UI kernel, connections, tabs | `crates/kumikit-shell`, `web/kernel` | [06-client](docs/spec/06-client.md) |
+| UI plugins, slots, declarative UI | `web/sdk`, `plugins/ui-*` | [07-ui-plugins](docs/spec/07-ui-plugins.md) |
+| Themes, tokens | `plugins/theme-*`, `web/kernel` theme engine | [08-themes](docs/spec/08-themes.md) |
+| Bots | `plugins/bot-*`, `wit/` bot world | [09-bots](docs/spec/09-bots.md) |
+| Packages, registry, lockfiles | `crates/kumikit-core` (CLI), registry repo | [10-distribution](docs/spec/10-distribution.md) |
+| Threat model | everywhere | [11-security](docs/spec/11-security.md) |
+| Milestones, open questions | — | [12-roadmap](docs/spec/12-roadmap.md) |
+
+When an area gains code with non-obvious details (gotchas, invariants, why a test
+exists), add them to that area's spec section or to `docs/agent-reference.md` and link
+them here.
