@@ -595,3 +595,7 @@ live smoke test's agent.
   test `ending_a_session_that_is_mid_turn_does_not_wait_for_it`). The probe's
   `tool-approval` scenario now matches the deleted scripted provider event for event,
   so `exit_m0` checks the same transcript as in M0.
+- Footprint after step 10 (Linux x86_64, release): cold start 2 ms, idle RSS 10.3 MB
+  (M0: 7.1 MB), both within budget. **Release binary 24.9 MiB (M0: 4.2 MiB)**: over the
+  20 MB installer budget (checked from M2) on its own. Step 14 must look at what takes
+  the space (wasmtime with Cranelift, jsonschema's Unicode tables) and report options.
