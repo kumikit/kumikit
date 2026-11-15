@@ -374,7 +374,7 @@ Steps marked *(CI)* contain macOS/Windows code that is only compiled and run in 
   0.2, regenerated TypeScript, fixtures for every new method and notification (hand-written
   first, replaced by scrubbed recordings in step 13). Verify: TS check. Commit:
   `feat: add plugin methods to the protocol`.
-- [ ] **10. Serve providers from plugins; delete the scripted provider.** `serve.rs` opens
+- [x] **10. Serve providers from plugins; delete the scripted provider.** `serve.rs` opens
   the plugin host, dispatches `plugin.*`, sends `core.pluginsChanged`, fills `core.hello`;
   `scripted_provider.rs` and its registration deleted; `rpc/tests.rs` uses a test-module
   fake; `exit_m0` runs on the probe plugin; ADR 0009 → `Superseded by 0011`; AGENTS.md
@@ -589,3 +589,9 @@ live smoke test's agent.
   directory with its own coverage test). `failure.retryAt` became `retryInSeconds`
   (no clock arithmetic in the core). Until step 10 the core answers `plugin.*` with
   `unsupported`.
+- Step 10: found a shutdown hang. The kernel ends sessions on close; a session blocked
+  mid-turn (waiting for an approval) queued `end-session` behind its `send` forever.
+  `end_session` now cancels a busy session and kills its processes instead (regression
+  test `ending_a_session_that_is_mid_turn_does_not_wait_for_it`). The probe's
+  `tool-approval` scenario now matches the deleted scripted provider event for event,
+  so `exit_m0` checks the same transcript as in M0.

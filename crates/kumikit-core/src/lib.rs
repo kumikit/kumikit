@@ -3,7 +3,7 @@
 
 pub mod lock;
 pub mod paths;
+pub mod plugins;
 pub mod rpc;
-pub mod scripted_provider;
 pub mod serve;
 pub mod transport;

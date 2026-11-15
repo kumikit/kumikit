@@ -46,7 +46,7 @@ is about the code.
 - **Approvals race by design.** The log arbitrates: resolving appends
   `approval.resolved` only if the row is still `pending`, so the loser gets `conflict`.
   Providers can get an answer before `request_approval` returns (see the `Provider`
-  docs); the scripted provider and the test fake keep early answers.
+  docs); the WASM adapter (`SessionShared`) and the test fakes keep early answers.
 - **Kernel close abandons turns.** `Kernel::close` drops running turns without writing
   `turn.ended`; the next `Kernel::open` ends them as `core_restarted`. Tests rely on this
   being deterministic.
@@ -83,9 +83,14 @@ is about the code.
 
 ## Core (`crates/kumikit-core`)
 
-- **`scripted_provider.rs` is temporary** ([ADR 0009](decisions/0009-temporary-scripted-provider.md)).
-  It is the only provider id in `crates/`; M1 deletes it and its registration in
-  `serve.rs`.
+- **Providers come only from plugins** ([ADR 0011](decisions/0011-providers-from-plugins.md)).
+  `serve::open_core` opens the kernel, the plugin manager and the plugin host; the CLI's
+  offline path uses it too. Core tests use the probe test plugin
+  (`test-plugins/probe`, installed through `plugin.install` by `tests/support`); unit
+  tests in `rpc/tests.rs` use a fake provider defined in the test module.
+- **Test client notifications.** `tests/support::Client::event` sets aside
+  notifications other than `events.event` (`core.pluginsChanged`); read them with
+  `Client::notification`.
 - **Socket paths are short.** Unix socket paths are limited to about 104 bytes. Tests
   use `/tmp/kkXXXX/s.sock`, chmod the directory to 0700 (tempfile follows the umask,
   often 0755) because the core refuses non-private directories.

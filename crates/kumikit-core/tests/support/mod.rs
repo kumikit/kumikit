@@ -54,6 +54,11 @@ impl Dirs {
         Dirs { root, address }
     }
 
+    /// The test's temp root (private, short).
+    pub fn root(&self) -> &Path {
+        self.root.path()
+    }
+
     pub fn data(&self) -> PathBuf {
         self.root.path().join("data")
     }
@@ -143,6 +148,8 @@ pub struct Client {
     next_id: i64,
     /// Notifications that arrived while waiting for a response.
     pending: VecDeque<Value>,
+    /// Notifications other than `events.event`, set aside by `event()`.
+    notices: VecDeque<Value>,
     /// Every message sent and received, for recording fixtures.
     pub transcript: Vec<Value>,
 }
@@ -158,6 +165,7 @@ impl Client {
             lines: BufReader::new(read).lines(),
             next_id: 0,
             pending: VecDeque::new(),
+            notices: VecDeque::new(),
             transcript: Vec::new(),
         }
     }
@@ -211,14 +219,40 @@ impl Client {
         r["result"].clone()
     }
 
-    /// The next `events.event` params.
+    /// The next `events.event` params. Other notifications are set aside for
+    /// [`Client::notification`].
     pub async fn event(&mut self) -> Value {
-        let v = match self.pending.pop_front() {
-            Some(v) => v,
-            None => self.recv().await,
-        };
-        assert_eq!(v["method"], "events.event", "unexpected message {v}");
-        v["params"].clone()
+        loop {
+            let v = match self.pending.pop_front() {
+                Some(v) => v,
+                None => self.recv().await,
+            };
+            if v["method"] == "events.event" {
+                return v["params"].clone();
+            }
+            assert!(v.get("method").is_some(), "unexpected message {v}");
+            self.notices.push_back(v);
+        }
+    }
+
+    /// The params of the next notification named `method` (other than `events.event`).
+    pub async fn notification(&mut self, method: &str) -> Value {
+        loop {
+            if let Some(i) = self.notices.iter().position(|n| n["method"] == method) {
+                return self.notices.remove(i).unwrap()["params"].clone();
+            }
+            match self.pending.pop_front() {
+                Some(v) if v["method"] == method => return v["params"].clone(),
+                Some(v) => self.notices.push_back(v),
+                None => {
+                    let v = self.recv().await;
+                    if v["method"] == method {
+                        return v["params"].clone();
+                    }
+                    self.pending.push_back(v);
+                }
+            }
+        }
     }
 
     /// Events until (and including) the first one of `kind`.
@@ -258,4 +292,57 @@ pub fn record(name: &str, transcript: &[Value]) {
         let path = Path::new(&dir).join(format!("{name}.json"));
         std::fs::write(path, serde_json::to_string_pretty(transcript).unwrap()).unwrap();
     }
+}
+
+/// The probe test plugin's manifest (`test-plugins/probe`).
+pub const PROBE_MANIFEST: &str = r#"
+id = "test.probe"
+name = "Probe"
+version = "0.1.0"
+kind = ["provider"]
+api = "^0.1"
+[runtime]
+wasm = "plugin.wasm"
+worlds = ["kumikit:provider/plugin@0.1.0"]
+[permissions]
+spawn = ["fake-acp-agent"]
+[contributes]
+providers = [{ id = "probe", name = "Probe" }]
+"#;
+
+/// The probe's qualified provider id.
+pub const PROBE: &str = "test.probe/probe";
+
+/// Packs a plugin directory (a manifest plus files) into `<root>/<name>.kkp`.
+pub fn kkp(dirs: &Dirs, name: &str, manifest: &str, files: &[(&str, &[u8])]) -> PathBuf {
+    let src = dirs.root().join(format!("{name}-src"));
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("plugin.toml"), manifest).unwrap();
+    for (path, data) in files {
+        std::fs::write(src.join(path), data).unwrap();
+    }
+    let out = dirs.root().join(format!("{name}.kkp"));
+    kumikit_plugin_host::package::pack(&src, &out).unwrap();
+    out
+}
+
+/// The probe plugin as a `.kkp`.
+pub fn probe_kkp(dirs: &Dirs) -> PathBuf {
+    let wasm = std::fs::read(kumikit_test_plugins::PROBE_WASM).unwrap();
+    kkp(dirs, "probe", PROBE_MANIFEST, &[("plugin.wasm", &wasm)])
+}
+
+/// Installs and enables a package through the protocol, granting what it requests.
+pub async fn install(c: &mut Client, package: &Path) -> Value {
+    let installed = c
+        .call(
+            "plugin.install",
+            json!({ "path": package.to_str().unwrap() }),
+        )
+        .await;
+    let id = installed["plugin"]["id"].clone();
+    let grant = installed["plugin"]["requested"].clone();
+    c.call("plugin.enable", json!({ "plugin": id, "grant": grant }))
+        .await["plugin"]
+        .clone()
 }

@@ -1,6 +1,7 @@
 //! M0 exit criteria (`docs/spec/12-roadmap.md#m0--protocol-and-kernel`): a client creates
 //! a thread, sends a message, receives streamed events, disconnects mid-turn, reconnects
-//! from its cursor and sees no gap or duplicate. Runs the real `kumikit` binary.
+//! from its cursor and sees no gap or duplicate. Runs the real `kumikit` binary, with the
+//! probe test plugin (`test-plugins/probe`) as the provider.
 
 // Integration-test crate: clippy's allow-*-in-tests does not cover helper functions.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -8,7 +9,7 @@
 mod support;
 
 use serde_json::{Value, json};
-use support::{Client, Core, DEADLINE, Dirs, kinds, record, seqs};
+use support::{Client, Core, DEADLINE, Dirs, PROBE, install, kinds, probe_kkp, record, seqs};
 
 async fn within<F: Future<Output = ()>>(f: F) {
     tokio::time::timeout(DEADLINE, f)
@@ -16,15 +17,20 @@ async fn within<F: Future<Output = ()>>(f: F) {
         .expect("test exceeded its deadline");
 }
 
-/// Opens the test workspace and creates a thread with `model`; returns its topic.
+/// Installs the probe (once per core), opens the test workspace and creates a thread
+/// with `model`; returns its id and topic.
 async fn thread(c: &mut Client, dirs: &Dirs, model: &str) -> (String, String) {
+    let installed = c.call("plugin.list", json!({})).await;
+    if installed["plugins"].as_array().unwrap().is_empty() {
+        install(c, &probe_kkp(dirs)).await;
+    }
     let ws = c
         .call("workspace.open", json!({"path": dirs.workspace()}))
         .await;
     let t = c
         .call(
             "thread.create",
-            json!({"workspace": ws["workspace"]["id"], "model": model}),
+            json!({"workspace": ws["workspace"]["id"], "provider": PROBE, "model": model}),
         )
         .await;
     let id = t["thread"]["id"].as_str().unwrap().to_owned();

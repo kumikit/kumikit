@@ -95,34 +95,43 @@ fn echo(text: &str) -> Result<(), Error> {
     }))
 }
 
+/// The M0 scripted provider's `tool-approval` scenario, event for event.
 fn tool_approval() -> Result<(), Error> {
-    emit(Event::TextDelta("Running the tool.".into()))?;
+    let input = r#"{"command":"ls"}"#;
+    emit(Event::TextDelta("I'll list the files.".into()))?;
     emit(Event::ToolStarted(events::ToolStarted {
         call: "call-1".into(),
         name: "shell".into(),
-        input: r#"{"command":"ls"}"#.into(),
+        input: input.into(),
     }))?;
-    let decision = events::request_approval("tool", "Run `ls`", Some(r#"{"command":"ls"}"#))?;
-    let ok = matches!(
-        decision,
-        events::Decision::Allow | events::Decision::AllowAlways
-    );
-    if ok {
-        emit(Event::ToolOutput(events::ToolOutput {
-            call: "call-1".into(),
-            chunk: "README.md\n".into(),
-        }))?;
-    }
-    emit(Event::ToolFinished(events::ToolFinished {
-        call: "call-1".into(),
-        ok,
-        result: None,
-    }))?;
-    let text = if ok { "Done." } else { "The tool was denied." };
-    emit(Event::TextDone(text.into()))?;
+    let decision = events::request_approval("tool", "Run `ls` in the workspace", Some(input))?;
+    let text = match decision {
+        events::Decision::Allow | events::Decision::AllowAlways => {
+            emit(Event::ToolOutput(events::ToolOutput {
+                call: "call-1".into(),
+                chunk: "README.md\nsrc\n".into(),
+            }))?;
+            emit(Event::ToolFinished(events::ToolFinished {
+                call: "call-1".into(),
+                ok: true,
+                result: Some(r#"{"exitCode":0}"#.into()),
+            }))?;
+            "The workspace has README.md and src."
+        }
+        events::Decision::Deny => {
+            emit(Event::ToolFinished(events::ToolFinished {
+                call: "call-1".into(),
+                ok: false,
+                result: Some(r#"{"denied":true}"#.into()),
+            }))?;
+            "The tool call was denied."
+        }
+    };
+    emit(Event::TextDelta(format!(" {text}")))?;
+    emit(Event::TextDone(format!("I'll list the files. {text}")))?;
     emit(Event::Usage(events::Usage {
-        input_tokens: 3,
-        output_tokens: 2,
+        input_tokens: 12,
+        output_tokens: 9,
         cost: None,
     }))
 }

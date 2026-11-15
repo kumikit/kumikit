@@ -269,6 +269,7 @@ async fn approvals_reach_the_blocked_guest() {
             "approval.resolved",
             "tool.output",
             "tool.finished",
+            "text.delta",
             "text.done",
             "usage",
             "turn.ended"
@@ -473,4 +474,16 @@ async fn a_guest_that_ignores_cancel_is_discarded_after_the_grace_period() {
     // The next turn starts a new session.
     let next = e.turn(&t, last_seq(&rest), "kv").await;
     assert_eq!(ended(&next).0, TurnOutcome::Done, "{:?}", ended(&next));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ending_a_session_that_is_mid_turn_does_not_wait_for_it() {
+    let e = env().await;
+    e.install_probe().await;
+    let t = e.thread("test.probe/probe", "tool-approval").await;
+    e.send(&t, "go").await;
+    e.until(&t, 0, "approval.requested").await;
+    // What the core does when it stops: the guest is blocked waiting for the approval.
+    e.kernel.close().await;
+    assert_eq!(e.host.instances("test.probe").1, 0);
 }

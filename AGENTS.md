@@ -56,8 +56,7 @@ From M2:
 ## Architecture rules (do not break these)
 
 - **The kernel knows no plugin by name.** No provider, bot, theme or tool id or name in
-  `crates/` or `web/kernel/` (sole, temporary exception: the M0 scripted provider,
-  [ADR 0009](docs/decisions/0009-temporary-scripted-provider.md)). A special case for one plugin means the plugin API is
+  `crates/` or `web/kernel/`. A special case for one plugin means the plugin API is
   missing something: add the general API instead. ([ADR 0006](docs/decisions/0006-kernel-owns-domain-model.md))
 - **First-party plugins use only public SDKs** (`wit/`, `sdk/rust`, `@kumikit/ui-sdk`,
   `@kumikit/protocol`). No private hooks for them.

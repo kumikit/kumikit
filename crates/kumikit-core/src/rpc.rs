@@ -6,18 +6,20 @@ use std::io;
 use std::sync::Arc;
 
 use kumikit_kernel::{Kernel, KernelError, ThreadSubscription};
+use kumikit_plugin_host::lifecycle::PluginHost;
 use kumikit_protocol::event::EventNotification;
 use kumikit_protocol::jsonrpc::{Notification, Request, RequestId, Response};
 use kumikit_protocol::methods::{
-    self as m, CoreInfo, Empty, HelloResult, Method, NotificationMethod, SubscribeResult,
-    ThreadCreateResult, ThreadListResult, WorkspaceListResult, WorkspaceOpenResult,
+    self as m, CoreInfo, Empty, HelloResult, Method, NotificationMethod, PluginListResult,
+    PluginResult, PluginsChanged, SubscribeResult, ThreadCreateResult, ThreadListResult,
+    WorkspaceListResult, WorkspaceOpenResult,
 };
 use kumikit_protocol::{ErrorCode, PROTOCOL_VERSION, ProtocolVersion, RpcError, Topic};
 use serde_json::Value;
 use tokio::io::{
     AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, BufWriter,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 /// Longest accepted message, in bytes (`docs/spec/02-protocol.md#transports`).
@@ -27,7 +29,7 @@ pub const MAX_MESSAGE: usize = 8 * 1024 * 1024;
 const OUTBOUND: usize = 256;
 
 /// Capability strings this core reports in `core.hello`.
-pub const CAPABILITIES: &[&str] = &["threads", "approvals"];
+pub const CAPABILITIES: &[&str] = &["threads", "approvals", "plugins"];
 
 /// What `core.hello` says about this core.
 #[derive(Debug, Clone)]
@@ -53,7 +55,7 @@ impl ServerInfo {
 
 /// Serves one connection until the client disconnects, the stream fails, or a message
 /// is too long.
-pub async fn serve_connection<S>(kernel: Kernel, info: Arc<ServerInfo>, stream: S)
+pub async fn serve_connection<S>(host: PluginHost, info: Arc<ServerInfo>, stream: S)
 where
     S: AsyncRead + AsyncWrite + Send + 'static,
 {
@@ -61,12 +63,15 @@ where
     let (tx, rx) = mpsc::channel::<String>(OUTBOUND);
     let writer = tokio::spawn(write_loop(write, rx));
     let mut conn = Conn {
-        kernel,
+        kernel: host.manager().kernel().clone(),
+        host,
         info,
         tx,
         hello: false,
         subs: HashMap::new(),
         deferred: None,
+        plugins_watch: None,
+        plugin_changes: None,
     };
     let mut reader = BufReader::new(read);
     let mut buf = Vec::new();
@@ -98,8 +103,19 @@ where
         if let Some((topic, sub)) = conn.deferred.take() {
             conn.start(topic, sub);
         }
+        // Likewise, plugin changes are announced only after the hello result.
+        if let Some(changes) = conn.plugin_changes.take() {
+            conn.plugins_watch = Some(tokio::spawn(announce_plugin_changes(
+                conn.host.clone(),
+                changes,
+                conn.tx.clone(),
+            )));
+        }
     }
     for (_, task) in conn.subs.drain() {
+        task.abort();
+    }
+    if let Some(task) = conn.plugins_watch.take() {
         task.abort();
     }
     drop(conn);
@@ -108,11 +124,42 @@ where
 
 struct Conn {
     kernel: Kernel,
+    host: PluginHost,
     info: Arc<ServerInfo>,
     tx: mpsc::Sender<String>,
     hello: bool,
     subs: HashMap<String, JoinHandle<()>>,
     deferred: Option<(String, ThreadSubscription)>,
+    /// Sends `core.pluginsChanged`; started after `core.hello`.
+    plugins_watch: Option<JoinHandle<()>>,
+    /// Taken in `core.hello` before its plugin list is built, so no change between the
+    /// two can be missed; handed to `plugins_watch` once the result is queued.
+    plugin_changes: Option<watch::Receiver<u64>>,
+}
+
+/// Sends `core.pluginsChanged` whenever the enabled plugins change, until the
+/// connection closes.
+async fn announce_plugin_changes(
+    host: PluginHost,
+    mut changes: watch::Receiver<u64>,
+    tx: mpsc::Sender<String>,
+) {
+    while changes.changed().await.is_ok() {
+        let params = PluginsChanged {
+            plugins: crate::plugins::infos(&host),
+        };
+        let params = match serde_json::to_value(params) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!(error = %e, "failed to encode core.pluginsChanged");
+                continue;
+            }
+        };
+        let note = Notification::new(m::CorePluginsChanged::NAME, params);
+        if tx.send(encode(&note)).await.is_err() {
+            return;
+        }
+    }
 }
 
 fn encode<T: serde::Serialize>(value: &T) -> String {
@@ -195,6 +242,11 @@ impl Conn {
                         format!("core speaks protocol {PROTOCOL_VERSION}"),
                     ));
                 }
+                if !self.hello {
+                    let mut changes = self.host.changes();
+                    changes.mark_unchanged();
+                    self.plugin_changes = Some(changes);
+                }
                 self.hello = true;
                 tracing::debug!(client = %p.client.name, version = %p.client.version, "hello");
                 reply::<m::CoreHello>(HelloResult {
@@ -204,7 +256,7 @@ impl Conn {
                         name: self.info.name.clone(),
                         os: self.info.os.clone(),
                     },
-                    plugins: Vec::new(),
+                    plugins: crate::plugins::infos(&self.host),
                     capabilities: CAPABILITIES.iter().map(|s| (*s).to_owned()).collect(),
                 })
             }
@@ -303,15 +355,35 @@ impl Conn {
                 }
                 reply::<m::EventsUnsubscribe>(Empty {})
             }
-            // Served once the plugin host is wired in (M1 step 10).
-            m::PluginList::NAME
-            | m::PluginInstall::NAME
-            | m::PluginEnable::NAME
-            | m::PluginDisable::NAME
-            | m::PluginUninstall::NAME => Err(RpcError::new(
-                ErrorCode::Unsupported,
-                "this core has no plugin host",
-            )),
+            m::PluginList::NAME => {
+                parse::<m::PluginList>(params)?;
+                reply::<m::PluginList>(PluginListResult {
+                    plugins: crate::plugins::list(&self.host),
+                })
+            }
+            m::PluginInstall::NAME => {
+                let p = parse::<m::PluginInstall>(params)?;
+                let plugin = crate::plugins::install(&self.host, &p.path).await?;
+                reply::<m::PluginInstall>(PluginResult { plugin })
+            }
+            m::PluginEnable::NAME => {
+                let p = parse::<m::PluginEnable>(params)?;
+                let plugin = crate::plugins::enable(&self.host, &p.plugin, &p.grant).await?;
+                reply::<m::PluginEnable>(PluginResult { plugin })
+            }
+            m::PluginDisable::NAME => {
+                let p = parse::<m::PluginDisable>(params)?;
+                let plugin = crate::plugins::disable(&self.host, &p.plugin).await?;
+                reply::<m::PluginDisable>(PluginResult { plugin })
+            }
+            m::PluginUninstall::NAME => {
+                let p = parse::<m::PluginUninstall>(params)?;
+                self.host
+                    .uninstall(&p.plugin, p.delete_data.unwrap_or(false))
+                    .await
+                    .map_err(crate::plugins::host_err)?;
+                reply::<m::PluginUninstall>(Empty {})
+            }
             other => Err(RpcError::new(
                 ErrorCode::MethodNotFound,
                 format!("no method {other}"),

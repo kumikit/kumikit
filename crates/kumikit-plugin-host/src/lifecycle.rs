@@ -136,6 +136,8 @@ struct Inner {
     runs: Mutex<HashMap<String, PluginRun>>,
     registered: Mutex<BTreeMap<String, ProviderSpec>>,
     reaper: AtomicBool,
+    /// Bumped after the available providers were recomputed.
+    changed: tokio::sync::watch::Sender<u64>,
 }
 
 /// The plugin host. Cheap to clone.
@@ -170,6 +172,7 @@ impl PluginHost {
                 runs: Mutex::new(HashMap::new()),
                 registered: Mutex::new(BTreeMap::new()),
                 reaper: AtomicBool::new(false),
+                changed: tokio::sync::watch::Sender::new(0),
             }),
         };
         host.reconcile().await;
@@ -191,6 +194,13 @@ impl PluginHost {
         &self.inner.manager
     }
 
+    /// A receiver that sees a new value whenever the enabled plugins or the providers
+    /// they make available change. Fires after providers are registered, so a listener
+    /// that reads [`PluginHost::enabled`] sees the new state.
+    pub fn changes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.inner.changed.subscribe()
+    }
+
     fn kernel(&self) -> &Kernel {
         self.inner.manager.kernel()
     }
@@ -210,6 +220,7 @@ impl PluginHost {
     pub async fn enable(&self, id: &str, grant: &Grants) -> Result<PluginView, HostError> {
         let view = self.inner.manager.enable(id, grant).await?;
         self.reconcile().await;
+        self.inner.changed.send_modify(|v| *v += 1);
         Ok(view)
     }
 
@@ -218,14 +229,20 @@ impl PluginHost {
     pub async fn disable(&self, id: &str) -> Result<PluginView, HostError> {
         let view = self.inner.manager.disable(id).await?;
         self.reconcile().await;
+        self.inner.changed.send_modify(|v| *v += 1);
         self.unload(id, "disabled").await;
         Ok(view)
     }
 
     /// Removes a plugin (see [`Manager::uninstall`]) after stopping it.
     pub async fn uninstall(&self, id: &str, delete_data: bool) -> Result<(), HostError> {
+        let was_enabled = self.inner.manager.get(id)?.record.state
+            == kumikit_kernel::plugins::PluginState::Enabled;
         self.inner.manager.uninstall(id, delete_data).await?;
         self.reconcile().await;
+        if was_enabled {
+            self.inner.changed.send_modify(|v| *v += 1);
+        }
         self.unload(id, "removed").await;
         lock(&self.inner.runs).remove(id);
         Ok(())
@@ -824,10 +841,23 @@ impl Provider for WasmProvider {
             let removed = lock(&host.inner.runs)
                 .get_mut(&self.spec.backend)
                 .and_then(|r| r.sessions.remove(&session));
-            if let Some(s) = removed {
-                let _ = s.instance.end_session(session).await;
-                host.drop_instance(&s.instance).await;
+            let Some(s) = removed else { return };
+            if s.busy.load(Ordering::Acquire) {
+                // Mid-turn (the core is stopping, say): calls would queue behind the
+                // running `send`. Cancel the turn and kill the session's processes.
+                s.shared.cancel();
+                host.kernel()
+                    .supervisor()
+                    .kill_owner(s.instance.owner())
+                    .await;
+                return;
             }
+            let _ = tokio::time::timeout(
+                host.inner.config.deactivate_limit,
+                s.instance.end_session(session),
+            )
+            .await;
+            host.drop_instance(&s.instance).await;
         })
     }
 }
