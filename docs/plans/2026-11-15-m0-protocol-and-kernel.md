@@ -109,7 +109,7 @@ Each step ends with the Verify checks (`sh scripts/check-docs.sh`, then from ste
   `turn.ended { outcome: failed }`, queueing, cancel during an approval, second approval
   answer rejected, sink rejects an event for another turn.
   Commit: `feat: add provider trait and turn runner`.
-- [ ] **9. Scripted provider.** `crates/kumikit-core/src/scripted_provider.rs`
+- [x] **9. Scripted provider.** `crates/kumikit-core/src/scripted_provider.rs`
   (marked `// Temporary: deleted in M1, see ADR 0009`). Models pick a scenario, so tests
   choose behavior through the normal `thread.create { model }`: `echo` (text deltas
   echoing the input, `text.done`, `usage`), `tool-approval` (deltas, `tool.started`,
