@@ -568,3 +568,8 @@ live smoke test's agent.
   AGENTS.md list. `check_backend_entry` validates `acp = { … }` tables against a
   backend's schema (used from step 8). Packages pack reproducibly and unpack
   defensively; `Manager` installs, enables, disables and removes plugins.
+- 2026-11-15: WASI 0.3 reconsidered after Rust 1.100 made `wasm32-wasip3` tier 2. The
+  host side is not ready (wasmtime 50.0.1 and 51.0.0-rc.1 mark `wasmtime-wasi` p3
+  experimental, without security patch releases), so WASI 0.2 stays; ADR 0010 records
+  the trigger to revisit. The toolchain pin moved to Rust 1.100.0 (this machine sets
+  `RUSTUP_TOOLCHAIN=1.100.0`; its `wasm32-wasip2` std was added with rustup).

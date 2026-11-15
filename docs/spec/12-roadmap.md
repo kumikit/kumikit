@@ -75,7 +75,7 @@ change; if one does, the kernel change lands first as a general API.
 
 | Question | Decide by |
 |---|---|
-| WASI 0.3 (native async) adoption timing | Decided for now: WASI 0.2 ([ADR 0010](../decisions/0010-wasi-p2-and-session-instances.md)); revisit when Rust's `wasm32-wasip3` target is tier 2 |
+| WASI 0.3 (native async) adoption timing | Decided for now: WASI 0.2 ([ADR 0010](../decisions/0010-wasi-p2-and-session-instances.md)); revisit when wasmtime ships WASI 0.3 as stable (Rust's `wasm32-wasip3` target is tier 2 since 1.100) |
 | SQL storage for plugins beyond key-value | When a plugin needs it |
 | Whether themes may ship restricted CSS in v2 | After M4, from theme authors' feedback |
 | Sidecar plugins: ship in 1.0 or later | M4 |
