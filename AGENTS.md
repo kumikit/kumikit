@@ -12,8 +12,9 @@ spec, not here.
 
 ## Status
 
-M0 (protocol and kernel) in progress, see [the plan](docs/plans/2026-11-15-m0-protocol-and-kernel.md).
-Build in milestone order
+M0 (protocol and kernel) is built: `kumikit serve`, the protocol crate and the kernel
+([plan](docs/plans/2026-11-15-m0-protocol-and-kernel.md)). M1 (plugin host) is next. Build
+in milestone order
 ([roadmap](docs/spec/12-roadmap.md)); do not start a later milestone's code before the
 earlier one's exit criteria pass.
 
@@ -156,6 +157,5 @@ Area → where the code will live → spec section (read it before touching the 
 | Threat model | everywhere | [11-security](docs/spec/11-security.md) |
 | Milestones, open questions | — | [12-roadmap](docs/spec/12-roadmap.md) |
 
-When an area gains code with non-obvious details (gotchas, invariants, why a test
-exists), add them to that area's spec section or to `docs/agent-reference.md` and link
-them here.
+Code gotchas, invariants and why some tests exist: [agent reference](docs/agent-reference.md).
+When an area gains more of them, add them there (or to the area's spec section).

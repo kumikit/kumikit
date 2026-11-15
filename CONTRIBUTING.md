@@ -1,7 +1,8 @@
 # Contributing to Kumikit
 
-Thanks for helping. Kumikit is in its design phase: the most useful contributions right
-now are reviews of the [specification](docs/spec/README.md) and proposals as ADRs.
+Thanks for helping. Kumikit is early: the protocol and kernel (milestone M0) exist, the
+rest is specification. The most useful contributions right now are reviews of the
+[specification](docs/spec/README.md) and proposals as ADRs.
 
 Code conventions for humans and coding agents are in [AGENTS.md](AGENTS.md). Read it
 before your first change.

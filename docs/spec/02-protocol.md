@@ -15,7 +15,7 @@ edited by hand.
 
 Every transport carries the same framing: one JSON-RPC 2.0 message per WebSocket text
 frame, or newline-delimited JSON on sockets and pipes. A message is at most 8 MiB; a
-longer line closes the connection. JSON-RPC batches (arrays) are not supported and get a
+longer line gets an `invalid_request` error and the connection is closed. JSON-RPC batches (arrays) are not supported and get a
 single `-32600` error. A core listens only on the local socket unless the user enables
 remote access.
 
@@ -108,13 +108,13 @@ and both sides ignore fields they do not know.
 | `workspace.list` | — | `workspaces` (open ones only) |
 | `workspace.open` | `path` | `workspace`. The path is canonicalized; opening the same root again returns the same workspace, and reopens it if it was closed. |
 | `workspace.close` | `workspace` | `{}`. Hides the workspace from `list`; its threads and events are kept. |
-| `thread.list` | `workspace`, `includeArchived?` | `threads` |
-| `thread.create` | `workspace`, `provider?`, `model?`, `title?` | `thread`. `provider` defaults to the only provider when exactly one exists; `model` defaults to the provider's first model. |
+| `thread.list` | `workspace`, `includeArchived?` | `threads`, most recently updated first |
+| `thread.create` | `workspace`, `provider?`, `model?`, `title?` | `thread`. `provider` defaults to the only provider when exactly one exists (`unsupported` if there is none, `invalid_params` if there are several); `model` defaults to the provider's first model. A closed workspace gives `conflict`. |
 | `thread.get` | `thread` | `thread`, `turns`, `pendingApprovals`, `seq`: a snapshot folded from the log up to `seq` |
 | `thread.send` | `thread`, `input { text }` | `turn`, `queued`. One turn runs per thread; a message sent during a turn is queued in memory and starts when the turn ends. |
-| `thread.cancel` | `thread` | `{}`. Cancels the running turn and drops queued messages. |
+| `thread.cancel` | `thread` | `{}`. Cancels the running turn and drops queued messages; does nothing if no turn runs. |
 | `thread.respondApproval` | `approval`, `decision` | `{}`. The first answer wins; later answers fail with `conflict`. |
-| `thread.archive` | `thread` | `{}`. Sets `status` to `archived`; no thread event is appended (archiving is not thread content). |
+| `thread.archive` | `thread` | `{}`. Sets `status` to `archived`; no thread event is appended (archiving is not thread content). Fails with `conflict` while a turn runs or waits; an archived thread refuses `thread.send`. |
 | `events.subscribe` | `topic`, `after` | `head` (the topic's last `seq` at subscribe time) |
 | `events.unsubscribe` | `topic` | `{}` |
 

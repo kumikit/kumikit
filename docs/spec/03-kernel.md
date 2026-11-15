@@ -58,7 +58,10 @@ Approval  { id, thread, turn, kind, summary, detail, status }
 | `plugin.event` | `plugin`, `kind`, `data` | any plugin, namespaced |
 
 Providers emit through the host; the kernel validates every event (a provider cannot emit
-`turn.ended` or events for another thread) and assigns `seq` and `time`.
+`turn.started`, `turn.ended` or `approval.resolved`, events for another thread or turn,
+or anything after its turn ended) and assigns `seq` and `time`. A provider asks for an
+approval and gets its id from the kernel; the answer can reach the provider before that
+call returns, so providers keep early answers.
 
 Turn rules:
 - One turn runs per thread. Messages sent during a turn wait in an in-memory queue (lost

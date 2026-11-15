@@ -15,8 +15,9 @@ A small, pluggable framework for working with coding agents.
 The name comes from *kumiko*, Japanese woodwork in which a lattice is assembled from many
 small pieces without nails.
 
-> **Status:** design phase. The specification is in [docs/spec/](docs/spec/README.md);
-> there is no code yet.
+> **Status:** early. The headless core (`kumikit serve`: protocol, kernel, event log)
+> exists; plugins and the desktop client do not yet. The specification is in
+> [docs/spec/](docs/spec/README.md).
 
 ## Privacy
 

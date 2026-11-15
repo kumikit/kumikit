@@ -4,7 +4,7 @@
   a test client creates a thread, sends a message, streams events, disconnects mid-turn,
   reconnects from its cursor and sees no gap or duplicate. Nothing from M1 (no WASM,
   plugin host, WIT, UI).
-- **Status:** active (approved 2026-11-15)
+- **Status:** done (2026-11-15). Lasting notes moved to [the agent reference](../agent-reference.md).
 
 ## Scope
 
@@ -152,7 +152,7 @@ Each step ends with the Verify checks (`sh scripts/check-docs.sh`, then from ste
   memory from `/proc/<pid>/status` `VmRSS` on Linux or `ps -o rss=` on macOS (budget ≤
   30 MB); reports the median and exits non-zero over budget. CI: a `footprint` job on
   ubuntu. Record the first numbers in the Notes below. Commit: `chore: measure core footprint`.
-- [ ] **13. Close out.** Spec reflects what was built (02, 03, roadmap M0 marked done),
+- [x] **13. Close out.** Spec reflects what was built (02, 03, roadmap M0 marked done),
   non-obvious details moved to `docs/agent-reference.md` and linked from AGENTS.md, AGENTS
   status line updated ("M0 done"), this plan set to `done`. Verify: all checks.
   Commit: `docs: close M0`.

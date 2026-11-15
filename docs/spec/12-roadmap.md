@@ -5,6 +5,9 @@ framework; later milestones add plugins on top of it.
 
 ## M0 — Protocol and kernel
 
+**Status:** built. The exit test (`crates/kumikit-core/tests/exit_m0.rs`) passes on
+Linux; macOS and Windows are first checked by CI.
+
 - Cargo workspace with `kumikit-protocol`, `kumikit-kernel`, `kumikit-core`.
 - `kumikit serve` on the local socket (Linux, macOS) and named pipe (Windows); `core.hello`, `workspace.*`, `thread.*`,
   `events.subscribe` with replay from a cursor.
