@@ -95,7 +95,7 @@ Each step ends with the Verify checks (`sh scripts/check-docs.sh`, then from ste
   recovery per Q8. Verify: tests for seq starting at 1 and contiguous, replay from any
   cursor, snapshot equals fold of the log, recovery of an open turn after reopen.
   Commit: `feat: add kernel domain model and event log`.
-- [ ] **8. Provider trait and turn runner.** `crates/kumikit-kernel/src/provider.rs`:
+- [x] **8. Provider trait and turn runner.** `crates/kumikit-kernel/src/provider.rs`:
   an async trait mirroring the `kumikit:provider` WIT in [05-providers](../spec/05-providers.md)
   (`list_models`, `start_session`, `send`, `respond_approval`, `cancel`, `end_session`) so
   M1 can swap in a WASM adapter. Providers emit through an `EventSink` that accepts only

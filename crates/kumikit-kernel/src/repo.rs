@@ -254,6 +254,11 @@ pub fn append_event(
     event: &ThreadEvent,
 ) -> KernelResult<u64> {
     let row = thread_require(conn, thread)?;
+    if row.archived && matches!(event, ThreadEvent::TurnStarted(_)) {
+        return Err(KernelError::Conflict(format!(
+            "thread {thread} is archived"
+        )));
+    }
     let seq = row.head + 1;
     let seq_i = to_i64(seq)?;
 

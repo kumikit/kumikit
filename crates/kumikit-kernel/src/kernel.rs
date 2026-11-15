@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use kumikit_protocol::ThreadEvent;
 use kumikit_protocol::event::{ApprovalResolved, TurnEnded};
@@ -15,8 +15,10 @@ use tokio::sync::watch;
 use crate::clock::{Clock, IdGen, SystemClock, UlidGen};
 use crate::error::{KernelError, KernelResult};
 use crate::fold::Fold;
+use crate::provider::Provider;
 use crate::repo::{self, StoredEvent};
 use crate::store::{MIGRATIONS, Store, StoreError};
+use crate::turns::ThreadRun;
 
 /// Error text of `turn.ended` for turns a previous run of the core left open.
 pub const CORE_RESTARTED: &str = "core_restarted";
@@ -59,6 +61,18 @@ pub(crate) struct Inner {
     pub(crate) ids: Arc<dyn IdGen>,
     /// Last committed seq per thread, bumped after each commit. Subscriptions wait on it.
     heads: Mutex<HashMap<ThreadId, watch::Sender<u64>>>,
+    /// Registered providers.
+    providers: Mutex<Vec<Arc<dyn Provider>>>,
+    /// Threads with a running turn.
+    runs: Mutex<HashMap<ThreadId, ThreadRun>>,
+    /// Provider session per thread, started on first use in this process.
+    sessions: Mutex<HashMap<ThreadId, String>>,
+}
+
+/// Locks a mutex, recovering from poisoning. Every kernel mutex guards plain maps or
+/// lists that stay consistent even if a holder panicked mid-update.
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|p| p.into_inner())
 }
 
 impl Kernel {
@@ -74,21 +88,37 @@ impl Kernel {
                 clock: config.clock,
                 ids: config.ids,
                 heads: Mutex::new(HashMap::new()),
+                providers: Mutex::new(Vec::new()),
+                runs: Mutex::new(HashMap::new()),
+                sessions: Mutex::new(HashMap::new()),
             }),
         };
         kernel.recover().await?;
         Ok(kernel)
     }
 
-    /// Ends subscriptions and closes the database after queued writes.
+    /// Abandons running turns (the next start ends them as `core_restarted`), ends
+    /// provider sessions and subscriptions, and closes the database after queued writes.
     pub async fn close(&self) {
+        self.stop_turns().await;
         self.lock_heads().clear();
         self.inner.store.close().await;
     }
 
-    fn lock_heads(&self) -> std::sync::MutexGuard<'_, HashMap<ThreadId, watch::Sender<u64>>> {
-        // The map holds only watch senders, which stay valid after a panic elsewhere.
-        self.inner.heads.lock().unwrap_or_else(|p| p.into_inner())
+    fn lock_heads(&self) -> MutexGuard<'_, HashMap<ThreadId, watch::Sender<u64>>> {
+        lock(&self.inner.heads)
+    }
+
+    pub(crate) fn lock_providers(&self) -> MutexGuard<'_, Vec<Arc<dyn Provider>>> {
+        lock(&self.inner.providers)
+    }
+
+    pub(crate) fn lock_runs(&self) -> MutexGuard<'_, HashMap<ThreadId, ThreadRun>> {
+        lock(&self.inner.runs)
+    }
+
+    pub(crate) fn lock_sessions(&self) -> MutexGuard<'_, HashMap<ThreadId, String>> {
+        lock(&self.inner.sessions)
     }
 
     /// A new id from the configured generator.
@@ -178,8 +208,8 @@ impl Kernel {
 
     // ---- threads ----
 
-    /// Creates a thread with a concrete provider and model.
-    pub async fn thread_insert(
+    /// Creates a thread with a concrete provider and model (see `thread_create`).
+    pub(crate) async fn thread_insert(
         &self,
         workspace: &WorkspaceId,
         provider: String,
@@ -291,8 +321,13 @@ impl Kernel {
             .await
     }
 
-    /// Archives a thread. Fails with `conflict` while a turn runs.
+    /// Archives a thread. Fails with `conflict` while a turn runs or waits.
     pub async fn thread_archive(&self, id: &ThreadId) -> KernelResult<()> {
+        if self.has_run(id) {
+            return Err(KernelError::Conflict(format!(
+                "thread {id} has a running turn"
+            )));
+        }
         let id = id.clone();
         self.inner
             .store
