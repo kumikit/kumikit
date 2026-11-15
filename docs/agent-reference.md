@@ -50,6 +50,11 @@ is about the code.
 - **Kernel close abandons turns.** `Kernel::close` drops running turns without writing
   `turn.ended`; the next `Kernel::open` ends them as `core_restarted`. Tests rely on this
   being deterministic.
+- **Process supervisor** (`process/`). A child's tree is killed when its last `Child`
+  handle drops, when its owner is killed, or at shutdown. Tests prove a whole tree died
+  by reading stdout to EOF: `fake-acp-agent tree` gives a grandchild the same stdout, so
+  EOF means every holder exited (no sleeps). The core's environment is injected
+  (`SupervisorConfig::env`), so tests control `PATH`.
 - **Time and ids are injected** (`KernelConfig { clock, ids }`); tests use `StepClock`
   and `SequentialIds`.
 
@@ -65,8 +70,8 @@ is about the code.
   connections; the test harness (`tests/support`) waits on that line instead of
   sleeping.
 - **`unsafe` lives only in `transport/windows.rs`** (Win32 security descriptor for the
-  pipe DACL). The workspace lint is `deny`, allowed on that module alone. Each block has
-  a `SAFETY:` comment.
+  pipe DACL) and `kumikit-kernel/src/process/windows.rs` (job objects). The workspace
+  lint is `deny`, allowed on those modules alone. Each block has a `SAFETY:` comment.
 - **Subscription result before events.** `rpc.rs` queues the `events.subscribe` result,
   then starts the pump (`Conn::deferred`). Starting the pump inside the handler would
   let an event overtake the result.

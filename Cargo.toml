@@ -7,6 +7,7 @@ members = [
   "crates/kumikit-core",
   "sdk/rust",
   "sdk/rust-provider",
+  "test-plugins/fake-acp-agent",
   "test-plugins/hello",
   "test-plugins/probe",
   "test-plugins/kumikit-test-plugins",

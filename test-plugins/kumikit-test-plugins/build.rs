@@ -17,6 +17,24 @@ const GUESTS: &[(&str, &str)] = &[
     ("kumikit-test-probe", "kumikit_test_probe"),
 ];
 
+/// Host programs: (package, binary name).
+const PROGRAMS: &[(&str, &str)] = &[("kumikit-fake-acp-agent", "fake-acp-agent")];
+
+/// Removes the outer build's settings (flags, target, profile, jobserver) so the nested
+/// cargo builds as if run from a shell.
+fn clear_cargo_env(cmd: &mut Command) {
+    for (key, _) in env::vars_os() {
+        let key = key.to_string_lossy();
+        let outer = (key.starts_with("CARGO_") && key != "CARGO_HOME")
+            || key == "RUSTFLAGS"
+            || key == "RUSTC_WRAPPER"
+            || key == "RUSTC_WORKSPACE_WRAPPER";
+        if outer {
+            cmd.env_remove(key.as_ref());
+        }
+    }
+}
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("set by cargo"));
     let root = manifest_dir
@@ -66,6 +84,27 @@ fn main() {
              `rustup target add wasm32-wasip2` (rust-toolchain.toml lists it), or your \
              distribution's wasm package for a system toolchain."
         );
+    }
+
+    // Helper programs for the host.
+    let mut cmd = Command::new(env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
+    cmd.current_dir(&root)
+        .args(["build", "--locked", "--release"])
+        .arg("--target-dir")
+        .arg(&target_dir);
+    for (package, _) in PROGRAMS {
+        cmd.args(["-p", package]);
+    }
+    clear_cargo_env(&mut cmd);
+    let status = cmd.status().expect("running cargo for the test programs");
+    assert!(status.success(), "building the test helper programs failed");
+    for (_, bin) in PROGRAMS {
+        let path = target_dir
+            .join("release")
+            .join(format!("{bin}{}", env::consts::EXE_SUFFIX));
+        assert!(path.is_file(), "{} is missing", path.display());
+        let var = format!("KUMIKIT_TEST_BIN_{}", bin.replace('-', "_").to_uppercase());
+        println!("cargo:rustc-env={var}={}", path.display());
     }
 
     let out = target_dir.join("wasm32-wasip2").join("release");

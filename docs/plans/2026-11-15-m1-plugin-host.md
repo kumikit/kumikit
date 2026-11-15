@@ -334,7 +334,7 @@ Steps marked *(CI)* contain macOS/Windows code that is only compiled and run in 
   `emit`/`request_approval`, `export_provider!`). Verify: guard test fails on an edit;
   guest compiles for wasm32-wasip2 and natively. Commit: `feat: add kumikit WIT packages
   and guest SDK`.
-- [ ] **4. Process supervisor.** `crates/kumikit-kernel/src/process/` (`mod.rs`, `unix.rs`,
+- [x] **4. Process supervisor.** `crates/kumikit-kernel/src/process/` (`mod.rs`, `unix.rs`,
   `windows.rs`), `Grants`. Tests: unlisted program, path-qualified program, cwd outside
   the workspace and via a symlink, no acting workspace, env allowlist and loader-var
   refusal, secret-env undeclared, resolved path recorded, kill on owner kill reaches a
@@ -549,3 +549,7 @@ live smoke test's agent.
   component. The approval `decision` enum lives in `kumikit:host/events` (the host
   package cannot depend on the provider package). WIT keywords `result` and `list` are
   escaped as `%result` and `%list`.
+- Step 4: the supervisor keeps one process tree per child (a process group, or a job
+  object on Windows), not per owner, so `child.kill` and dropping a child's last handle
+  kill just that tree; killing an owner kills each of its trees concurrently. The
+  Windows job-object module was not compiled locally; CI is its first build.
