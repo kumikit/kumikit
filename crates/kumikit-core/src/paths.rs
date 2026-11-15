@@ -73,17 +73,19 @@ pub fn default_address(platform: Platform, env: Env<'_>, uid: u32) -> String {
             format!(r"\\.\pipe\kumikit-{safe}")
         }
         Platform::Linux | Platform::MacOs => {
+            // Unix paths are built as strings with `/`, not `PathBuf::join`, so the result
+            // does not depend on the separator of the machine computing it.
             let dir = match env("XDG_RUNTIME_DIR") {
-                Some(run) => PathBuf::from(run).join("kumikit"),
+                Some(run) => format!("{}/kumikit", run.trim_end_matches('/')),
                 None => {
                     let base = match platform {
                         Platform::MacOs => env("TMPDIR").unwrap_or_else(|| "/tmp".into()),
                         _ => "/tmp".into(),
                     };
-                    PathBuf::from(base).join(format!("kumikit-{uid}"))
+                    format!("{}/kumikit-{uid}", base.trim_end_matches('/'))
                 }
             };
-            dir.join("core.sock").to_string_lossy().into_owned()
+            format!("{dir}/core.sock")
         }
     }
 }
