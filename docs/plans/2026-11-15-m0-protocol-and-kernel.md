@@ -270,7 +270,9 @@ platforms ship in M0 (see the resolution under it).
   `#![allow(clippy::unwrap_used, clippy::expect_used)]`.
 - Step 10: the Windows pipe code (`transport/windows.rs`) is written against the
   windows-sys 0.61 and tokio 1.54 signatures read from their sources, but it has not
-  been compiled here; the first Windows CI run is its first build.
+  been compiled here; the first Windows CI run is its first build. (Update: it built and
+  passed on the first run. The only Windows failure was a test exposing that Unix
+  socket paths were joined with the host's separator, fixed in `paths.rs`.)
 - Gotcha: tempfile creates directories with the umask's mode (0755 here), and the core
   refuses non-private socket and data directories, so tests chmod their temp dirs to 0700.
 - Step 11: the exit tests passed 50 of 50 local runs. Scrubbed recordings replaced the
