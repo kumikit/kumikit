@@ -146,7 +146,7 @@ Each step ends with the Verify checks (`sh scripts/check-docs.sh`, then from ste
   transcript equals `thread.get` folded state. These recordings become the step 5
   fixtures. Verify: `cargo test --workspace`, run 50× in a loop locally to check for
   flakiness. Commit: `test: add M0 exit-criteria test`.
-- [ ] **12. Footprint.** `scripts/footprint.sh`: builds `--release`, starts `kumikit
+- [x] **12. Footprint.** `scripts/footprint.sh`: builds `--release`, starts `kumikit
   serve` with a fresh temp data dir five times, measures time from spawn to the `ready`
   line (cold start, budget ≤ 300 ms) and, after a hello and one idle second, resident
   memory from `/proc/<pid>/status` `VmRSS` on Linux or `ps -o rss=` on macOS (budget ≤
@@ -275,4 +275,8 @@ platforms ship in M0 (see the resolution under it).
   refuses non-private socket and data directories, so tests chmod their temp dirs to 0700.
 - Step 11: the exit tests passed 50 of 50 local runs. Scrubbed recordings replaced the
   first entry of 17 fixture files (provenance in the fixtures README).
-- Footprint numbers: _to be filled in at step 12_.
+- Step 12: written as an `#[ignore]`d Rust test (`crates/kumikit-core/tests/footprint.rs`)
+  wrapped by `scripts/footprint.sh`, not a shell script, so timing and process handling
+  are portable. First numbers (Linux x86_64, release, no plugins): cold start to `ready`
+  2 ms (budget 300 ms), idle RSS 7.1 MB (budget 30 MB), release binary 4.2 MiB. Windows
+  RSS is not measured yet.

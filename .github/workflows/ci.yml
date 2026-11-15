@@ -33,6 +33,13 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
+  footprint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: sh scripts/footprint.sh
+
   protocol-ts:
     runs-on: ubuntu-latest
     steps:

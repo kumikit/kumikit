@@ -42,6 +42,8 @@ Now:
 - `cargo test -p kumikit-protocol` also fails when generated TypeScript is stale;
   `KUMIKIT_BLESS=1 cargo test -p kumikit-protocol` regenerates `web/protocol/`.
 - `npx -p typescript@7.0.2 tsc --noEmit -p web/protocol` when protocol types change.
+- `sh scripts/footprint.sh`: core cold start and idle memory against the budgets
+  (release build; CI runs it on Linux).
 
 From M2:
 - `npm run check` (svelte-check + tsc) and `npm test` (Vitest) in `web/`

@@ -76,6 +76,17 @@ pub struct Core {
 impl Core {
     /// Starts the core and waits for its `ready` line.
     pub async fn start(dirs: &Dirs) -> Core {
+        Core::start_timed(dirs).await.0
+    }
+
+    /// The process id.
+    pub fn pid(&self) -> u32 {
+        self.child.id().expect("core is running")
+    }
+
+    /// Starts the core; also returns the time from spawn to the `ready` line.
+    pub async fn start_timed(dirs: &Dirs) -> (Core, Duration) {
+        let started = std::time::Instant::now();
         let mut child = Command::new(env!("CARGO_BIN_EXE_kumikit"))
             .arg("serve")
             .arg("--socket")
@@ -94,8 +105,9 @@ impl Core {
             .await
             .unwrap()
             .expect("kumikit exited before it was ready");
+        let elapsed = started.elapsed();
         assert_eq!(line, format!("ready {}", dirs.address));
-        Core { child }
+        (Core { child }, elapsed)
     }
 
     /// Stops the core: SIGTERM on Unix (graceful), a hard kill on Windows.
