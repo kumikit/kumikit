@@ -21,6 +21,8 @@
 //! - `socket`: tries to open a TCP connection.
 //! - `trap`: panics. `spin`: loops forever. `oom <mib>`: allocates that much.
 //! - `hang`: starts `fake-acp-agent hang` and blocks reading its stdout (until cancel).
+//! - `ignore-cancel`: like `hang`, but keeps reading after `cancelled`; it returns only
+//!   when the child's stdout closes (the host killed it after the grace period).
 
 use kumikit_provider::{
     Error, ErrorCode, Event, Lifecycle, Model, Provider, ProviderRef, SessionConfig, SpawnRequest,
@@ -225,6 +227,17 @@ fn probe(command: &str) -> Result<(), Error> {
             let child = process::spawn(&request("fake-acp-agent", &["hang"]))?;
             // Blocks until the host cancels the turn (or the child dies).
             child.read_stdout(1).map(|_| ())
+        }
+        ["ignore-cancel"] => {
+            let child = process::spawn(&request("fake-acp-agent", &["hang"]))?;
+            loop {
+                match child.read_stdout(1) {
+                    Ok(None) => return Ok(()),
+                    Ok(Some(_)) => {}
+                    Err(e) if e.code == ErrorCode::Cancelled => {}
+                    Err(e) => return Err(e),
+                }
+            }
         }
         _ => Err(fail(
             ErrorCode::InvalidArgument,

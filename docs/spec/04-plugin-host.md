@@ -186,7 +186,8 @@ installed → enabled → active ⇄ idle → unloaded
 - **active**: instantiated because an activation trigger fired. A contribution activates
   its plugin when it is used (a thread uses one of its providers); `activation.on` adds
   `startup` and, later, `command:<id>`, `workspace`, `rpc` and `schedule:<cron>`.
-  `activate` runs once per instance.
+  `activate` runs once per instance. `startup` activation runs in the background, so it
+  never delays the core accepting connections.
 - **idle → unloaded**: an instance with no call in progress, no running turn and no call
   for 10 minutes is dropped, after `deactivate` (given 2 s). Its processes are killed and
   its session, if any, resumes on the next turn. State that must survive goes to `kv`.
@@ -226,7 +227,8 @@ provider-backends = [{ key = "acp", schema = "acp.schema.json" }]
   schema when the contributing plugin is enabled and passed to the backend with every call.
 - A delegated session runs the backend's code with the contributing plugin's grants.
 - An entry without a backend key is served by its own plugin's component.
-- If no enabled plugin serves the key, the provider is unavailable and not listed.
+- If no enabled plugin serves the key, or the entry's table fails the backend's schema
+  (logged as a warning), the provider is unavailable and not listed.
 
 ## Sidecar plugins (later)
 

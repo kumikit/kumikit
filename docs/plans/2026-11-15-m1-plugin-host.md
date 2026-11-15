@@ -362,7 +362,7 @@ Steps marked *(CI)* contain macOS/Windows code that is only compiled and run in 
   outside the data dir fails, sockets fail, a component importing `wasi:http` is refused
   at enable; limits: `trap`, `spin` (short injected timeout), `oom`; kv round-trip.
   Commit: `feat: run WASM plugins with permission-checked host imports`.
-- [ ] **8. Lifecycle and the provider adapter.** States, activation (implicit, `startup`),
+- [x] **8. Lifecycle and the provider adapter.** States, activation (implicit, `startup`),
   idle unload, failure backoff, `WasmProvider` (control and session instances, approvals
   through the blocking import with early answers kept, cancel with grace then kill,
   `end-session`), delegated providers and qualified ids. Tests (paused tokio clock): idle
@@ -579,3 +579,8 @@ live smoke test's agent.
   plugin covers each permission, the sandbox (data directory as `/data`, no sockets, a
   `wasi:http` import refused at enable) and traps, memory and time limits. Gotcha found:
   the epoch deadline callback is a host call to the call hook (agent reference).
+- Step 8: `PluginHost` (`lifecycle.rs`) registers providers from manifests and
+  reconciles them on every change; idle unload and backoff use an injected clock and
+  `unload_idle(now)`, so tests never sleep. Found and fixed a race: `disable` during a
+  session's start left an instance behind. Not tested: the race itself (no
+  deterministic way to hit the window).
