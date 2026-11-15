@@ -162,7 +162,7 @@ impl Kernel {
     }
 
     /// The current time from the configured clock.
-    pub(crate) fn now(&self) -> Timestamp {
+    pub fn now(&self) -> Timestamp {
         self.inner.clock.now()
     }
 

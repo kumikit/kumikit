@@ -559,3 +559,10 @@ live smoke test's agent.
   Sessions remember their provider, so `unregister_provider` can cancel that provider's
   turns and forget its sessions without a database read. The data-directory lock is in
   `kumikit-core` (`lock.rs`), taken before the socket is bound.
+- Step 6 (partly done): manifest parsing is strict (unknown fields refused) and every
+  semantic rule has a test; packages pack reproducibly and unpack defensively;
+  `Manager` installs, enables, disables and removes plugins over the kernel's records.
+  Open: validating against the JSON Schema. Both Rust validators (`jsonschema`, `boon`)
+  depend on `fluent-uri`, licensed MIT-0, which is not on the AGENTS.md allowlist;
+  waiting for a decision. Backend entries (`acp = { … }`) also need a schema validator
+  to be checked against the backend's schema at enable.
