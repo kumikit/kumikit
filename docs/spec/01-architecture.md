@@ -48,7 +48,8 @@ web/
   sdk/                   # @kumikit/ui-sdk: types and helpers for UI plugin authors
   protocol/              # @kumikit/protocol: generated from kumikit-protocol, never edited
 sdk/
-  rust/                  # kumikit-plugin crate: guest-side bindings and helpers
+  rust/                  # kumikit-plugin crate: guest bindings for the base world, helpers
+  rust-provider/         # kumikit-provider crate: the provider world, on top of kumikit-plugin
   schema/                # JSON Schema of plugin.toml
 plugins/                 # first-party plugins, built with the public SDKs only
   provider-acp/
@@ -68,7 +69,7 @@ docs/
 kumikit-protocol  ←  kumikit-kernel  ←  kumikit-plugin-host  ←  kumikit-core
 kumikit-protocol  ←  kumikit-shell
 @kumikit/protocol ←  web/kernel, web/sdk
-wit/              ←  kumikit-plugin-host, sdk/rust, plugins/*
+wit/              ←  kumikit-plugin-host, sdk/rust*, plugins/*, test-plugins/*
 ```
 
 - `kumikit-protocol` depends on nothing in the workspace. It has no I/O.

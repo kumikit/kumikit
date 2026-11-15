@@ -328,7 +328,7 @@ Steps marked *(CI)* contain macOS/Windows code that is only compiled and run in 
   generated bindings) and updates this plan if any fails. CI: add `cargo clippy --target
   wasm32-wasip2 -p kumikit-plugin … -- -D warnings`. Verify: all, plus `cargo deny`. *(CI)*
   Commit: `chore: add plugin host crate and WASM guest build`.
-- [ ] **3. WIT packages and SDK bindings.** `wit/kumikit-host@…`, `wit/kumikit-plugin@…`,
+- [x] **3. WIT packages and SDK bindings.** `wit/kumikit-host@…`, `wit/kumikit-plugin@…`,
   `wit/kumikit-provider@…`, `wit/PUBLISHED` + guard test; `kumikit-plugin` generates
   bindings with wit-bindgen and adds safe helpers (`Child` with a line reader,
   `emit`/`request_approval`, `export_provider!`). Verify: guard test fails on an edit;
@@ -539,3 +539,13 @@ live smoke test's agent.
   (the symbol name breaks the linker's version script). The SDK's `export_plugin!`
   therefore expands to nothing off `wasm32`, which keeps native builds and unit tests of
   plugin crates working.
+- Step 3: one SDK crate per world. wit-bindgen's export macros are `#[macro_export]`
+  and named after the world and each exported interface, so two worlds that both export
+  `lifecycle` cannot be generated in one crate, and a cargo feature would be unified
+  across the workspace. `kumikit-plugin` (`sdk/rust`) has the base world;
+  `kumikit-provider` (`sdk/rust-provider`) has the provider world and reuses the base
+  crate's `types`, `log` and `kv` through `with:`. A test checks that the hello component
+  imports no provider interface and that a provider linking both crates is one valid
+  component. The approval `decision` enum lives in `kumikit:host/events` (the host
+  package cannot depend on the provider package). WIT keywords `result` and `list` are
+  escaped as `%result` and `%list`.

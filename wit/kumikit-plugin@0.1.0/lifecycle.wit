@@ -11,8 +11,9 @@ interface lifecycle {
   deactivate: func();
 }
 
-/// The base world: a plugin with no contributions of its own.
+/// The base world: imports every plugin may use, and the lifecycle exports.
 world plugin {
   import kumikit:host/log@0.1.0;
+  import kumikit:host/kv@0.1.0;
   export lifecycle;
 }

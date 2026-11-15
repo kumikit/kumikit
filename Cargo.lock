@@ -903,6 +903,7 @@ dependencies = [
  "kumikit-kernel",
  "kumikit-protocol",
  "kumikit-test-plugins",
+ "sha2",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -922,6 +923,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumikit-provider"
+version = "0.1.0"
+dependencies = [
+ "kumikit-plugin",
+ "wit-bindgen",
+]
+
+[[package]]
 name = "kumikit-test-hello"
 version = "0.1.0"
 dependencies = [
@@ -931,6 +940,13 @@ dependencies = [
 [[package]]
 name = "kumikit-test-plugins"
 version = "0.1.0"
+
+[[package]]
+name = "kumikit-test-probe"
+version = "0.1.0"
+dependencies = [
+ "kumikit-provider",
+]
 
 [[package]]
 name = "lazy_static"

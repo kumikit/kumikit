@@ -82,6 +82,10 @@ major version for at least one kernel major release. `wit/PUBLISHED` records a h
 each published directory, and a test fails if one changes. The packages are `0.x` until
 third parties can publish (M4); they freeze at 1.0.0.
 
+Rust guests use one SDK crate per world: `kumikit-plugin` (`sdk/rust`, the base world)
+and `kumikit-provider` (`sdk/rust-provider`, the provider world, sharing the base crate's
+types). A component imports only the interfaces its code calls.
+
 | Package | What it is |
 |---|---|
 | `kumikit:host` | Host imports, each gated by permissions: `types`, `log`, `kv`, `secrets`, `events`, `process`. Later versions add `settings`, `http`, `files`, `timers`. |

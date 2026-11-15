@@ -32,7 +32,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       # Guest crates (SDK, plugins, test plugins) also build for the plugin target.
-      - run: cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-test-hello -- -D warnings
+      - run: cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-test-hello -p kumikit-test-probe -- -D warnings
       - run: cargo test --workspace --no-fail-fast
 
   footprint:

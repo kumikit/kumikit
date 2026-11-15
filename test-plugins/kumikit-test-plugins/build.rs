@@ -12,7 +12,10 @@ use std::path::PathBuf;
 use std::process::Command;
 
 /// Guest packages built for wasm32-wasip2: (package, output file stem).
-const GUESTS: &[(&str, &str)] = &[("kumikit-test-hello", "kumikit_test_hello")];
+const GUESTS: &[(&str, &str)] = &[
+    ("kumikit-test-hello", "kumikit_test_hello"),
+    ("kumikit-test-probe", "kumikit_test_probe"),
+];
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("set by cargo"));

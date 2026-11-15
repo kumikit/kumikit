@@ -4,3 +4,7 @@
 /// The smallest plugin (`test-plugins/hello`): implements `kumikit:plugin/plugin` and
 /// logs on activation.
 pub const HELLO_WASM: &str = env!("KUMIKIT_TEST_WASM_KUMIKIT_TEST_HELLO");
+
+/// A deterministic provider (`test-plugins/probe`): implements
+/// `kumikit:provider/plugin`; the model selects a scenario.
+pub const PROBE_WASM: &str = env!("KUMIKIT_TEST_WASM_KUMIKIT_TEST_PROBE");

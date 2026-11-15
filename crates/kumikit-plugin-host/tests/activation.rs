@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stderr)]
-//! Step 2 spike: the hello plugin loads through the pooling allocator, the compile
+//! The hello plugin loads through the pooling allocator, the compile
 //! cache, the limiter and the epoch callback, and its activation is timed.
 
 use std::time::{Duration, Instant};
@@ -8,6 +8,8 @@ use kumikit_plugin_host::engine::{self, EngineConfig, HasLimits, Limits, PluginE
 use wasmtime::Store;
 use wasmtime::component::{Component, Linker, ResourceTable};
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
+
+use kumikit::host::types::{Error, ErrorCode};
 
 wasmtime::component::bindgen!({
     path: ["../../wit/kumikit-host@0.1.0", "../../wit/kumikit-plugin@0.1.0"],
@@ -39,6 +41,28 @@ impl HasLimits for State {
 }
 
 impl kumikit::host::types::Host for State {}
+
+fn unused() -> Error {
+    Error {
+        code: ErrorCode::Internal,
+        message: "not in this test".into(),
+    }
+}
+
+impl kumikit::host::kv::Host for State {
+    async fn get(&mut self, _key: String) -> Result<Option<Vec<u8>>, Error> {
+        Err(unused())
+    }
+    async fn set(&mut self, _key: String, _value: Vec<u8>) -> Result<(), Error> {
+        Err(unused())
+    }
+    async fn delete(&mut self, _key: String) -> Result<(), Error> {
+        Err(unused())
+    }
+    async fn list(&mut self, _prefix: String) -> Result<Vec<String>, Error> {
+        Err(unused())
+    }
+}
 impl kumikit::host::log::Host for State {
     async fn log(&mut self, _level: kumikit::host::log::Level, message: String) {
         self.logged.push(message);
