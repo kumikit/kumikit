@@ -33,6 +33,6 @@ Decisions behind the spec are recorded in [../decisions/](../decisions/).
 
 ## Status
 
-Design phase: no code exists yet. Interfaces shown here (WIT, JSON, TOML) are the
+M0 (protocol and kernel) is being built. Interfaces shown here (WIT, JSON, TOML) are the
 intended shape, not frozen APIs. They freeze at version 1.0 of each interface; until then
 they may change, with the change recorded in the spec and, when significant, in an ADR.

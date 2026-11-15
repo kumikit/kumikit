@@ -12,7 +12,8 @@ spec, not here.
 
 ## Status
 
-Design phase: the spec exists, the code does not. Build in milestone order
+M0 (protocol and kernel) in progress, see [the plan](docs/plans/2026-11-15-m0-protocol-and-kernel.md).
+Build in milestone order
 ([roadmap](docs/spec/12-roadmap.md)); do not start a later milestone's code before the
 earlier one's exit criteria pass.
 
@@ -35,10 +36,11 @@ earlier one's exit criteria pass.
 
 Now:
 - `sh scripts/check-docs.sh`: AGENTS.md size, and every relative Markdown link resolves.
-
-From M0 (add each command here when it starts to exist):
 - `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
+- `cargo deny check licenses bans sources` (CI runs it; locally when dependencies change)
+
+From M0 (add each command here when it starts to exist):
 - `cargo test -p kumikit-protocol` also fails when generated TypeScript is stale.
 From M2:
 - `npm run check` (svelte-check + tsc) and `npm test` (Vitest) in `web/`

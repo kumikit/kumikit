@@ -40,7 +40,7 @@ Each step ends with the Verify checks (`sh scripts/check-docs.sh`, then from ste
   restart recovery, durability, derived thread columns), `12-roadmap.md` (provider
   wording: "a deterministic scripted provider … deleted in M1"). Verify: check-docs.
   Commit: `docs: settle M0 protocol and kernel details`.
-- [ ] **2. Workspace skeleton.** `Cargo.toml` (workspace, resolver 3, `[workspace.package]`
+- [x] **2. Workspace skeleton.** `Cargo.toml` (workspace, resolver 3, `[workspace.package]`
   edition 2024, `license = "MIT"`, `rust-version`; `[workspace.lints]`: `unsafe_code =
   "deny"` (allowed only in the Windows pipe-ACL module, step 10), clippy `unwrap_used`/`expect_used`/`dbg_macro`/`todo` = warn, which
   `-D warnings` turns into errors), `clippy.toml` (`allow-unwrap-in-tests`,
