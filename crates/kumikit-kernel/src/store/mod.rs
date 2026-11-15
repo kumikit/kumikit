@@ -59,16 +59,17 @@ trait WriteJob: Send {
 
 type Job = Box<dyn WriteJob>;
 
-struct TypedJob<R, F> {
+struct TypedJob<R, E, F> {
     work: Option<F>,
-    result: Option<StoreResult<R>>,
-    reply: oneshot::Sender<StoreResult<R>>,
+    result: Option<Result<R, E>>,
+    reply: oneshot::Sender<Result<R, E>>,
 }
 
-impl<R, F> WriteJob for TypedJob<R, F>
+impl<R, E, F> WriteJob for TypedJob<R, E, F>
 where
     R: Send,
-    F: FnOnce(&Connection) -> StoreResult<R> + Send,
+    E: From<StoreError> + Send,
+    F: FnOnce(&Connection) -> Result<R, E> + Send,
 {
     fn run(&mut self, conn: &Connection) -> bool {
         let Some(work) = self.work.take() else {
@@ -82,9 +83,9 @@ where
 
     fn finish(self: Box<Self>, outcome: StoreResult<()>) {
         let result = match (outcome, self.result) {
-            (Err(e), _) => Err(e),
+            (Err(e), _) => Err(E::from(e)),
             (Ok(()), Some(result)) => result,
-            (Ok(()), None) => Err(StoreError::Task("write job did not run".into())),
+            (Ok(()), None) => Err(E::from(StoreError::Task("write job did not run".into()))),
         };
         let _ = self.reply.send(result);
     }
@@ -144,12 +145,13 @@ impl Store {
     /// Runs `f` on the writer connection, inside a transaction shared with other queued
     /// writes. Returns after the transaction has committed. If `f` fails, only its own
     /// changes are rolled back.
-    pub async fn write<R, F>(&self, f: F) -> StoreResult<R>
+    pub async fn write<R, E, F>(&self, f: F) -> Result<R, E>
     where
         R: Send + 'static,
-        F: FnOnce(&Connection) -> StoreResult<R> + Send + 'static,
+        E: From<StoreError> + Send + 'static,
+        F: FnOnce(&Connection) -> Result<R, E> + Send + 'static,
     {
-        let (tx, rx) = oneshot::channel::<StoreResult<R>>();
+        let (tx, rx) = oneshot::channel::<Result<R, E>>();
         let job: Job = Box::new(TypedJob {
             work: Some(f),
             result: None,
@@ -158,21 +160,22 @@ impl Store {
         self.inner
             .writer
             .send(Command::Job(job))
-            .map_err(|_| StoreError::Closed)?;
-        rx.await.map_err(|_| StoreError::Closed)?
+            .map_err(|_| E::from(StoreError::Closed))?;
+        rx.await.map_err(|_| E::from(StoreError::Closed))?
     }
 
     /// Runs `f` on a read-only connection on the blocking pool.
-    pub async fn read<R, F>(&self, f: F) -> StoreResult<R>
+    pub async fn read<R, E, F>(&self, f: F) -> Result<R, E>
     where
         R: Send + 'static,
-        F: FnOnce(&Connection) -> StoreResult<R> + Send + 'static,
+        E: From<StoreError> + Send + 'static,
+        F: FnOnce(&Connection) -> Result<R, E> + Send + 'static,
     {
         let inner = Arc::clone(&self.inner);
         tokio::task::spawn_blocking(move || {
             let conn = match inner.lock_readers().pop() {
                 Some(c) => c,
-                None => open_reader(&inner.path)?,
+                None => open_reader(&inner.path).map_err(E::from)?,
             };
             let result = f(&conn);
             let mut pool = inner.lock_readers();
@@ -182,7 +185,7 @@ impl Store {
             result
         })
         .await
-        .map_err(|e| StoreError::Task(e.to_string()))?
+        .map_err(|e| E::from(StoreError::Task(e.to_string())))?
     }
 
     /// Stops the writer after the jobs already queued, and waits for it. Later calls to
@@ -301,12 +304,12 @@ mod tests {
     async fn write_then_read() {
         let dir = tempfile::tempdir().unwrap();
         let store = open(&dir);
-        store
-            .write(|c| Ok(c.execute("INSERT INTO t (v) VALUES ('a')", [])?))
+        let _: usize = store
+            .write(|c| Ok::<_, StoreError>(c.execute("INSERT INTO t (v) VALUES ('a')", [])?))
             .await
             .unwrap();
         let n: i64 = store
-            .read(|c| Ok(c.query_row("SELECT count(*) FROM t", [], |r| r.get(0))?))
+            .read(|c| Ok::<_, StoreError>(c.query_row("SELECT count(*) FROM t", [], |r| r.get(0))?))
             .await
             .unwrap();
         assert_eq!(n, 1);
@@ -321,7 +324,8 @@ mod tests {
             c.execute("INSERT INTO t (v) VALUES ('bad')", [])?;
             Err::<(), _>(StoreError::Corrupt("boom".into()))
         });
-        let good = store.write(|c| Ok(c.execute("INSERT INTO t (v) VALUES ('good')", [])?));
+        let good = store
+            .write(|c| Ok::<_, StoreError>(c.execute("INSERT INTO t (v) VALUES ('good')", [])?));
         let (bad, good) = tokio::join!(bad, good);
         assert!(matches!(bad, Err(StoreError::Corrupt(_))));
         good.unwrap();
@@ -329,7 +333,7 @@ mod tests {
             .read(|c| {
                 let mut s = c.prepare("SELECT v FROM t ORDER BY id")?;
                 let rows = s.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
-                Ok(rows)
+                Ok::<_, StoreError>(rows)
             })
             .await
             .unwrap();
@@ -344,15 +348,19 @@ mod tests {
         let writes = (0..200).map(|i| {
             let s = store.clone();
             tokio::spawn(async move {
-                s.write(move |c| Ok(c.execute("INSERT INTO t (v) VALUES (?1)", [i.to_string()])?))
-                    .await
+                s.write(move |c| {
+                    Ok::<_, StoreError>(
+                        c.execute("INSERT INTO t (v) VALUES (?1)", [i.to_string()])?,
+                    )
+                })
+                .await
             })
         });
         for w in writes.collect::<Vec<_>>() {
             w.await.unwrap().unwrap();
         }
         let n: i64 = store
-            .read(|c| Ok(c.query_row("SELECT count(*) FROM t", [], |r| r.get(0))?))
+            .read(|c| Ok::<_, StoreError>(c.query_row("SELECT count(*) FROM t", [], |r| r.get(0))?))
             .await
             .unwrap();
         assert_eq!(n, 200);
@@ -365,7 +373,7 @@ mod tests {
         let store = open(&dir);
         let (mode, sync, fk): (String, i64, i64) = store
             .write(|c| {
-                Ok((
+                Ok::<_, StoreError>((
                     c.query_row("PRAGMA journal_mode", [], |r| r.get(0))?,
                     c.query_row("PRAGMA synchronous", [], |r| r.get(0))?,
                     c.query_row("PRAGMA foreign_keys", [], |r| r.get(0))?,
@@ -384,7 +392,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = open(&dir);
         let r = store
-            .read(|c| Ok(c.execute("INSERT INTO t (v) VALUES ('x')", [])?))
+            .read(|c| Ok::<_, StoreError>(c.execute("INSERT INTO t (v) VALUES ('x')", [])?))
             .await;
         assert!(r.is_err());
         store.close().await;
@@ -395,7 +403,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = open(&dir);
         store.close().await;
-        let r = store.write(|_| Ok(())).await;
+        let r: StoreResult<()> = store.write(|_| Ok(())).await;
         assert!(matches!(r, Err(StoreError::Closed)));
     }
 }

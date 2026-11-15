@@ -87,7 +87,7 @@ Each step ends with the Verify checks (`sh scripts/check-docs.sh`, then from ste
   used. Concurrency: see Choice C. Verify: tests for fresh DB → latest, upgrade from an
   older version using a synthetic migration list, refusal of a newer DB, WAL on.
   Commit: `feat: add kernel storage and migrations`.
-- [ ] **7. Domain model and event log.** `Kernel` service with workspaces and threads,
+- [x] **7. Domain model and event log.** `Kernel` service with workspaces and threads,
   `append(thread, ThreadEvent) -> seq` (one transaction: event row plus derived columns,
   so `threads.status` can never disagree with the log), `read_after(thread, seq, limit)`,
   a per-thread head `watch::Sender<u64>` bumped after commit, and `thread.get` snapshots
