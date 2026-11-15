@@ -359,6 +359,18 @@ impl Manifest {
         semver::Version::parse(&self.version).ok()
     }
 
+    /// The world to link the component as: the provider world if it is declared,
+    /// otherwise the base world. `None` for a plugin without a component.
+    pub fn world(&self) -> Option<&'static str> {
+        let rt = self.runtime.as_ref()?;
+        rt.wasm.as_ref()?;
+        Some(if rt.worlds.iter().any(|w| w == WORLD_PROVIDER) {
+            WORLD_PROVIDER
+        } else {
+            WORLD_PLUGIN
+        })
+    }
+
     /// Whether the plugin has a component.
     pub fn wasm(&self) -> Option<&str> {
         self.runtime.as_ref().and_then(|r| r.wasm.as_deref())

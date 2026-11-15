@@ -113,6 +113,9 @@ pub struct Limits {
     guest_since: Instant,
     /// Whether the last trap was the call-time limit.
     timed_out: bool,
+    /// Set by the deadline callback: the next return to wasm is from that callback, not
+    /// from a host import, and must not reset `guest_since`.
+    in_deadline_callback: bool,
 }
 
 impl Limits {
@@ -123,6 +126,7 @@ impl Limits {
             call_timeout: call_timeout.min(CALL_TIMEOUT_CAP),
             guest_since: Instant::now(),
             timed_out: false,
+            in_deadline_callback: false,
         }
     }
 
@@ -162,8 +166,16 @@ pub trait HasLimits: Send + 'static {
 pub fn apply_limits<T: HasLimits>(store: &mut Store<T>) {
     store.limiter(|data| data.limits());
     store.call_hook(|mut state, hook| {
-        if matches!(hook, CallHook::CallingWasm | CallHook::ReturningFromHost) {
-            state.data_mut().limits().guest_since = Instant::now();
+        let limits = state.data_mut().limits();
+        match hook {
+            CallHook::CallingWasm => limits.guest_since = Instant::now(),
+            // wasmtime runs the deadline callback as a host call too; returning from it
+            // is not the guest getting a fresh budget.
+            CallHook::ReturningFromHost if limits.in_deadline_callback => {
+                limits.in_deadline_callback = false;
+            }
+            CallHook::ReturningFromHost => limits.guest_since = Instant::now(),
+            _ => {}
         }
         Ok(())
     });
@@ -174,6 +186,7 @@ pub fn apply_limits<T: HasLimits>(store: &mut Store<T>) {
             limits.timed_out = true;
             Ok(UpdateDeadline::Interrupt)
         } else {
+            limits.in_deadline_callback = true;
             // Give other tasks a turn on this thread; check again next tick.
             Ok(UpdateDeadline::Yield(1))
         }

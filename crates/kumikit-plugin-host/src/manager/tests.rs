@@ -22,7 +22,12 @@ async fn open(dir: &tempfile::TempDir) -> Manager {
     let kernel = Kernel::open(KernelConfig::new(dir.path().join("core.sqlite")))
         .await
         .unwrap();
-    Manager::open(kernel, Dirs::new(dir.path())).await.unwrap()
+    let dirs = Dirs::new(dir.path());
+    let runtime = Arc::new(Runtime::new(
+        crate::engine::EngineConfig::default(),
+        dirs.cache.clone(),
+    ));
+    Manager::open(kernel, dirs, runtime).await.unwrap()
 }
 
 async fn env() -> Env {
@@ -210,4 +215,81 @@ async fn a_damaged_install_is_listed_with_its_error() {
             .await,
         Err(HostError::Conflict(_))
     ));
+}
+
+fn component_manifest(world: &str) -> String {
+    format!(
+        r#"
+id = "test.probe"
+name = "Probe"
+version = "0.1.0"
+kind = ["provider"]
+api = "^0.1"
+[runtime]
+wasm = "plugin.wasm"
+worlds = ["{world}"]
+[contributes]
+providers = [{{ id = "probe", name = "Probe" }}]
+"#
+    )
+}
+
+#[tokio::test]
+async fn enabling_compiles_the_component() {
+    let e = env().await;
+    let wasm = std::fs::read(kumikit_test_plugins::PROBE_WASM).unwrap();
+    let file = kkp(
+        e.dir.path(),
+        "probe",
+        &component_manifest(crate::manifest::WORLD_PROVIDER),
+        &[("plugin.wasm", &wasm)],
+    );
+    e.manager.install(&file).await.unwrap();
+    assert!(
+        !e.manager.runtime().is_started(),
+        "installing starts no WASM"
+    );
+    e.manager
+        .enable("test.probe", &Grants::default())
+        .await
+        .unwrap();
+    assert!(e.manager.runtime().is_started());
+    e.manager.prepared("test.probe").await.unwrap();
+}
+
+#[tokio::test]
+async fn a_component_that_does_not_match_its_world_cannot_be_enabled() {
+    let e = env().await;
+    // The hello plugin implements only the base world but claims the provider world.
+    let wasm = std::fs::read(kumikit_test_plugins::HELLO_WASM).unwrap();
+    let file = kkp(
+        e.dir.path(),
+        "hello",
+        &component_manifest(crate::manifest::WORLD_PROVIDER),
+        &[("plugin.wasm", &wasm)],
+    );
+    e.manager.install(&file).await.unwrap();
+    let err = e
+        .manager
+        .enable("test.probe", &Grants::default())
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("does not implement"), "{err}");
+    assert_eq!(
+        e.manager.get("test.probe").unwrap().record.state,
+        PluginState::Installed
+    );
+}
+
+#[tokio::test]
+async fn opening_starts_no_wasm() {
+    let e = env().await;
+    let file = kkp(e.dir.path(), "p", DECLARATIVE, &[]);
+    e.manager.install(&file).await.unwrap();
+    e.manager
+        .enable("test.declarative", &grant(&["fake-acp-agent"]))
+        .await
+        .unwrap();
+    let reopened = open(&e.dir).await;
+    assert!(!reopened.runtime().is_started());
 }

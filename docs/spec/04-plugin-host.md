@@ -139,7 +139,7 @@ the grants of the plugin, or of the contributing plugin for a delegated session.
 Plugins get WASI 0.2 with no arguments, no environment variables and no stdin; their
 stdout and stderr go to the core's log at debug level, tagged with the plugin id. Clocks
 and random numbers are available. Sockets are disabled. The only filesystem preopen is the
-plugin's own data directory; workspace access will go through `kumikit:host/files`, which
+plugin's own data directory, which the guest sees as `/data`; workspace access will go through `kumikit:host/files`, which
 enforces `permissions.files`. Outgoing HTTP will use `wasi:http` with the host enforcing
 `permissions.network`; until it is supported, a component that imports it is refused when
 it is enabled.

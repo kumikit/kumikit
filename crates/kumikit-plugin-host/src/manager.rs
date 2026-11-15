@@ -21,6 +21,7 @@ use tokio::sync::watch;
 
 use crate::manifest::{MANIFEST_FILE, Manifest, ManifestError};
 use crate::package::{self, PackageError};
+use crate::runtime::{Prepared, Runtime};
 
 /// A plugin-management failure.
 #[derive(Debug, thiserror::Error)]
@@ -135,6 +136,8 @@ impl PluginView {
 struct Entry {
     record: PluginRecord,
     manifest: Result<Arc<Manifest>, String>,
+    /// The compiled, linked component, once prepared in this process.
+    prepared: Option<Prepared>,
 }
 
 impl Entry {
@@ -157,6 +160,7 @@ pub struct Manager {
 struct Inner {
     kernel: Kernel,
     dirs: Dirs,
+    runtime: Arc<Runtime>,
     entries: Mutex<BTreeMap<String, Entry>>,
     /// One management operation at a time.
     ops: tokio::sync::Mutex<()>,
@@ -177,8 +181,12 @@ async fn blocking<T: Send + 'static>(
 
 impl Manager {
     /// Reads the installed plugins. Manifests are parsed (small TOML files); nothing is
-    /// compiled or instantiated.
-    pub async fn open(kernel: Kernel, dirs: Dirs) -> Result<Manager, HostError> {
+    /// compiled or instantiated, and the runtime is not started.
+    pub async fn open(
+        kernel: Kernel,
+        dirs: Dirs,
+        runtime: Arc<Runtime>,
+    ) -> Result<Manager, HostError> {
         let records = kernel.plugin_list().await?;
         let mut entries = BTreeMap::new();
         for record in records {
@@ -190,12 +198,20 @@ impl Manager {
             if let Err(e) = &manifest {
                 tracing::warn!(plugin = %record.id, error = %e, "installed plugin cannot be loaded");
             }
-            entries.insert(record.id.clone(), Entry { record, manifest });
+            entries.insert(
+                record.id.clone(),
+                Entry {
+                    record,
+                    manifest,
+                    prepared: None,
+                },
+            );
         }
         Ok(Manager {
             inner: Arc::new(Inner {
                 kernel,
                 dirs,
+                runtime,
                 entries: Mutex::new(entries),
                 ops: tokio::sync::Mutex::new(()),
                 changed: watch::Sender::new(0),
@@ -211,6 +227,44 @@ impl Manager {
     /// The kernel.
     pub fn kernel(&self) -> &Kernel {
         &self.inner.kernel
+    }
+
+    /// The WASM runtime.
+    pub fn runtime(&self) -> &Arc<Runtime> {
+        &self.inner.runtime
+    }
+
+    /// The plugin's compiled, linked component; compiled (or loaded from the compile
+    /// cache) on first use in this process. Fails for a plugin without a component.
+    pub async fn prepared(&self, id: &str) -> Result<Prepared, HostError> {
+        let view = self.get(id)?;
+        if let Some(p) = lock(&self.inner.entries)
+            .get(id)
+            .and_then(|e| e.prepared.clone())
+        {
+            return Ok(p);
+        }
+        let manifest = view
+            .manifest
+            .ok_or_else(|| HostError::PluginFailed(format!("plugin {id} cannot be loaded")))?;
+        let (Some(world), Some(wasm)) = (manifest.world(), manifest.wasm()) else {
+            return Err(HostError::Invalid(format!("plugin {id} has no component")));
+        };
+        let path = self
+            .inner
+            .dirs
+            .package(&view.record.id, &view.record.version)
+            .join(wasm);
+        let prepared = self
+            .inner
+            .runtime
+            .prepare(&path, world)
+            .await
+            .map_err(|e| HostError::Invalid(format!("plugin {id}: {e}")))?;
+        if let Some(entry) = lock(&self.inner.entries).get_mut(id) {
+            entry.prepared = Some(prepared.clone());
+        }
+        Ok(prepared)
     }
 
     /// Every installed plugin, by id.
@@ -306,6 +360,7 @@ impl Manager {
         let entry = Entry {
             record,
             manifest: Ok(Arc::new(manifest)),
+            prepared: None,
         };
         let view = entry.view();
         lock(&self.inner.entries).insert(view.record.id.clone(), entry);
@@ -331,6 +386,10 @@ impl Manager {
         }
         if view.record.state == PluginState::Enabled {
             return Ok(view);
+        }
+        // Compile now, so a broken or unsupported component fails here, not on first use.
+        if manifest.wasm().is_some() {
+            self.prepared(id).await?;
         }
         self.inner
             .kernel

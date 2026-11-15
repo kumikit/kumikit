@@ -9,6 +9,8 @@
 //! - `cwd`: prints its working directory and exits.
 //! - `cat`: copies stdin to stdout until EOF.
 //! - `stderr-flood <bytes>`: writes that many bytes to stderr, then `done` to stdout.
+//! - `sleep <ms>`: waits that long, then prints `done` (for tests about time spent in
+//!   the host, not for synchronizing them).
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
 use std::io::{self, Read, Write};
@@ -58,7 +60,13 @@ fn main() -> ExitCode {
             println!("done");
             ExitCode::SUCCESS
         }
-        _ => fail("usage: fake-acp-agent <tree|hang|env|cwd|cat|stderr-flood N>"),
+        Some("sleep") => {
+            let ms: u64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+            std::thread::sleep(std::time::Duration::from_millis(ms));
+            println!("done");
+            ExitCode::SUCCESS
+        }
+        _ => fail("usage: fake-acp-agent <tree|hang|env|cwd|cat|stderr-flood N|sleep MS>"),
     }
 }
 

@@ -58,6 +58,21 @@ is about the code.
 - **Time and ids are injected** (`KernelConfig { clock, ids }`); tests use `StepClock`
   and `SequentialIds`.
 
+## Plugin host (`crates/kumikit-plugin-host`)
+
+- **The call-time limit and the call hook.** The limit is measured from the last time the
+  guest entered wasm or returned from a host import (`engine::apply_limits`). wasmtime
+  runs the epoch deadline callback as a host call, so the call hook sees
+  `ReturningFromHost` after every tick; the callback sets `in_deadline_callback` so that
+  return does not reset the clock. Without it a spinning guest never traps
+  (`tests/runtime.rs::running_past_the_call_limit_traps` hangs).
+- **Instances are actors** (`runtime::Instance`): a task owns the `Store` and runs calls
+  one at a time from a channel, so a caller that stops waiting never interrupts a guest
+  mid-call. Anything that must reach a guest during `send` (approval answers, cancel)
+  goes through `SessionShared`, which the blocking imports select on.
+- **Test components in WAT**: an imported instance with no exports is satisfied
+  without a definition; give it a function to test a missing import.
+
 ## Core (`crates/kumikit-core`)
 
 - **`scripted_provider.rs` is temporary** ([ADR 0009](decisions/0009-temporary-scripted-provider.md)).

@@ -354,7 +354,7 @@ Steps marked *(CI)* contain macOS/Windows code that is only compiled and run in 
   uninstall over the kernel records (enable without WASM yet). Tests: valid and invalid
   manifests (one per rule), traversal/symlink/oversize archives, grant mismatch,
   conflict on reinstall. Commit: `feat: add manifest validation and local package install`.
-- [ ] **7. WASM runtime and host imports.** Engine, instance actor, WASI context, linker
+- [x] **7. WASM runtime and host imports.** Engine, instance actor, WASI context, linker
   with every import gated by `Grants`, logging of each denial with plugin id and
   operation, compile at enable. The probe plugin. Tests, one per permission (denied path
   returns `permission-denied` and is logged): spawn unlisted, spawn path-qualified, spawn
@@ -573,3 +573,9 @@ live smoke test's agent.
   experimental, without security patch releases), so WASI 0.2 stays; ADR 0010 records
   the trigger to revisit. The toolchain pin moved to Rust 1.100.0 (this machine sets
   `RUSTUP_TOOLCHAIN=1.100.0`; its `wasm32-wasip2` std was added with rustup).
+- Step 7: the runtime starts the engine and linkers on first use; enabling a plugin
+  compiles and links its component (`Manager::prepared`), installing and opening start
+  nothing (tested). Host imports check the instance's grants and log refusals; the probe
+  plugin covers each permission, the sandbox (data directory as `/data`, no sockets, a
+  `wasi:http` import refused at enable) and traps, memory and time limits. Gotcha found:
+  the epoch deadline callback is a host call to the call hook (agent reference).
