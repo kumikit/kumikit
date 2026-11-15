@@ -31,5 +31,7 @@ Small, local choices do not need one; a clear commit message is enough.
 | [0005](0005-json-rpc-protocol.md) | JSON-RPC 2.0 protocol, schema in Rust | Accepted |
 | [0006](0006-kernel-owns-domain-model.md) | The kernel owns the domain model | Accepted |
 | [0007](0007-core-plugins-declarative-ui.md) | Core plugins contribute declarative UI only | Accepted |
-| [0008](0008-typescript-generation-with-ts-rs.md) | Generate TypeScript protocol types with ts-rs | Proposed |
+| [0008](0008-typescript-generation-with-ts-rs.md) | Generate TypeScript protocol types with ts-rs | Accepted |
 | [0009](0009-temporary-scripted-provider.md) | A temporary scripted provider compiled into the core (M0 only) | Proposed |
+| [0010](0010-wasi-p2-and-session-instances.md) | WASI 0.2, one instance per session, blocking host imports | Proposed |
+| [0011](0011-providers-from-plugins.md) | Providers come from plugins: qualified ids and provider backends | Proposed |

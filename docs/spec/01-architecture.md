@@ -49,11 +49,13 @@ web/
   protocol/              # @kumikit/protocol: generated from kumikit-protocol, never edited
 sdk/
   rust/                  # kumikit-plugin crate: guest-side bindings and helpers
+  schema/                # JSON Schema of plugin.toml
 plugins/                 # first-party plugins, built with the public SDKs only
   provider-acp/
   ui-chat/
   ui-settings/
   theme-default/
+test-plugins/            # plugins and helper programs used only by tests
 docs/
   spec/                  # this specification
   decisions/             # architecture decision records
@@ -72,15 +74,17 @@ wit/              ←  kumikit-plugin-host, sdk/rust, plugins/*
 - `kumikit-protocol` depends on nothing in the workspace. It has no I/O.
 - `kumikit-shell` and `web/` never depend on `kumikit-kernel`: the client knows the core
   only through the protocol.
-- `plugins/*` depend only on `wit/`, `sdk/`, `web/sdk` and `@kumikit/protocol`.
-- No crate or package outside `plugins/` names a plugin.
+- `plugins/*` and `test-plugins/*` depend only on `wit/`, `sdk/`, `web/sdk` and
+  `@kumikit/protocol` (test helpers may also use test-only crates).
+- No crate or package outside `plugins/` and `test-plugins/` names a plugin;
+  `scripts/check-plugin-names.sh` checks `crates/`.
 
 ## Technology
 
 | Part | Choice | Why (ADR) |
 |---|---|---|
 | Core, shell | Rust stable, edition 2024, tokio | Footprint, one language for native code |
-| Plugin runtime | wasmtime, WASM component model, WIT, WASI 0.2 | [ADR 0003](../decisions/0003-wasm-first-core-plugins.md) |
+| Plugin runtime | wasmtime, WASM component model, WIT, WASI 0.2; guests built for `wasm32-wasip2` with wit-bindgen | [ADR 0003](../decisions/0003-wasm-first-core-plugins.md), [ADR 0010](../decisions/0010-wasi-p2-and-session-instances.md) |
 | Protocol | JSON-RPC 2.0, schema in Rust, TS generated | [ADR 0005](../decisions/0005-json-rpc-protocol.md) |
 | Storage | SQLite (WAL) via rusqlite | Single file, no server, proven |
 | Desktop | Tauri 2, system webview | [ADR 0002](../decisions/0002-separate-core-and-client.md) |

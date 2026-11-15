@@ -28,6 +28,8 @@ events, disconnects, reconnects from its cursor and sees no gap or duplicate.
 - The M0 compiled-in provider is deleted.
 - `kumikit plugin add/list/remove` for local `.kkp` files.
 
+Plan: [M1 — Plugin host](../plans/2026-11-15-m1-plugin-host.md).
+
 **Exit:** an ACP agent runs through `provider-acp` with no provider-specific code in the
 kernel; a plugin that calls an unpermitted host function gets `permission_denied`; idle
 footprint is within the budget in [00-overview.md](00-overview.md#footprint-budgets).
@@ -73,7 +75,7 @@ change; if one does, the kernel change lands first as a general API.
 
 | Question | Decide by |
 |---|---|
-| WASI 0.3 (native async) adoption timing | M1, depending on wasmtime support |
+| WASI 0.3 (native async) adoption timing | Decided for now: WASI 0.2 ([ADR 0010](../decisions/0010-wasi-p2-and-session-instances.md)); revisit when Rust's `wasm32-wasip3` target is tier 2 |
 | SQL storage for plugins beyond key-value | When a plugin needs it |
 | Whether themes may ship restricted CSS in v2 | After M4, from theme authors' feedback |
 | Sidecar plugins: ship in 1.0 or later | M4 |

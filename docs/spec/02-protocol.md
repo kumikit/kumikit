@@ -54,17 +54,19 @@ The first call after authentication is `core.hello`:
 ```jsonc
 // → client
 { "jsonrpc": "2.0", "id": 1, "method": "core.hello",
-  "params": { "protocol": "0.1", "client": { "name": "kumikit-desktop", "version": "0.1.0" } } }
+  "params": { "protocol": "0.2", "client": { "name": "kumikit-desktop", "version": "0.1.0" } } }
 
 // ← core
 { "jsonrpc": "2.0", "id": 1, "result": {
-    "protocol": "0.1",
+    "protocol": "0.2",
     "core": { "version": "0.1.0", "name": "devbox", "os": "linux" },
     "plugins": [
       { "id": "kumikit.provider-acp", "version": "0.1.0",
-        "contributes": { "providers": ["acp"], "commands": [], "settings": true } }
+        "contributes": { "providers": [], "commands": [], "settings": false } },
+      { "id": "community.provider-gemini", "version": "0.1.0",
+        "contributes": { "providers": ["community.provider-gemini/gemini"], "commands": [], "settings": false } }
     ],
-    "capabilities": ["threads", "approvals", "files.read"] } }
+    "capabilities": ["threads", "approvals", "plugins"] } }
 ```
 
 - `protocol` is `MAJOR.MINOR`. A client refuses a core with a different major version and
@@ -75,8 +77,12 @@ The first call after authentication is `core.hello`:
   `protocol_mismatch`.
 - The client builds its UI from `plugins` and `capabilities`. A tab on a core without a
   feature shows no UI for it; it does not show a disabled stub.
-- When plugins change while connected, the core sends `core.pluginsChanged` with the new
-  list.
+- `plugins` lists the enabled plugins. Their `contributes` lists only what is available:
+  a delegated provider whose backend is not enabled is left out. Provider ids are
+  qualified (`<plugin id>/<local id>`, [05](05-providers.md#provider-ids)).
+- When the enabled plugins or their available contributions change while connected, the
+  core sends `core.pluginsChanged { plugins }` with the new list to every connection that
+  has completed `core.hello`. Plugins becoming active or idle is not a change.
 
 ## Methods
 
@@ -109,7 +115,7 @@ and both sides ignore fields they do not know.
 | `workspace.open` | `path` | `workspace`. The path is canonicalized; opening the same root again returns the same workspace, and reopens it if it was closed. |
 | `workspace.close` | `workspace` | `{}`. Hides the workspace from `list`; its threads and events are kept. |
 | `thread.list` | `workspace`, `includeArchived?` | `threads`, most recently updated first |
-| `thread.create` | `workspace`, `provider?`, `model?`, `title?` | `thread`. `provider` defaults to the only provider when exactly one exists (`unsupported` if there is none, `invalid_params` if there are several); `model` defaults to the provider's first model. A closed workspace gives `conflict`. |
+| `thread.create` | `workspace`, `provider?` (qualified id), `model?`, `title?` | `thread`. `provider` defaults to the only provider when exactly one exists (`unsupported` if there is none, `invalid_params` if there are several); `model` defaults to the provider's first model. A closed workspace gives `conflict`. |
 | `thread.get` | `thread` | `thread`, `turns`, `pendingApprovals`, `seq`: a snapshot folded from the log up to `seq` |
 | `thread.send` | `thread`, `input { text }` | `turn`, `queued`. One turn runs per thread; a message sent during a turn is queued in memory and starts when the turn ends. |
 | `thread.cancel` | `thread` | `{}`. Cancels the running turn and drops queued messages; does nothing if no turn runs. |
@@ -117,6 +123,24 @@ and both sides ignore fields they do not know.
 | `thread.archive` | `thread` | `{}`. Sets `status` to `archived`; no thread event is appended (archiving is not thread content). Fails with `conflict` while a turn runs or waits; an archived thread refuses `thread.send`. |
 | `events.subscribe` | `topic`, `after` | `head` (the topic's last `seq` at subscribe time) |
 | `events.unsubscribe` | `topic` | `{}` |
+| `plugin.list` | — | `plugins`: every installed plugin (`id`, `name`, `version`, `description?`, `repository?`, `state`, `requested`, `granted?`, `contributes`, `failure?`) |
+| `plugin.install` | `path` (a `.kkp` file on the core's machine) | `plugin`, in state `installed`. Invalid packages and manifests fail with `invalid_params`, listing the problems; an id that is already installed fails with `conflict`. |
+| `plugin.enable` | `plugin`, `grant` | `plugin`. `grant` must equal the plugin's requested permissions (they are granted as a whole), otherwise `conflict`. Compiles the component. |
+| `plugin.disable` | `plugin` | `plugin`. Cancels the plugin's running turns and unloads it. |
+| `plugin.uninstall` | `plugin`, `deleteData?` | `{}`. Disables it first; deletes its kv and data directory only if `deleteData` is true. |
+
+`state` is `installed`, `enabled` or `disabled`. `requested` and `granted` are
+`Permissions { spawn, network, files, secrets, tools, limits? }`, with `files` one of
+`none`, `read_workspace`, `workspace` and `limits { memoryMb, callTimeoutS }` present only
+when raised above the defaults. `failure { message, retryAt? }` describes the last trap or
+limit breach while the plugin is in backoff.
+
+### Notifications
+
+| Notification | Params |
+|---|---|
+| `events.event` | One event on a subscribed topic (below) |
+| `core.pluginsChanged` | `plugins`, as in `core.hello` |
 
 ### Errors
 

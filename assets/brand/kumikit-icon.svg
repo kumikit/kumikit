@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>Kumikit</title>
+  <!-- Kumiko: a lattice of strips joined over and under, without nails.
+       Each crossing alternates which strip sits on top, so the joints
+       interlock. The strips run past the tile edge: the lattice is a
+       piece of a larger whole, and more pieces can be fitted to it. -->
+  <rect width="64" height="64" rx="14" fill="#26231f"/>
+  <g fill="#d9a866">
+    <rect x="0" y="17" width="64" height="7"/>
+    <rect x="0" y="40" width="64" height="7"/>
+    <rect x="17" y="0" width="7" height="64"/>
+    <rect x="40" y="0" width="7" height="64"/>
+  </g>
+  <!-- Crossings where the horizontal strip lies on top -->
+  <g fill="#d9a866" stroke="#26231f" stroke-width="1.6">
+    <rect x="40" y="17" width="7" height="7"/>
+    <rect x="17" y="40" width="7" height="7"/>
+  </g>
+  <!-- Crossings where the vertical strip lies on top -->
+  <g fill="#d9a866" stroke="#26231f" stroke-width="1.6">
+    <rect x="17" y="17" width="7" height="7"/>
+    <rect x="40" y="40" width="7" height="7"/>
+  </g>
+</svg>

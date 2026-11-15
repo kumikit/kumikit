@@ -15,7 +15,7 @@ be a plugin is one.
 | Process supervisor | Spawns, tracks and kills child processes on behalf of plugins |
 | Workspace files | Scoped file access for plugins and clients |
 | Permission broker | Checks every host call against the plugin's granted permissions |
-| Plugin host | Installs, verifies, activates and unloads plugins ([04](04-plugin-host.md)) |
+| Plugin host | Installs, verifies, activates and unloads plugins; a separate crate above the kernel ([04](04-plugin-host.md)) |
 | Tool gateway | Exposes plugin-contributed tools to agents over MCP |
 
 ## Domain model
@@ -90,29 +90,53 @@ that do not understand one skip it; a UI plugin can register a renderer for it.
 - Core tables (workspaces, threads, events, approvals, devices, plugins) belong to the
   kernel. Plugins never get SQL access to them.
 - Each plugin gets a namespaced key-value store (`kv.get/set/delete/list` with prefix
-  scans, values up to 1 MB) and a private data directory. A plugin's data is deleted when
-  it is uninstalled, after confirmation.
+  scans, keys up to 1 KB, values up to 1 MB), kept in the core database, and a private
+  data directory `plugin-data/<id>/`. A plugin's data is deleted when it is uninstalled,
+  after confirmation.
+- The `plugins` table records each installed plugin: id, version, state (`installed`,
+  `enabled`, `disabled`), the package's SHA-256 and the granted permissions. Unpacked
+  packages live in `plugins/<id>/<version>/` in the data directory.
+- One core owns a data directory at a time: `kumikit serve`, and CLI commands that work
+  on the data directory while no core runs, hold an exclusive lock on `core.lock`.
 - Events are stored as JSON. Old threads can be compacted (text deltas folded into
   `text.done`) without changing what a replay shows.
 
 ## Secrets
 
 - The secret store holds provider keys, bot tokens and device tokens of paired clients.
-- Backend: the OS keychain where it works non-interactively, otherwise a 0600 file in the
-  core data directory. The choice is a setting, not a code path in plugins.
+- Backend: the OS keychain where it works non-interactively, otherwise a 0600 file
+  (`secrets.json`) in the core data directory. The choice is a setting, not a code path in
+  plugins. Only the file backend exists so far; setting secrets over the protocol
+  (`secret.*`) comes with the settings UI.
 - A plugin reads only the secret names its manifest declares. Clients can set and delete
   secrets but never read them; the UI shows "set" or "not set".
 
 ## Processes
 
 - Plugins spawn processes through the host (`process.spawn`), never directly.
-- The command must be in the plugin's `spawn` permission list; the host resolves it on
-  `PATH` and records the resolved path.
-- The working directory must be inside a workspace the plugin is acting for.
-- The environment is built from an allowlist plus variables the plugin sets explicitly;
-  secrets are passed only when the plugin asks for them by name.
-- The supervisor owns process lifetimes: when a turn is cancelled, a plugin is unloaded or
-  the core shuts down, its processes are terminated (process group / job object).
+- The program must be a bare name in the plugin's `spawn` permission list (a path such as
+  `/tmp/x/claude` is refused even if `claude` is listed). The supervisor resolves it on
+  the core's `PATH` (with `PATHEXT` on Windows), logs the resolved path and keeps it in its
+  process table.
+- The working directory must be inside a workspace the plugin is acting for (a session's
+  thread workspace) and defaults to its root; paths are canonicalized before the check. A
+  plugin acting for no workspace cannot spawn.
+- The environment starts empty and gets, in order: an allowlist copied from the core
+  (`PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `LANG`, `LC_*`, `TERM`, `TMPDIR`, `XDG_*`;
+  on Windows `SystemRoot`, `windir`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`,
+  `ProgramData`, `ProgramFiles*`, `PATHEXT`, `COMSPEC`, `TEMP`, `TMP`, `USERNAME`,
+  `HOMEDRIVE`, `HOMEPATH`); variables the plugin sets explicitly (dynamic-loader variables
+  `LD_*` and `DYLD_*` are refused); and secrets, only those the plugin names and is
+  granted.
+- The supervisor owns process lifetimes. On Linux and macOS each child starts in its own
+  process group, which gets SIGTERM and, 2 s later, SIGKILL. On Windows each owner's
+  children are in a job object that kills them when it is closed. Processes are
+  terminated when a turn is cancelled (after the provider's grace period), a session ends,
+  a plugin is unloaded or fails, or the core shuts down. A core killed with SIGKILL on
+  Linux or macOS cannot clean up; its children keep running.
+- The host reads children's stdout and stderr into bounded buffers, so a plugin that reads
+  one stream cannot deadlock on the other.
+- Every refused spawn is logged with the plugin id and the reason.
 
 ## Tool gateway
 

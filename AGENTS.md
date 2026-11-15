@@ -13,7 +13,8 @@ spec, not here.
 ## Status
 
 M0 (protocol and kernel) is built: `kumikit serve`, the protocol crate and the kernel
-([plan](docs/plans/2026-11-15-m0-protocol-and-kernel.md)). M1 (plugin host) is next. Build
+([plan](docs/plans/2026-11-15-m0-protocol-and-kernel.md)). M1 (plugin host) is in
+progress ([plan](docs/plans/2026-11-15-m1-plugin-host.md)). Build
 in milestone order
 ([roadmap](docs/spec/12-roadmap.md)); do not start a later milestone's code before the
 earlier one's exit criteria pass.
