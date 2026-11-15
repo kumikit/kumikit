@@ -51,7 +51,7 @@ Each step ends with the Verify checks (`sh scripts/check-docs.sh`, then from ste
   licence check (allowlist from AGENTS.md plus the accepted `Unicode-3.0`; SQLite is
   public-domain C source with no crate licence entry). AGENTS.md Verify: move the two Rust
   lines from "From M0" to "Now". Verify: all checks. Commit: `chore: add Cargo workspace and Rust CI`.
-- [ ] **3. Protocol types.** `crates/kumikit-protocol/src/`: `jsonrpc.rs` (request,
+- [x] **3. Protocol types.** `crates/kumikit-protocol/src/`: `jsonrpc.rs` (request,
   response, notification, error object, id), `error.rs` (`ErrorCode` enum ↔ stable
   `data.code` strings, numeric JSON-RPC codes), `model.rs` (Workspace, Thread, Turn,
   Approval, statuses, `Id` newtype for ULID strings), `event.rs` (envelope + one typed
