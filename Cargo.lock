@@ -2382,6 +2382,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumikit-package"
+version = "0.1.0"
+dependencies = [
+ "sha2 0.10.9",
+ "tar",
+ "tempfile",
+ "thiserror 2.0.21",
+ "zstd 0.14.4",
+]
+
+[[package]]
 name = "kumikit-plugin"
 version = "0.1.0"
 dependencies = [
@@ -2394,13 +2405,13 @@ version = "0.1.0"
 dependencies = [
  "jsonschema",
  "kumikit-kernel",
+ "kumikit-package",
  "kumikit-protocol",
  "kumikit-test-plugins",
  "semver",
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "tar",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -2408,7 +2419,6 @@ dependencies = [
  "tracing",
  "wasmtime",
  "wasmtime-wasi",
- "zstd 0.14.4",
 ]
 
 [[package]]

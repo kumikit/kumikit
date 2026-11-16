@@ -17,6 +17,9 @@ is about the code.
 
 ## Protocol (`crates/kumikit-protocol`)
 
+- **The local address lives here** (`local.rs`), so the core and the desktop shell compute
+  the same socket or pipe. It stays pure: the environment and user id are passed in.
+
 - **The method table is a macro** (`methods!` in `methods.rs`). Dispatch in
   `kumikit-core/src/rpc.rs`, TypeScript generation and the fixture coverage test all walk
   it. A new method goes there first; `rpc::tests::every_method_is_routed` fails until the
@@ -59,6 +62,9 @@ is about the code.
   and `SequentialIds`.
 
 ## Plugin host (`crates/kumikit-plugin-host`)
+
+- **`.kkp` code is in `kumikit-package`**, re-exported as `kumikit_plugin_host::package`,
+  because the shell unpacks UI plugins and may not depend on the plugin host.
 
 - **The call-time limit and the call hook.** The limit is measured from the last time the
   guest entered wasm or returned from a host import (`engine::apply_limits`). wasmtime
