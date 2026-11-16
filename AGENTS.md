@@ -41,7 +41,7 @@ Now:
 - `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace` (builds the test plugins for `wasm32-wasip2`; the target comes
   with `rust-toolchain.toml` under rustup, or a distribution's Rust WASM package)
-- `cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-test-hello -p kumikit-test-probe -- -D warnings`
+- `cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-test-hello -p kumikit-test-probe -p kumikit-provider-acp -- -D warnings`
 - `cargo deny check licenses bans sources` (CI runs it; locally when dependencies change)
 - `cargo test -p kumikit-protocol` also fails when generated TypeScript is stale;
   `KUMIKIT_BLESS=1 cargo test -p kumikit-protocol` regenerates `web/protocol/`.

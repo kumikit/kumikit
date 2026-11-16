@@ -14,3 +14,6 @@ workspace = true
 [[bin]]
 name = "fake-acp-agent"
 path = "src/main.rs"
+
+[dependencies]
+serde_json = "1.0.154"

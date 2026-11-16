@@ -32,14 +32,21 @@ the local id; the protocol and the stored `Thread.provider` use the qualified on
    ```
 
    The `acp` table has `command`, `args`, optional `env` (plain variables), `secret-env`
-   (variable name → secret name, checked against `permissions.secrets`) and `models` (a
-   list of `{ id, label, capabilities }`; default: one model `default` labelled with the
-   provider name). `provider-acp` starts the agent in the thread's workspace, with the
+   (variable name → secret name, checked against `permissions.secrets`), `models` (a
+   list of `{ id, label, capabilities }`; default: one model, `default`), `model-arg` (a
+   flag that passes the chosen model on the agent's command line, for example
+   `--model`; ACP itself has no model selection) and `mode` (a session mode to set after
+   opening, for agents whose default mode never asks for approval). The table is
+   checked against the plugin's `acp.schema.json`. `provider-acp` starts the agent in the thread's workspace, with the
    contributing plugin's permissions, and translates ACP session updates into kernel
    events: message chunks to `text.delta`/`text.done`, thought chunks to
    `reasoning.delta`, tool calls to `tool.*` (diffs to `file.changed`), permission
-   requests to approvals, and anything else to `plugin.event`. It offers the agent no
-   file-system or terminal client capabilities.
+   requests to approvals, plans and unknown updates to `plugin.event` (`acp.<update>`),
+   and the prompt's token usage and reported cost to `usage`. Session bookkeeping
+   (command lists, titles, mode and config changes) and other notifications are
+   dropped. It offers the agent no file-system or terminal client capabilities.
+   `plugins/provider-acp/examples/claude-code` is a complete declarative provider for
+   Claude Code.
 2. **WASM adapter.** For agents with their own stream format (for example JSON-lines
    output or an app-server protocol), a plugin implements `kumikit:provider` and spawns
    the CLI through `kumikit:host/process`.

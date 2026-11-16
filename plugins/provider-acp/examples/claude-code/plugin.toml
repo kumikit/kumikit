@@ -1,0 +1,16 @@
+# A declarative ACP provider: Claude Code through its ACP adapter, with no code.
+# Install the adapter first: npm install -g @agentclientprotocol/claude-agent-acp
+# Then: kumikit plugin pack . && kumikit plugin add community.claude-code-0.1.0.kkp
+id = "community.claude-code"
+name = "Claude Code"
+version = "0.1.0"
+description = "Claude Code, run through kumikit.provider-acp."
+kind = ["provider"]
+api = "^0.1"
+
+[permissions]
+spawn = ["claude-agent-acp"]
+
+[contributes]
+# mode = "default" makes Claude Code ask before every change, so approvals reach Kumikit.
+providers = [{ id = "claude", name = "Claude Code", acp = { command = "claude-agent-acp", mode = "default" } }]

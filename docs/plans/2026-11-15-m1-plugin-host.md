@@ -384,7 +384,7 @@ Steps marked *(CI)* contain macOS/Windows code that is only compiled and run in 
   prompts. Tests: add/list/remove against a running core (sees `core.pluginsChanged`) and
   offline; non-interactive without `--yes` leaves it installed; remove asks about data.
   Commit: `feat: add kumikit plugin add, list and remove`.
-- [ ] **12. provider-acp.** `plugins/provider-acp` (manifest, `acp.schema.json`, sans-IO
+- [x] **12. provider-acp.** `plugins/provider-acp` (manifest, `acp.schema.json`, sans-IO
   core, glue), `fake-acp-agent record/replay`, recorded and scrubbed transcripts (text
   reply; tool call with approval allowed; denied; cancelled mid-turn), native replay
   tests, `#[ignore]`d live smoke test. Verify: also `cargo clippy --target wasm32-wasip2`.
@@ -602,3 +602,12 @@ live smoke test's agent.
 - Step 11: `kumikit plugin add` reads the manifest from the package before installing,
   so adding an installed-but-not-enabled plugin again finishes its grant instead of
   failing with `conflict`. `remove` without a terminal and without flags keeps data.
+- Step 12 (2026-11-16): recorded from Claude Code through
+  `@agentclientprotocol/claude-agent-acp` 0.107.0 (installed globally), not Copilot:
+  Copilot's ACP worked, but no model was available on the account. Five transcripts;
+  scrubbing drops account-status and installed-skills notifications and every `_meta`.
+  Findings that shaped the adapter: ACP has no model selection (agents take it on the
+  command line, hence `model-arg`); Claude Code's default mode only asks for changes, so
+  approval needs `mode = "default"`; `tool_call_update` resends the whole content list
+  (outputs are deduplicated); usage and cost arrive on `usage_update` and the prompt
+  result. The adapter's writes match every recorded client message exactly.

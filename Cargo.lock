@@ -1061,6 +1061,9 @@ dependencies = [
 [[package]]
 name = "kumikit-fake-acp-agent"
 version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "kumikit-kernel"
@@ -1128,6 +1131,15 @@ version = "0.1.0"
 dependencies = [
  "kumikit-plugin",
  "wit-bindgen 0.61.1",
+]
+
+[[package]]
+name = "kumikit-provider-acp"
+version = "0.1.0"
+dependencies = [
+ "kumikit-provider",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

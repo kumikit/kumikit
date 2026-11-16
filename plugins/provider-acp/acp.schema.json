@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "The acp table of a provider entry (kumikit.provider-acp)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["command"],
+  "properties": {
+    "command": { "type": "string", "minLength": 1, "description": "Program to start; must be in the declaring plugin's permissions.spawn." },
+    "args": { "type": "array", "items": { "type": "string" } },
+    "env": { "type": "object", "additionalProperties": { "type": "string" } },
+    "secret-env": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Variable name to secret name; each secret must be in permissions.secrets." },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "capabilities": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "model-arg": { "type": "string", "description": "Flag that selects the model on the agent's command line, followed by the model id." },
+    "mode": { "type": "string", "description": "Session mode to set after opening (session/set_mode)." }
+  }
+}

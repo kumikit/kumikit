@@ -15,6 +15,8 @@ use std::process::Command;
 const GUESTS: &[(&str, &str)] = &[
     ("kumikit-test-hello", "kumikit_test_hello"),
     ("kumikit-test-probe", "kumikit_test_probe"),
+    // A first-party plugin, built here so end-to-end tests can install it.
+    ("kumikit-provider-acp", "kumikit_provider_acp"),
 ];
 
 /// Host programs: (package, binary name).

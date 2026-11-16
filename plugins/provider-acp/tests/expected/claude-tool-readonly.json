@@ -1,0 +1,68 @@
+[
+  {
+    "ready": "session-1"
+  },
+  {
+    "call": "toolu_012eMyeUfvYx2JkK5L261FTv",
+    "event": "tool_started",
+    "input": {
+      "command": "ls"
+    },
+    "name": "ls"
+  },
+  {
+    "call": "toolu_012eMyeUfvYx2JkK5L261FTv",
+    "chunk": "List files in current directory",
+    "event": "tool_output"
+  },
+  {
+    "call": "toolu_012eMyeUfvYx2JkK5L261FTv",
+    "chunk": "```console\nREADME.md\n```",
+    "event": "tool_output"
+  },
+  {
+    "call": "toolu_012eMyeUfvYx2JkK5L261FTv",
+    "event": "tool_finished",
+    "ok": true,
+    "result": "README.md"
+  },
+  {
+    "event": "text_delta",
+    "text": "The `ls` command in"
+  },
+  {
+    "event": "text_delta",
+    "text": " `"
+  },
+  {
+    "event": "text_delta",
+    "text": "/work"
+  },
+  {
+    "event": "text_delta",
+    "text": "space` retur"
+  },
+  {
+    "event": "text_delta",
+    "text": "ned one ent"
+  },
+  {
+    "event": "text_delta",
+    "text": "ry:\n\n```\nREADME.md"
+  },
+  {
+    "event": "text_delta",
+    "text": "\n```"
+  },
+  {
+    "event": "text_done",
+    "text": "The `ls` command in `/workspace` returned one entry:\n\n```\nREADME.md\n```"
+  },
+  {
+    "cost": 0.00232785,
+    "event": "usage",
+    "input_tokens": 4,
+    "output_tokens": 161
+  },
+  "turn_done"
+]
