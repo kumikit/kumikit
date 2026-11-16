@@ -54,9 +54,10 @@ Now:
 - `sh scripts/footprint.sh`: core cold start and idle memory against the budgets
   (release build; CI runs it on Linux).
 
-From M2:
-- `npm run check` (svelte-check + tsc) and `npm test` (Vitest) in `web/`
-- `npx playwright test` in `web/` against the browser build
+From M2 (npm commands run at the repository root, an npm workspace):
+- `npm ci`, then `npm run check` (svelte-check + tsc) and `npm test` (Vitest)
+- `node scripts/check-npm-licenses.mjs` when npm dependencies change
+- `npx playwright test` against the browser build
 
 ## Architecture rules (do not break these)
 

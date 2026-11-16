@@ -1,0 +1,8 @@
+# Published UI SDK versions and the SHA-256 of their directory (ADR 0014).
+#
+# A published version is never changed in place (AGENTS.md, Interfaces and versioning):
+# make a new directory with a new version instead. The test web/sdk/tests/sdk.test.ts
+# fails when a listed directory no longer matches its hash.
+#
+# <version> <sha256>
+0.1.0 9b853e9f09512936af7184b9a553be8477d367b60a27e999918d6dbdaea0d6fc

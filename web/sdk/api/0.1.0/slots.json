@@ -1,0 +1,56 @@
+{
+  "$comment": "The slot list of UI SDK 0.1.0. Published: never edit; add a new version directory (ADR 0014).",
+  "version": "0.1.0",
+  "slots": [
+    {
+      "id": "sidebar.section",
+      "description": "A section in the sidebar",
+      "contribution": "mount"
+    },
+    {
+      "id": "inspector.tab",
+      "description": "A tab in the right-hand inspector",
+      "contribution": "mount"
+    },
+    {
+      "id": "statusbar.item",
+      "description": "A status bar item",
+      "contribution": "mount"
+    },
+    {
+      "id": "composer.accessory",
+      "description": "A control next to the message composer",
+      "contribution": "mount"
+    },
+    {
+      "id": "thread.header",
+      "description": "Controls in a thread's header",
+      "contribution": "mount"
+    },
+    {
+      "id": "thread.view",
+      "description": "The main view of a thread; the UI kernel mounts the first enabled one",
+      "contribution": "mount"
+    },
+    {
+      "id": "transcript.renderer",
+      "description": "A renderer for a transcript item kind, including plugin.event kinds",
+      "contribution": "mount"
+    },
+    {
+      "id": "settings.page",
+      "description": "A page in Settings",
+      "contribution": "mount"
+    },
+    {
+      "id": "view",
+      "description": "A full view opened from a command or tab",
+      "contribution": "mount"
+    },
+    {
+      "id": "command",
+      "description": "A palette command",
+      "contribution": "declarative"
+    }
+  ]
+}
