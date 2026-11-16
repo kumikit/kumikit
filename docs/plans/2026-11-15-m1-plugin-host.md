@@ -398,7 +398,7 @@ Steps marked *(CI)* contain macOS/Windows code that is only compiled and run in 
   `plugins/` and `test-plugins/` and fails if a plugin id, provider id or backend key
   appears in `crates/` (or `web/kernel` later); runs in CI. Run the exit tests 50× locally.
   Commit: `test: add M1 exit-criteria test`.
-- [ ] **14. Footprint.** Three phases above; `footprint.sh` builds the release guests
+- [x] **14. Footprint.** Three phases above; `footprint.sh` builds the release guests
   first; record numbers (including binary size) in Notes. Commit: `chore: measure plugin
   footprint`.
 - [ ] **15. Close out.** Spec matches the code, roadmap M1 done, AGENTS.md status and
@@ -620,3 +620,9 @@ live smoke test's agent.
   the recorded `/workspace` to its working directory, as a real agent reports paths.
   `check-plugin-names.sh` skips unit-test files (`tests.rs`), which name spec examples.
   Exit tests passed 10 of 10 local runs.
+- Step 14 (Linux x86_64, release, median of 5): no plugins 3 ms / 10.5 MB; provider-acp
+  and a declarative plugin enabled 3 ms / 11.2 MB; first activation of provider-acp
+  5.8 ms / +7.8 MB. The activation budget was 5 MB; on 2026-11-16 it became 8 MB, keeping
+  the pooling allocator (ADR 0012, with the measured breakdown and the alternatives).
+  The margin is small (7.8 of 8 MB). Startup no longer starts the schema validator
+  (3.3 MB). Core binary 25.3 MiB (M0: 4.2 MiB), not yet analysed.

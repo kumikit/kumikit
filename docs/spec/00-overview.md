@@ -46,17 +46,18 @@ in [AGENTS.md](../../AGENTS.md).
 
 ## Footprint budgets
 
-Measured on a release build, idle, with the preinstalled plugins only. The core's two
+Measured on a release build, idle, with the preinstalled plugins only. The core's
 budgets are checked by `sh scripts/footprint.sh` (median of 5 runs, each from a fresh
 data directory; memory is sampled one second after a client's `core.hello`), which CI
-runs on Linux. The others become checks when their parts exist (see
+runs on Linux: cold start and idle memory without plugins and with provider-acp and a
+declarative plugin enabled, and the time and memory of the first activation. The others become checks when their parts exist (see
 [12-roadmap.md](12-roadmap.md)).
 
 | Measure | Budget |
 |---|---|
 | Core resident memory, idle | ≤ 30 MB |
 | Core cold start to accepting connections | ≤ 300 ms |
-| Activating a typical WASM plugin | ≤ 50 ms, ≤ 5 MB |
+| Activating a typical WASM plugin (the first in a core) | ≤ 50 ms, ≤ 8 MB ([ADR 0012](../decisions/0012-activation-memory-budget.md)) |
 | Desktop shell resident memory, excluding the webview process | ≤ 25 MB |
 | UI kernel JavaScript, compressed | ≤ 150 KB |
 | Installer size, per platform | ≤ 20 MB |
