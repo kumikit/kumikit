@@ -510,8 +510,11 @@ impl Session {
                 data: u.clone(),
             })],
             // Session bookkeeping, not turn content.
-            "available_commands_update" | "session_info_update" | "config_option_update"
-            | "current_mode_update" | "user_message_chunk" => Vec::new(),
+            "available_commands_update"
+            | "session_info_update"
+            | "config_option_update"
+            | "current_mode_update"
+            | "user_message_chunk" => Vec::new(),
             other => vec![Action::Emit(Event::Plugin {
                 kind: format!("acp.{other}"),
                 data: u.clone(),
@@ -536,7 +539,8 @@ impl Session {
         let mut out = Vec::new();
         let status = u["status"].as_str();
         // Start once the input is known, or when the call moves past `pending`.
-        let ready = !tool.input.is_null() || matches!(status, Some("in_progress" | "completed" | "failed"));
+        let ready =
+            !tool.input.is_null() || matches!(status, Some("in_progress" | "completed" | "failed"));
         if !tool.started && ready {
             tool.started = true;
             let name = if tool.title.is_empty() {
@@ -656,13 +660,21 @@ mod tests {
         let [Action::Write(line)] = out.as_slice() else {
             panic!("{out:?}")
         };
-        assert!(line.contains("session/load") && line.contains("\"old\""), "{line}");
+        assert!(
+            line.contains("session/load") && line.contains("\"old\""),
+            "{line}"
+        );
         // History replayed during load is not turn content.
         let replayed = s.on_line(
             r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"old","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"old"}}}}"#,
         );
         assert!(replayed.is_empty());
         let out = s.on_line(r#"{"jsonrpc":"2.0","id":2,"result":null}"#);
-        assert_eq!(out, [Action::Ready { session: "old".into() }]);
+        assert_eq!(
+            out,
+            [Action::Ready {
+                session: "old".into()
+            }]
+        );
     }
 }

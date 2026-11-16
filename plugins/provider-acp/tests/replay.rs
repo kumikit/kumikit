@@ -33,8 +33,10 @@ impl Replay {
                     summary,
                     detail,
                 } => {
-                    self.log.push(json!({"approve": {"kind": kind, "summary": summary}}));
-                    self.approvals.insert(request.to_string(), detail["options"].clone());
+                    self.log
+                        .push(json!({"approve": {"kind": kind, "summary": summary}}));
+                    self.approvals
+                        .insert(request.to_string(), detail["options"].clone());
                 }
                 Action::Ready { session } => self.log.push(json!({"ready": session})),
                 Action::TurnDone => self.log.push(json!("turn_done")),
@@ -46,7 +48,8 @@ impl Replay {
 
 fn replay(name: &str, mode: Option<&str>) -> Vec<Value> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
-    let text = std::fs::read_to_string(dir.join("transcripts").join(format!("{name}.jsonl"))).unwrap();
+    let text =
+        std::fs::read_to_string(dir.join("transcripts").join(format!("{name}.jsonl"))).unwrap();
     let mut r = Replay {
         session: Session::new(Options {
             cwd: "/workspace".into(),
@@ -70,7 +73,10 @@ fn replay(name: &str, mode: Option<&str>) -> Vec<Value> {
         // The client side: trigger what the plugin would do, then compare.
         match msg["method"].as_str() {
             Some("session/prompt") => {
-                let text = msg["params"]["prompt"][0]["text"].as_str().unwrap().to_owned();
+                let text = msg["params"]["prompt"][0]["text"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned();
                 let actions = r.session.prompt(&text);
                 r.take(actions);
             }
@@ -108,7 +114,11 @@ fn replay(name: &str, mode: Option<&str>) -> Vec<Value> {
         let written: Value = serde_json::from_str(&written).unwrap();
         assert_eq!(&written, msg, "{name}[{i}]");
     }
-    assert!(r.writes.is_empty(), "{name}: unexpected writes {:?}", r.writes);
+    assert!(
+        r.writes.is_empty(),
+        "{name}: unexpected writes {:?}",
+        r.writes
+    );
     r.log
 }
 
@@ -124,7 +134,10 @@ fn check(name: &str, mode: Option<&str>) {
     }
     let expected = std::fs::read_to_string(&path)
         .unwrap_or_else(|_| panic!("{} is missing; run with KUMIKIT_BLESS=1", path.display()));
-    assert_eq!(actual, expected, "events of {name} changed; run with KUMIKIT_BLESS=1 to accept");
+    assert_eq!(
+        actual, expected,
+        "events of {name} changed; run with KUMIKIT_BLESS=1 to accept"
+    );
 }
 
 #[test]

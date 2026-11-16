@@ -158,7 +158,12 @@ impl State {
                             Err(e) => return Err(e),
                         }
                     };
-                    queue.extend(self.session.decide(&request, &options, decision).into_iter().rev());
+                    queue.extend(
+                        self.session
+                            .decide(&request, &options, decision)
+                            .into_iter()
+                            .rev(),
+                    );
                 }
                 Action::Ready { session } => return Ok(Stop::Ready(session)),
                 Action::TurnDone => return Ok(Stop::TurnDone),
@@ -169,10 +174,12 @@ impl State {
 }
 
 fn config(provider: &ProviderRef) -> Result<Config, Error> {
-    let text = provider
-        .config
-        .as_deref()
-        .ok_or_else(|| err(ErrorCode::InvalidArgument, "the provider entry has no `acp` table"))?;
+    let text = provider.config.as_deref().ok_or_else(|| {
+        err(
+            ErrorCode::InvalidArgument,
+            "the provider entry has no `acp` table",
+        )
+    })?;
     Config::parse(text).map_err(|e| err(ErrorCode::InvalidArgument, e))
 }
 
