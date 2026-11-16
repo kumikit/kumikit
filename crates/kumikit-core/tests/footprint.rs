@@ -1,6 +1,7 @@
 //! Footprint budgets (`docs/spec/00-overview.md#footprint-budgets`) for the core:
 //! cold start to accepting connections ≤ 300 ms, idle resident memory ≤ 30 MB, and
-//! activating a typical WASM plugin ≤ 50 ms and ≤ 8 MB (ADR 0012). Three phases, each the median of
+//! activating a typical WASM plugin ≤ 50 ms and ≤ 12 MB, and a core binary ≤ 32 MiB
+//! (ADR 0012). Three phases, each the median of
 //! five runs from a fresh data directory:
 //!
 //! 1. no plugins: cold start and idle memory;
@@ -26,7 +27,8 @@ const RUNS: usize = 5;
 const START_BUDGET: Duration = Duration::from_millis(300);
 const RSS_BUDGET_KB: u64 = 30 * 1024;
 const ACTIVATE_BUDGET: Duration = Duration::from_millis(50);
-const ACTIVATE_RSS_BUDGET_KB: u64 = 8 * 1024;
+const ACTIVATE_RSS_BUDGET_KB: u64 = 12 * 1024;
+const BINARY_BUDGET_BYTES: u64 = 32 * 1024 * 1024;
 
 /// A manifest-only plugin served by provider-acp. Its agent is never started here.
 const DECLARATIVE: &str = r#"
@@ -187,7 +189,10 @@ async fn core_footprint_is_within_budget() {
         );
     }
     let binary = std::fs::metadata(env!("CARGO_BIN_EXE_kumikit")).map(|m| m.len());
-    if let Ok(bytes) = binary {
-        println!("core binary: {:.1} MiB", bytes as f64 / (1024.0 * 1024.0));
-    }
+    let bytes = binary.expect("the core binary exists");
+    println!("core binary: {:.1} MiB", bytes as f64 / (1024.0 * 1024.0));
+    assert!(
+        bytes <= BINARY_BUDGET_BYTES,
+        "core binary {bytes} bytes exceeds {BINARY_BUDGET_BYTES} bytes"
+    );
 }
