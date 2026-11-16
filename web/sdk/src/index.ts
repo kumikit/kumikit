@@ -146,6 +146,63 @@ export interface CommandSpec {
   when?: string;
 }
 
+// ---- declarative UI (level 1) ----
+
+/** JSON Schema for settings: objects of strings, numbers, integers, booleans and
+ * enums, one level of nesting, with UI hints (07-ui-plugins, Level 1). */
+export interface SettingsSchema {
+  type: 'object';
+  title?: string;
+  properties: Record<string, SettingsProperty>;
+  required?: string[];
+}
+
+export interface SettingsProperty {
+  type: 'string' | 'number' | 'integer' | 'boolean' | 'object';
+  title?: string;
+  description?: string;
+  default?: unknown;
+  enum?: (string | number)[];
+  minimum?: number;
+  maximum?: number;
+  /** For `object`: its fields. */
+  properties?: Record<string, SettingsProperty>;
+  /** `textarea` for long text, `select` or `radio` for enums. */
+  'x-widget'?: 'textarea' | 'select' | 'radio';
+  /** A secret: never stored on the client; set on the core. */
+  'x-secret'?: boolean;
+  /** Sort key; lower first. */
+  'x-order'?: number;
+}
+
+/** A node of a `tree` view. */
+export interface TreeNode {
+  id: string;
+  label: string;
+  detail?: string;
+  /** A command run with `{ id }` when the node is chosen. */
+  command?: string;
+  children?: TreeNode[];
+}
+
+/** The fixed vocabulary of declarative views; the UI kernel draws them with the theme. */
+export type DeclarativeView =
+  | { model: 'list'; items: { id: string; label: string; detail?: string; command?: string }[] }
+  | { model: 'tree'; items: TreeNode[] }
+  | { model: 'table'; columns: { key: string; title: string }[]; rows: Record<string, string | number | boolean>[] }
+  | { model: 'markdown'; text: string }
+  | { model: 'key-value'; entries: { key: string; value: string }[] }
+  | { model: 'form'; schema: SettingsSchema; values: Record<string, unknown>; submit?: string }
+  | { model: 'progress'; label: string; value?: number };
+
+/** A declarative status bar item. */
+export interface StatusItem {
+  id: string;
+  text: string;
+  tooltip?: string;
+  command?: string;
+}
+
 // ---- the context ----
 
 /** A connection to one core, limited to what the plugin declared. */

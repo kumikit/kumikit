@@ -15,6 +15,7 @@ const kernel = new Kernel({
   mac: navigator.platform.startsWith('Mac') || navigator.userAgent.includes('Mac OS'),
 });
 dark.addEventListener('change', () => kernel.applyTheme());
+kernel.guardLinks(document, navigator.clipboard);
 const target = document.getElementById('app');
 if (target) mount(App, { target, props: { kernel } });
 await kernel.start();

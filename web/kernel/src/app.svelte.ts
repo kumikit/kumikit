@@ -80,6 +80,28 @@ export class Kernel {
     for (const tab of this.tabs) this.#watch(tab.workspace);
   }
 
+  /** Links never navigate the app (06-client, UI rules): a link the markdown renderer
+   * marked is copied, and any other link click is ignored. */
+  guardLinks(doc: Document, clipboard: { writeText(t: string): Promise<void> } | undefined): () => void {
+    const onClick = (e: MouseEvent) => {
+      const a = (e.target as Element | null)?.closest?.('a[href]');
+      if (!a) return;
+      e.preventDefault();
+      if (!a.hasAttribute('data-kk-link')) return;
+      const href = a.getAttribute('href') ?? '';
+      void (clipboard?.writeText(href) ?? Promise.reject(new Error('no clipboard'))).then(
+        () => this.notify(`Link copied: ${href}`, 'success'),
+        () => this.notify(`Link: ${href}`, 'info'),
+      );
+    };
+    doc.addEventListener('click', onClick, true);
+    doc.addEventListener('auxclick', onClick, true);
+    return () => {
+      doc.removeEventListener('click', onClick, true);
+      doc.removeEventListener('auxclick', onClick, true);
+    };
+  }
+
   // ---- tabs ----
 
   get tabs(): TabSpec[] {
