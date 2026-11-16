@@ -5,7 +5,7 @@
   that calls an unpermitted host function gets `permission_denied`; idle footprint stays
   within the [budgets](../spec/00-overview.md#footprint-budgets). Nothing from M2 (no
   Tauri shell, `web/kernel`, UI plugins), no registry, no signing.
-- **Status:** active (approved 2026-11-15).
+- **Status:** done (2026-11-16). Lasting notes moved to [the agent reference](../agent-reference.md), the spec and ADRs 0010–0012.
 
 ## Scope
 
@@ -401,7 +401,7 @@ Steps marked *(CI)* contain macOS/Windows code that is only compiled and run in 
 - [x] **14. Footprint.** Three phases above; `footprint.sh` builds the release guests
   first; record numbers (including binary size) in Notes. Commit: `chore: measure plugin
   footprint`.
-- [ ] **15. Close out.** Spec matches the code, roadmap M1 done, AGENTS.md status and
+- [x] **15. Close out.** Spec matches the code, roadmap M1 done, AGENTS.md status and
   Verify (below), agent reference, plan `done`. Commit: `docs: close M1`.
 
 ### Verify additions for AGENTS.md (step 2 onward, as each exists)
@@ -626,3 +626,6 @@ live smoke test's agent.
   the pooling allocator (ADR 0012, with the measured breakdown and the alternatives).
   The margin is small (7.8 of 8 MB). Startup no longer starts the schema validator
   (3.3 MB). Core binary 25.3 MiB (M0: 4.2 MiB), not yet analysed.
+- 2026-11-16: CI's footprint job measured 11.7 MB for the first activation (local 7.7 MB,
+  also on four CPUs; not explained). The activation budget became 12 MB, and a core
+  binary budget of 32 MiB was added (25.3 MiB now; 6.8–9.6 MiB compressed). ADR 0012.

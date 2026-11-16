@@ -28,7 +28,10 @@ events, disconnects, reconnects from its cursor and sees no gap or duplicate.
 - The M0 compiled-in provider is deleted.
 - `kumikit plugin add/list/remove` for local `.kkp` files.
 
-Plan: [M1 — Plugin host](../plans/2026-11-15-m1-plugin-host.md).
+**Status:** done. The exit tests (`crates/kumikit-core/tests/exit_m1.rs`) pass in CI on
+Linux, macOS and Windows, replaying recorded Claude Code transcripts through
+provider-acp; the live smoke test against real Claude Code passed on Linux. Plan:
+[M1 — Plugin host](../plans/2026-11-15-m1-plugin-host.md).
 
 **Exit:** an ACP agent runs through `provider-acp` with no provider-specific code in the
 kernel; a plugin that calls an unpermitted host function gets `permission_denied`; idle
