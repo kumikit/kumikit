@@ -99,6 +99,24 @@ is about the code.
 - **Window tests run in a container** (`sh scripts/desktop/run.sh <cmd>`): Ubuntu, Xvfb,
   WebKitGTK and its WebDriver. Builds there use `target/desktop-container`.
 
+## UI kernel (`web/kernel`)
+
+- **State is `.svelte.ts` classes; logic is plain functions** (`threads/fold.ts`,
+  `commands/registry`, `theme/validate`) tested in Vitest without a DOM. Tests use
+  `tests/fake-core.ts` (an in-memory core) and injected timers and frame schedulers, so
+  nothing waits on real time.
+- **One wire subscription per topic** (`CoreConnection.subscribe`): listeners keep their
+  own cursor, a late listener replays the topic and the others skip what they have.
+- **The status fold must match the kernel's.** `crates/kumikit-kernel/tests/fixtures/
+  status.json` is checked by both `status_fixture.rs` and `web/kernel/tests/fold.test.ts`.
+- **The platform is a build-time constant** (`__KK_PLATFORM__`): `vite build` gives the
+  desktop bundle, `--mode browser-test` the one with the test relay adapter.
+- **No inline styles or `<style>` elements**: the CSP forbids them. The theme engine
+  writes a constructed stylesheet (`adoptedStyleSheets`). `scripts/check-ui-rules.mjs`
+  catches literal colors, radii, font sizes, shadows and IME-unsafe Enter/Escape.
+- **`props` is a reserved name in components**: `$props` would read as a store
+  subscription of a variable called `props`.
+
 ## Core (`crates/kumikit-core`)
 
 - **Providers come only from plugins** ([ADR 0011](decisions/0011-providers-from-plugins.md)).

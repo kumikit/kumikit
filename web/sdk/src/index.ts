@@ -95,12 +95,14 @@ export interface ThreadView {
 
 // ---- slots ----
 
-/** Props of a `transcript.renderer` mount. */
+/** Props of a `transcript.renderer` mount. Items are replaced, not changed, so a
+ * renderer is mounted again only when its item changes. */
 export interface RendererProps {
   item: TranscriptItem;
-  turn: TurnView;
-  view: ThreadView;
-  /** Runs a kernel or plugin command (for example to answer an approval). */
+  /** The thread the item belongs to. */
+  address: ThreadAddress;
+  /** Runs a kernel or plugin command, for example `approval.respond` with
+   * `{ approval, decision }`. */
   run(command: string, args?: unknown): Promise<unknown>;
 }
 
@@ -198,6 +200,9 @@ export interface PluginContext {
     /** Renders markdown into `el` with the UI kernel's renderer. Raw HTML is shown as
      * text; links are not followed. */
     markdown(el: HTMLElement, text: string): void;
+    /** Mounts the registered `transcript.renderer` for an item (from any plugin), or a
+     * plain fallback, into `el`. */
+    renderItem(el: HTMLElement, props: RendererProps): Unmount;
   };
 }
 

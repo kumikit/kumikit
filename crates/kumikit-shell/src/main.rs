@@ -103,7 +103,8 @@ fn main() {
     let ui_dir = env("KUMIKIT_UI_DIR").map(PathBuf::from);
     let plugins_dir = env("KUMIKIT_UI_PLUGINS_DIR").map(PathBuf::from);
     let app_ui = ui_dir.clone();
-    let builder = tauri::Builder::default();
+    // The open dialog only: packages and workspace folders (ADR 0013).
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
     #[cfg(feature = "test-hooks")]
     let builder = builder.invoke_handler(tauri::generate_handler![
         bridge_connect,

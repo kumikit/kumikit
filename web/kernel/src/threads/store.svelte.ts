@@ -1,0 +1,128 @@
+/**
+ * Thread state for plugins and the kernel (06-client, Thread store; ADR 0014): one
+ * subscription per open thread, events folded into a `ThreadView` once per frame.
+ */
+import type { Decision, EventNotification } from '@kumikit/protocol';
+import type { ThreadAddress, ThreadView } from '@kumikit/ui-sdk';
+
+import type { CoreConnection } from '../connections/connection.svelte';
+import { emptyView, foldEvents } from './fold';
+
+/** Schedules a fold; `requestAnimationFrame` in the page, immediate in tests. */
+export type Schedule = (fn: () => void) => void;
+
+const frame: Schedule =
+  typeof requestAnimationFrame === 'function' ? (fn) => requestAnimationFrame(() => fn()) : (fn) => queueMicrotask(fn);
+
+class OpenThread {
+  view = $state.raw<ThreadView>(undefined as unknown as ThreadView);
+  listeners = new Set<(v: ThreadView) => void>();
+  #queue: EventNotification[] = [];
+  #scheduled = false;
+  #stop: () => void;
+
+  constructor(
+    readonly address: ThreadAddress,
+    private readonly connection: CoreConnection,
+    private readonly schedule: Schedule,
+  ) {
+    this.view = { ...emptyView(address), live: connection.ready };
+    this.#stop = connection.subscribe(`thread:${address.thread}`, 0, (e) => this.#push(e));
+  }
+
+  #push(e: EventNotification): void {
+    this.#queue.push(e);
+    if (this.#scheduled) return;
+    this.#scheduled = true;
+    this.schedule(() => this.flush());
+  }
+
+  /** Folds what has arrived. Runs once per frame; input never waits for it. */
+  flush(): void {
+    this.#scheduled = false;
+    const batch = this.#queue;
+    this.#queue = [];
+    const thread = (this.connection.threads[this.address.workspace] ?? []).find((t) => t.id === this.address.thread);
+    let next = foldEvents(this.view, batch);
+    const live = this.connection.ready;
+    if (next.live !== live || next.thread !== thread) {
+      next = { ...next, live };
+      if (thread) next.thread = thread;
+    }
+    this.set(next);
+  }
+
+  set(view: ThreadView): void {
+    if (view === this.view) return;
+    this.view = view;
+    for (const l of [...this.listeners]) l(view);
+  }
+
+  close(): void {
+    this.#stop();
+  }
+}
+
+export class ThreadStore {
+  #open = new Map<string, OpenThread>();
+
+  constructor(
+    private readonly connection: CoreConnection,
+    private readonly schedule: Schedule = frame,
+  ) {}
+
+  #key(a: ThreadAddress): string {
+    return `${a.workspace}/${a.thread}`;
+  }
+
+  #get(address: ThreadAddress): OpenThread {
+    const key = this.#key(address);
+    let t = this.#open.get(key);
+    if (!t) {
+      t = new OpenThread(address, this.connection, this.schedule);
+      this.#open.set(key, t);
+    }
+    return t;
+  }
+
+  /** The current view (reactive in Svelte). */
+  view(address: ThreadAddress): ThreadView {
+    return this.#get(address).view;
+  }
+
+  /** Calls `fn` now and after every change; the thread closes when nobody watches. */
+  watch(address: ThreadAddress, fn: (v: ThreadView) => void): () => void {
+    const t = this.#get(address);
+    t.listeners.add(fn);
+    fn(t.view);
+    return () => {
+      t.listeners.delete(fn);
+      if (t.listeners.size === 0) {
+        t.close();
+        this.#open.delete(this.#key(address));
+      }
+    };
+  }
+
+  /** Refolds every open thread (after a connection status change). */
+  refresh(): void {
+    for (const t of this.#open.values()) t.flush();
+  }
+
+  /** Sends a message; one sent during a turn shows as queued until it starts. */
+  async send(address: ThreadAddress, text: string): Promise<void> {
+    const t = this.#get(address);
+    const r = await this.connection.call('thread.send', { thread: address.thread, input: { text } });
+    if (r.queued) t.set({ ...t.view, queued: [...t.view.queued, text] });
+  }
+
+  async cancel(address: ThreadAddress): Promise<void> {
+    await this.connection.call('thread.cancel', { thread: address.thread });
+    const t = this.#open.get(this.#key(address));
+    if (t) t.set({ ...t.view, queued: [] });
+  }
+
+  respond(approval: string, decision: Decision): Promise<unknown> {
+    return this.connection.call('thread.respondApproval', { approval, decision });
+  }
+}
