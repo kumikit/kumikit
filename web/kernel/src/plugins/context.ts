@@ -4,6 +4,7 @@ import type { PluginContext, RendererProps, TranscriptItem, Unmount } from '@kum
 
 import type { Kernel } from '../app.svelte';
 import { renderMarkdown } from '../declarative/markdown';
+import { variantKey } from '../theme/engine.svelte';
 
 /** Shown for an item no plugin renders. */
 function fallback(el: HTMLElement, item: TranscriptItem): Unmount {
@@ -43,6 +44,20 @@ export function createContext(k: Kernel, id: string, dispose: (() => void)[]): P
       },
       get appearance() {
         return k.theme.appearance;
+      },
+      get variants() {
+        return k.theme.variants.map((v) => ({ key: variantKey(v), name: v.name, appearance: v.appearance }));
+      },
+      get choice() {
+        const s = k.settings.value;
+        return { variant: s.themeVariant ?? null, appearance: s.appearance, reduceMotion: s.reduceMotion };
+      },
+      select(choice) {
+        const s = k.settings.value;
+        const variant = choice.variant === undefined ? s.themeVariant : (choice.variant ?? undefined);
+        const next: Partial<typeof s> = { appearance: choice.appearance ?? s.appearance, reduceMotion: choice.reduceMotion ?? s.reduceMotion };
+        k.settings.update(variant === undefined ? { ...next, themeVariant: undefined } : { ...next, themeVariant: variant });
+        k.applyTheme();
       },
       onChange: (fn) => keep(k.theme.onChange(fn)),
     },

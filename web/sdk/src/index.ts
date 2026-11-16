@@ -243,6 +243,12 @@ export interface PluginContext {
     /** Resolved token values of the active theme. */
     readonly tokens: Readonly<Partial<Record<TokenName, string>>>;
     readonly appearance: 'light' | 'dark';
+    /** Every theme variant installed on this client. */
+    readonly variants: readonly ThemeVariantInfo[];
+    /** What the user chose. */
+    readonly choice: ThemeChoiceInfo;
+    /** Changes the user's choice; omitted fields keep their value. */
+    select(choice: Partial<ThemeChoiceInfo>): void;
     onChange(fn: () => void): Dispose;
   };
   /** Small per-plugin storage on this client (strings only). */
@@ -261,6 +267,23 @@ export interface PluginContext {
      * plain fallback, into `el`. */
     renderItem(el: HTMLElement, props: RendererProps): Unmount;
   };
+}
+
+/** A theme variant as plugins see it. */
+export interface ThemeVariantInfo {
+  /** `<theme id>:<variant id>`. */
+  key: string;
+  name: string;
+  appearance: 'light' | 'dark';
+}
+
+/** The user's theme choice. */
+export interface ThemeChoiceInfo {
+  /** A variant key, or null to follow `appearance` with the default theme. */
+  variant: string | null;
+  appearance: 'system' | 'light' | 'dark';
+  /** Turn motion off even if the system does not ask to. */
+  reduceMotion: boolean;
 }
 
 /** A UI plugin module's default export. */

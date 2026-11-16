@@ -136,7 +136,8 @@ export default {
   because a connection has one subscription per topic.
 - `ctx.threads.watch(address, fn)` — the UI kernel's folded view of a thread and its
   events; returns a function that stops watching
-- `ctx.theme.tokens` and `ctx.theme.onChange(fn)`
+- `ctx.theme.tokens`, `ctx.theme.appearance` and `ctx.theme.onChange(fn)`; `ctx.theme.variants`,
+  `ctx.theme.choice` and `ctx.theme.select(choice)` list and switch the installed themes
 - `ctx.storage` — small per-plugin client-side storage
 - `ctx.notify(message)`
 - `ctx.ui.markdown(el, text)` — renders markdown with the UI kernel's renderer (raw HTML

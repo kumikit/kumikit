@@ -65,7 +65,7 @@ pub fn csp(form: SchemeForm) -> String {
     let ipc = "ipc: http://ipc.localhost";
     format!(
         "default-src 'none'; script-src {app} {plugin}; style-src {app} {plugin}; \
-         img-src {app} {plugin} data:; font-src {app} {plugin}; connect-src {ipc}; \
+         img-src {app} {plugin} data:; font-src {app} {plugin}; connect-src {app} {plugin} {ipc}; \
          base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'"
     )
 }
@@ -238,8 +238,8 @@ mod tests {
     #[test]
     fn plugin_urls_per_form() {
         assert_eq!(
-            SchemeForm::Native.plugin_base("kumikit.ui-chat"),
-            "kumikit-plugin://kumikit.ui-chat/"
+            SchemeForm::Native.plugin_base("community.example"),
+            "kumikit-plugin://community.example/"
         );
         assert_eq!(
             SchemeForm::Localhost.plugin_base("a.b"),
@@ -267,6 +267,12 @@ mod tests {
             assert!(csp.starts_with("default-src 'none'"));
             assert!(!csp.contains("unsafe"));
             assert!(csp.contains("frame-src 'none'"));
+            // The UI kernel reads bundled.json and theme tokens with fetch.
+            assert!(csp.contains(&format!(
+                "connect-src {} {}",
+                form.csp_source(APP_SCHEME),
+                form.csp_source(PLUGIN_SCHEME)
+            )));
         }
     }
 }

@@ -14,7 +14,8 @@ The shell's jobs, and its only commands ([ADR 0013](../decisions/0013-desktop-sh
   `http://<scheme>.localhost/` (WebView2 on Windows), that form is used. Every response
   carries the CSP: `default-src 'none'`, with scripts, styles, fonts and images only from
   the app and plugin schemes (images also from `data:`), no inline scripts or styles, no
-  `eval`, no frames, and no network except the shell's IPC. A path outside the plugin's
+  `eval`, no frames, and no network: `fetch` reaches only the app and plugin schemes and
+  the shell's IPC. A path outside the plugin's
   directory is refused.
 - **Local core.** Looks for the core on the local address ([02](02-protocol.md#local-transport-details)).
   If no core answers, it starts the core binary bundled with it (never one from `PATH`) as
