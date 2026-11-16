@@ -38,3 +38,4 @@ Small, local choices do not need one; a clear commit message is enough.
 | [0012](0012-activation-memory-budget.md) | Budgets for plugin activation memory and the core binary | Proposed |
 | [0013](0013-desktop-shell.md) | The desktop shell: own asset protocol, raw-line bridge, client plugin store | Proposed |
 | [0014](0014-ui-sdk-versioning.md) | UI SDK 0.1: versioning, published lists, thread views | Proposed |
+| [0015](0015-shell-memory-budget.md) | Shell memory budget: anonymous memory, gated on Linux | Proposed |
