@@ -1,11 +1,13 @@
 # Dependency policy, checked in CI with cargo-deny. The licence allowlist is the one in
 # AGENTS.md (Security and privacy), plus Unicode-3.0, accepted in the M0 plan because
-# unicode-ident (under every derive macro) uses it. SQLite, compiled in by rusqlite's
+# unicode-ident (under every derive macro) uses it. MIT-0 (MIT without the attribution
+# clause) was accepted in the M1 plan for fluent-uri, under the JSON Schema validator. SQLite, compiled in by rusqlite's
 # `bundled` feature, is public-domain C source and carries no crate licence entry.
 
 [licenses]
 allow = [
   "MIT",
+  "MIT-0",
   "Apache-2.0",
   "Apache-2.0 WITH LLVM-exception",
   "BSD-2-Clause",

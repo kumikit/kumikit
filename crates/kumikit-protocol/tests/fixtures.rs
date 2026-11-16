@@ -4,7 +4,8 @@
 //!
 //! Layout: `fixtures/methods/<method>.json` holds an array of requests and their
 //! responses (success or error); `fixtures/events/<kind>.json` holds `events.event`
-//! notifications of that kind.
+//! notifications of that kind; `fixtures/notifications/<name>.json` holds other
+//! notifications.
 
 // Integration-test crate: clippy's allow-*-in-tests does not cover helper functions.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -142,6 +143,30 @@ fn event_fixtures_round_trip() {
 }
 
 #[test]
+fn notification_fixtures_round_trip() {
+    let t = table();
+    let mut failures = Vec::new();
+    for (name, messages) in load("notifications") {
+        let Some(check) = t.notifications.get(name.as_str()) else {
+            failures.push(format!("{name}: no such notification in the table"));
+            continue;
+        };
+        for (i, msg) in messages.iter().enumerate() {
+            let outcome = round_trip::<Notification>(msg).and_then(|()| {
+                if msg["method"] != name.as_str() {
+                    return Err(format!("method is {}", msg["method"]));
+                }
+                check(&msg["params"])
+            });
+            if let Err(e) = outcome {
+                failures.push(format!("{name}[{i}]: {e}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
 fn every_method_and_event_kind_has_a_fixture() {
     let methods: BTreeMap<String, Vec<Value>> = load("methods").into_iter().collect();
     let events: BTreeMap<String, Vec<Value>> = load("events").into_iter().collect();
@@ -153,6 +178,16 @@ fn every_method_and_event_kind_has_a_fixture() {
         }
         if !msgs.iter().any(|m| m.get("result").is_some()) {
             missing.push(format!("success response for {name}"));
+        }
+    }
+    let notifications: BTreeMap<String, Vec<Value>> = load("notifications").into_iter().collect();
+    // `events.event` is covered per kind, below.
+    for name in methods::NOTIFICATION_NAMES
+        .iter()
+        .filter(|n| **n != "events.event")
+    {
+        if notifications.get(*name).is_none_or(Vec::is_empty) {
+            missing.push(format!("notification {name}"));
         }
     }
     for kind in ThreadEvent::KINDS {

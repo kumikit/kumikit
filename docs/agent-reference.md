@@ -46,18 +46,56 @@ is about the code.
 - **Approvals race by design.** The log arbitrates: resolving appends
   `approval.resolved` only if the row is still `pending`, so the loser gets `conflict`.
   Providers can get an answer before `request_approval` returns (see the `Provider`
-  docs); the scripted provider and the test fake keep early answers.
+  docs); the WASM adapter (`SessionShared`) and the test fakes keep early answers.
 - **Kernel close abandons turns.** `Kernel::close` drops running turns without writing
   `turn.ended`; the next `Kernel::open` ends them as `core_restarted`. Tests rely on this
   being deterministic.
+- **Process supervisor** (`process/`). A child's tree is killed when its last `Child`
+  handle drops, when its owner is killed, or at shutdown. Tests prove a whole tree died
+  by reading stdout to EOF: `fake-acp-agent tree` gives a grandchild the same stdout, so
+  EOF means every holder exited (no sleeps). The core's environment is injected
+  (`SupervisorConfig::env`), so tests control `PATH`.
 - **Time and ids are injected** (`KernelConfig { clock, ids }`); tests use `StepClock`
   and `SequentialIds`.
 
+## Plugin host (`crates/kumikit-plugin-host`)
+
+- **The call-time limit and the call hook.** The limit is measured from the last time the
+  guest entered wasm or returned from a host import (`engine::apply_limits`). wasmtime
+  runs the epoch deadline callback as a host call, so the call hook sees
+  `ReturningFromHost` after every tick; the callback sets `in_deadline_callback` so that
+  return does not reset the clock. Without it a spinning guest never traps
+  (`tests/runtime.rs::running_past_the_call_limit_traps` hangs).
+- **Instances are actors** (`runtime::Instance`): a task owns the `Store` and runs calls
+  one at a time from a channel, so a caller that stops waiting never interrupts a guest
+  mid-call. Anything that must reach a guest during `send` (approval answers, cancel)
+  goes through `SessionShared`, which the blocking imports select on.
+- **Providers are reconciled, not patched** (`lifecycle::PluginHost::reconcile`): after
+  every enable, disable or uninstall the host recomputes the providers the enabled
+  plugins offer and registers or unregisters the difference. A session that finishes
+  starting after its provider was removed discards itself (`start_session` checks the
+  registration), because the kernel appends `turn.started` before it starts a session.
+- **`send` runs in its own task**, so the kernel dropping its future on cancel never
+  interrupts the guest; the session's `busy` flag tells the grace-period timer whether
+  to discard it.
+- **Test components in WAT**: an imported instance with no exports is satisfied
+  without a definition; give it a function to test a missing import.
+
 ## Core (`crates/kumikit-core`)
 
-- **`scripted_provider.rs` is temporary** ([ADR 0009](decisions/0009-temporary-scripted-provider.md)).
-  It is the only provider id in `crates/`; M1 deletes it and its registration in
-  `serve.rs`.
+- **Providers come only from plugins** ([ADR 0011](decisions/0011-providers-from-plugins.md)).
+  `serve::open_core` opens the kernel, the plugin manager and the plugin host; the CLI's
+  offline path uses it too. Core tests use the probe test plugin
+  (`test-plugins/probe`, installed through `plugin.install` by `tests/support`); unit
+  tests in `rpc/tests.rs` use a fake provider defined in the test module.
+- **End-to-end ACP tests** (`tests/exit_m1.rs`) run `fake-acp-agent replay
+  <transcript>` as the agent, found on the core's `PATH` (`Core::start_with_path`). The
+  fake checks each client message's method in order and rewrites the recorded
+  `/workspace` to its working directory. The probe's manifest is
+  `test-plugins/probe/plugin.toml`, read by the tests and by `check-plugin-names.sh`.
+- **Test client notifications.** `tests/support::Client::event` sets aside
+  notifications other than `events.event` (`core.pluginsChanged`); read them with
+  `Client::notification`.
 - **Socket paths are short.** Unix socket paths are limited to about 104 bytes. Tests
   use `/tmp/kkXXXX/s.sock`, chmod the directory to 0700 (tempfile follows the umask,
   often 0755) because the core refuses non-private directories.
@@ -65,8 +103,8 @@ is about the code.
   connections; the test harness (`tests/support`) waits on that line instead of
   sleeping.
 - **`unsafe` lives only in `transport/windows.rs`** (Win32 security descriptor for the
-  pipe DACL). The workspace lint is `deny`, allowed on that module alone. Each block has
-  a `SAFETY:` comment.
+  pipe DACL) and `kumikit-kernel/src/process/windows.rs` (job objects). The workspace
+  lint is `deny`, allowed on those modules alone. Each block has a `SAFETY:` comment.
 - **Subscription result before events.** `rpc.rs` queues the `events.subscribe` result,
   then starts the pump (`Conn::deferred`). Starting the pump inside the handler would
   let an event overtake the result.

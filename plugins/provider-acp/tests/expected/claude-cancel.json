@@ -1,0 +1,12 @@
+[
+  {
+    "ready": "session-1"
+  },
+  {
+    "cost": 0.0,
+    "event": "usage",
+    "input_tokens": 0,
+    "output_tokens": 0
+  },
+  "turn_done"
+]

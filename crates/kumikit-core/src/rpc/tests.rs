@@ -5,8 +5,81 @@ use kumikit_protocol::methods::METHOD_NAMES;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, Lines};
 
+use kumikit_kernel::provider::{
+    BoxFuture, EventSink, Model, Provider, ProviderEvent, ProviderResult, SessionConfig,
+};
+use kumikit_plugin_host::engine::EngineConfig;
+use kumikit_plugin_host::lifecycle::{HostConfig, PluginHost};
+use kumikit_plugin_host::manager::{Dirs, Manager};
+use kumikit_plugin_host::runtime::Runtime;
+use kumikit_protocol::model::{ApprovalId, Decision, UserInput};
+
 use super::*;
-use crate::scripted_provider::ScriptedProvider;
+
+/// A provider for these tests: echoes the input word by word. Lives in the test module;
+/// nothing provider-shaped is compiled into the core.
+#[derive(Debug)]
+struct Echo;
+
+impl Provider for Echo {
+    fn id(&self) -> &str {
+        "test.echo/echo"
+    }
+    fn list_models(&self) -> BoxFuture<'_, ProviderResult<Vec<Model>>> {
+        Box::pin(async {
+            Ok(vec![Model {
+                id: "echo".into(),
+                label: "Echo".into(),
+                capabilities: vec![],
+            }])
+        })
+    }
+    fn start_session(&self, c: SessionConfig) -> BoxFuture<'_, ProviderResult<String>> {
+        Box::pin(async move { Ok(format!("s-{}", c.thread)) })
+    }
+    fn send(
+        &self,
+        _s: String,
+        input: UserInput,
+        sink: EventSink,
+    ) -> BoxFuture<'_, ProviderResult<()>> {
+        Box::pin(async move {
+            let err = |e: KernelError| kumikit_kernel::provider::ProviderError::new(e.to_string());
+            for word in input.text.split_inclusive(' ') {
+                sink.emit(ProviderEvent::TextDelta { text: word.into() })
+                    .await
+                    .map_err(err)?;
+            }
+            sink.emit(ProviderEvent::TextDone {
+                text: input.text.clone(),
+            })
+            .await
+            .map_err(err)?;
+            sink.emit(ProviderEvent::Usage {
+                input_tokens: 1,
+                output_tokens: 1,
+                cost: None,
+            })
+            .await
+            .map_err(err)?;
+            Ok(())
+        })
+    }
+    fn respond_approval(
+        &self,
+        _s: String,
+        _a: ApprovalId,
+        _d: Decision,
+    ) -> BoxFuture<'_, ProviderResult<()>> {
+        Box::pin(async { Ok(()) })
+    }
+    fn cancel(&self, _s: String) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
+    fn end_session(&self, _s: String) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
+}
 
 struct Client {
     _dir: tempfile::TempDir,
@@ -20,16 +93,18 @@ async fn client() -> Client {
     let kernel = Kernel::open(KernelConfig::new(dir.path().join("db")))
         .await
         .unwrap();
-    kernel
-        .register_provider(Arc::new(ScriptedProvider::default()))
-        .unwrap();
+    kernel.register_provider(Arc::new(Echo)).unwrap();
+    let dirs = Dirs::new(dir.path());
+    let runtime = Arc::new(Runtime::new(EngineConfig::default(), dirs.cache.clone()));
+    let manager = Manager::open(kernel, dirs, runtime).await.unwrap();
+    let host = PluginHost::open(manager, HostConfig::default()).await;
     let (ours, theirs) = tokio::io::duplex(64 * 1024);
     let info = Arc::new(ServerInfo {
         version: "0.0.0".into(),
         name: "test".into(),
         os: "test".into(),
     });
-    tokio::spawn(serve_connection(kernel, info, theirs));
+    tokio::spawn(serve_connection(host, info, theirs));
     let (read, write) = tokio::io::split(ours);
     Client {
         _dir: dir,
@@ -67,10 +142,10 @@ impl Client {
         let r = self
             .call(
                 "core.hello",
-                json!({"protocol":"0.1","client":{"name":"t","version":"1"}}),
+                json!({"protocol":"0.2","client":{"name":"t","version":"1"}}),
             )
             .await;
-        assert_eq!(r["result"]["protocol"], "0.1", "{r}");
+        assert_eq!(r["result"]["protocol"], "0.2", "{r}");
     }
 
     fn dir(&self) -> String {
@@ -141,13 +216,13 @@ async fn hello_describes_the_core() {
     let r = c
         .call(
             "core.hello",
-            json!({"protocol":"0.1","client":{"name":"t","version":"1"}}),
+            json!({"protocol":"0.2","client":{"name":"t","version":"1"}}),
         )
         .await;
     assert_eq!(
         r["result"],
-        json!({"protocol":"0.1","core":{"version":"0.0.0","name":"test","os":"test"},
-               "plugins":[],"capabilities":["threads","approvals"]})
+        json!({"protocol":"0.2","core":{"version":"0.0.0","name":"test","os":"test"},
+               "plugins":[],"capabilities":["threads","approvals","plugins"]})
     );
 }
 
@@ -231,7 +306,7 @@ async fn subscribe_result_comes_before_events() {
         .call("thread.create", json!({"workspace": ws, "model": "echo"}))
         .await;
     let thread = t["result"]["thread"]["id"].as_str().unwrap().to_owned();
-    assert_eq!(t["result"]["thread"]["provider"], "scripted");
+    assert_eq!(t["result"]["thread"]["provider"], "test.echo/echo");
     let topic = format!("thread:{thread}");
     // Produce the whole turn first, so replay has events ready immediately.
     c.call(

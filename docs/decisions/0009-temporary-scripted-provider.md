@@ -1,6 +1,6 @@
 # 0009 — A temporary scripted provider compiled into the core (M0 only)
 
-- **Status:** Proposed
+- **Status:** Superseded by [0011](0011-providers-from-plugins.md)
 - **Date:** 2026-11-15
 
 ## Context

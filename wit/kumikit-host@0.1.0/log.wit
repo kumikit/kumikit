@@ -1,0 +1,9 @@
+package kumikit:host@0.1.0;
+
+/// Writes to the core's log, tagged with the plugin id. Always allowed.
+interface log {
+  enum level { trace, debug, info, warn, error }
+
+  /// Logs one message.
+  log: func(level: level, message: string);
+}

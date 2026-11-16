@@ -104,10 +104,24 @@ methods! {
         EventsSubscribe = "events.subscribe" (SubscribeParams) -> SubscribeResult;
         /// `events.unsubscribe`: stop following a topic.
         EventsUnsubscribe = "events.unsubscribe" (UnsubscribeParams) -> Empty;
+        /// `plugin.list`: every installed core plugin.
+        PluginList = "plugin.list" (Empty) -> PluginListResult;
+        /// `plugin.install`: install a `.kkp` file from the core's machine; nothing is
+        /// granted or enabled.
+        PluginInstall = "plugin.install" (PluginInstallParams) -> PluginResult;
+        /// `plugin.enable`: grant a plugin's permissions (as a whole) and enable it.
+        PluginEnable = "plugin.enable" (PluginEnableParams) -> PluginResult;
+        /// `plugin.disable`: disable a plugin; its running turns are cancelled.
+        PluginDisable = "plugin.disable" (PluginRef) -> PluginResult;
+        /// `plugin.uninstall`: remove a plugin, and its data if asked.
+        PluginUninstall = "plugin.uninstall" (PluginUninstallParams) -> Empty;
     }
     notifications {
         /// `events.event`: one event on a subscribed topic.
         EventsEvent = "events.event" (EventNotification);
+        /// `core.pluginsChanged`: the enabled plugins or their available contributions
+        /// changed; the full new list.
+        CorePluginsChanged = "core.pluginsChanged" (PluginsChanged);
     }
 }
 
@@ -151,7 +165,7 @@ pub struct CoreInfo {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Contributions {
-    /// Provider ids.
+    /// Provider ids, qualified: `<plugin id>/<local id>`.
     #[serde(default)]
     pub providers: Vec<String>,
     /// Command ids.
@@ -186,6 +200,179 @@ pub struct HelloResult {
     pub plugins: Vec<PluginInfo>,
     /// Feature strings; a client shows no UI for features not listed.
     pub capabilities: Vec<String>,
+}
+
+/// Params of `core.pluginsChanged`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginsChanged {
+    /// Enabled plugins, as in `core.hello`.
+    pub plugins: Vec<PluginInfo>,
+}
+
+/// Workspace file access a plugin may have.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum FilesAccess {
+    /// None.
+    #[default]
+    None,
+    /// Read files in the workspaces it acts for.
+    ReadWorkspace,
+    /// Read and write them.
+    Workspace,
+}
+
+/// Resource limits a plugin asks for above the defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct Limits {
+    /// Linear memory per instance, MiB.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_mb: Option<u32>,
+    /// Guest time per call, seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_timeout_s: Option<u32>,
+}
+
+/// Permissions a plugin requests or was granted.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct Permissions {
+    /// Programs it may start. A started program runs with the user's full access.
+    #[serde(default)]
+    pub spawn: Vec<String>,
+    /// Hosts it may connect to.
+    #[serde(default)]
+    pub network: Vec<String>,
+    /// Workspace file access.
+    #[serde(default)]
+    pub files: FilesAccess,
+    /// Secret names it may read.
+    #[serde(default)]
+    pub secrets: Vec<String>,
+    /// Whether it may call tools other plugins contribute.
+    #[serde(default)]
+    pub tools: bool,
+    /// Limits above the defaults; absent when it uses the defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<Limits>,
+}
+
+/// Whether the user enabled a plugin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginState {
+    /// Unpacked; permissions not granted.
+    Installed,
+    /// Granted and enabled.
+    Enabled,
+    /// Turned off.
+    Disabled,
+}
+
+/// The last failure of a plugin (a trap or limit breach).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct PluginFailure {
+    /// What happened.
+    pub message: String,
+    /// Seconds until it may start again, while it is in backoff.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_in_seconds: Option<u64>,
+}
+
+/// An installed core plugin.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct InstalledPlugin {
+    /// Plugin id.
+    pub id: String,
+    /// Display name.
+    pub name: String,
+    /// Version.
+    pub version: String,
+    /// One-line description.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Source repository.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+    /// State.
+    pub state: PluginState,
+    /// What it asks for.
+    pub requested: Permissions,
+    /// What was granted, once granted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub granted: Option<Permissions>,
+    /// What it contributes and is available now.
+    pub contributes: Contributions,
+    /// Whether the package was signed and verified (always false before signing exists).
+    pub signed: bool,
+    /// The last failure, while it matters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<PluginFailure>,
+    /// Why the installed package cannot be loaded, if it cannot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Result of `plugin.list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginListResult {
+    /// Installed plugins, by id.
+    pub plugins: Vec<InstalledPlugin>,
+}
+
+/// Params of `plugin.install`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallParams {
+    /// Absolute path of a `.kkp` file on the core's machine.
+    pub path: String,
+}
+
+/// A result naming one plugin.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginResult {
+    /// The plugin.
+    pub plugin: InstalledPlugin,
+}
+
+/// Params naming one plugin.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginRef {
+    /// Plugin id.
+    pub plugin: String,
+}
+
+/// Params of `plugin.enable`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginEnableParams {
+    /// Plugin id.
+    pub plugin: String,
+    /// The permissions granted; must equal the plugin's `requested`.
+    pub grant: Permissions,
+}
+
+/// Params of `plugin.uninstall`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct PluginUninstallParams {
+    /// Plugin id.
+    pub plugin: String,
+    /// Also delete its kv store and data directory (default false).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delete_data: Option<bool>,
 }
 
 /// Result of `workspace.list`.

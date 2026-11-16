@@ -1,0 +1,75 @@
+package kumikit:host@0.1.0;
+
+/// Events of the running turn. Only callable while the plugin is running a turn (inside
+/// `send`); the host attaches the thread and turn, and rejects events after the turn
+/// ended. JSON payloads are JSON text; the host checks that they parse.
+interface events {
+  use types.{error};
+
+  /// An answer to an approval.
+  enum decision { allow, allow-always, deny }
+
+  record tool-started {
+    /// Call id, unique within the turn.
+    call: string,
+    /// Tool name.
+    name: string,
+    /// Tool input, JSON.
+    input: string,
+  }
+
+  record tool-output {
+    call: string,
+    chunk: string,
+  }
+
+  record tool-finished {
+    call: string,
+    ok: bool,
+    /// Result, JSON.
+    %result: option<string>,
+  }
+
+  record file-changed {
+    /// Path relative to the workspace root.
+    path: string,
+    /// Unified diff, if known.
+    diff: option<string>,
+  }
+
+  record usage {
+    input-tokens: u64,
+    output-tokens: u64,
+    /// Cost in US dollars, if known.
+    cost: option<f64>,
+  }
+
+  /// A plugin-defined event (`plugin.event`); the host adds the plugin id.
+  record plugin-event {
+    kind: string,
+    /// Data, JSON.
+    data: string,
+  }
+
+  /// An event a plugin may emit. Kernel-only kinds (`turn.started`, `turn.ended`,
+  /// `approval.*`) are not representable.
+  variant event {
+    text-delta(string),
+    /// The full message.
+    text-done(string),
+    reasoning-delta(string),
+    tool-started(tool-started),
+    tool-output(tool-output),
+    tool-finished(tool-finished),
+    file-changed(file-changed),
+    usage(usage),
+    plugin(plugin-event),
+  }
+
+  /// Appends an event to the running turn.
+  emit: func(event: event) -> result<_, error>;
+
+  /// Asks the user for an approval and waits for the answer. `detail` is JSON. Fails with
+  /// `cancelled` if the turn is cancelled first.
+  request-approval: func(kind: string, summary: string, detail: option<string>) -> result<decision, error>;
+}

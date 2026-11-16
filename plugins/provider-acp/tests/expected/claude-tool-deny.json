@@ -1,0 +1,162 @@
+[
+  {
+    "ready": "session-1"
+  },
+  {
+    "call": "toolu_01AW1w7is2fV3wdsM7rCkxVQ",
+    "event": "tool_started",
+    "input": {
+      "command": "touch denied.txt"
+    },
+    "name": "touch denied.txt"
+  },
+  {
+    "call": "toolu_01AW1w7is2fV3wdsM7rCkxVQ",
+    "chunk": "Create empty file denied.txt in current directory",
+    "event": "tool_output"
+  },
+  {
+    "approve": {
+      "kind": "tool",
+      "summary": "touch denied.txt"
+    }
+  },
+  {
+    "call": "toolu_01AW1w7is2fV3wdsM7rCkxVQ",
+    "chunk": "```\nUser refused permission to run tool\n```",
+    "event": "tool_output"
+  },
+  {
+    "call": "toolu_01AW1w7is2fV3wdsM7rCkxVQ",
+    "event": "tool_finished",
+    "ok": false,
+    "result": "User refused permission to run tool"
+  },
+  {
+    "event": "text_delta",
+    "text": "The sh"
+  },
+  {
+    "event": "text_delta",
+    "text": "ell command `"
+  },
+  {
+    "event": "text_delta",
+    "text": "touch denied.txt`"
+  },
+  {
+    "event": "text_delta",
+    "text": " was not"
+  },
+  {
+    "event": "text_delta",
+    "text": " run. You"
+  },
+  {
+    "event": "text_delta",
+    "text": " decl"
+  },
+  {
+    "event": "text_delta",
+    "text": "ined the"
+  },
+  {
+    "event": "text_delta",
+    "text": " permission pr"
+  },
+  {
+    "event": "text_delta",
+    "text": "ompt for"
+  },
+  {
+    "event": "text_delta",
+    "text": " it, so I didn't create"
+  },
+  {
+    "event": "text_delta",
+    "text": " `denied.txt` or"
+  },
+  {
+    "event": "text_delta",
+    "text": " try another"
+  },
+  {
+    "event": "text_delta",
+    "text": " way to make"
+  },
+  {
+    "event": "text_delta",
+    "text": " the"
+  },
+  {
+    "event": "text_delta",
+    "text": " file. The"
+  },
+  {
+    "event": "text_delta",
+    "text": " working"
+  },
+  {
+    "event": "text_delta",
+    "text": " directory is un"
+  },
+  {
+    "event": "text_delta",
+    "text": "changed.\n\nIf"
+  },
+  {
+    "event": "text_delta",
+    "text": " you want the"
+  },
+  {
+    "event": "text_delta",
+    "text": " file created"
+  },
+  {
+    "event": "text_delta",
+    "text": ", appro"
+  },
+  {
+    "event": "text_delta",
+    "text": "ve the"
+  },
+  {
+    "event": "text_delta",
+    "text": " command when"
+  },
+  {
+    "event": "text_delta",
+    "text": " it's"
+  },
+  {
+    "event": "text_delta",
+    "text": " prompted again"
+  },
+  {
+    "event": "text_delta",
+    "text": ","
+  },
+  {
+    "event": "text_delta",
+    "text": " or tell me to"
+  },
+  {
+    "event": "text_delta",
+    "text": " use"
+  },
+  {
+    "event": "text_delta",
+    "text": " a different method."
+  },
+  {
+    "event": "text_done",
+    "text": "The shell command `touch denied.txt` was not run. You declined the permission prompt for it, so I didn't create `denied.txt` or try another way to make the file. The working directory is unchanged.\n\nIf you want the file created, approve the command when it's prompted again, or tell me to use a different method."
+  },
+  {
+    "cost": 0.00251231,
+    "event": "usage",
+    "input_tokens": 4,
+    "output_tokens": 261
+  },
+  "turn_done"
+]

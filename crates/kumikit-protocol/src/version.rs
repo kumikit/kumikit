@@ -1,7 +1,7 @@
 //! Protocol version and the compatibility rule (`docs/spec/02-protocol.md#handshake`).
 
 /// The protocol version this crate describes.
-pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
+pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 0, minor: 2 };
 
 /// A `MAJOR.MINOR` protocol version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -50,7 +50,7 @@ mod tests {
     #[test]
     fn parses() {
         assert_eq!(v("0.1"), ProtocolVersion { major: 0, minor: 1 });
-        assert_eq!(PROTOCOL_VERSION.to_string(), "0.1");
+        assert_eq!(PROTOCOL_VERSION.to_string(), "0.2");
         for bad in ["1", "1.", ".1", "1.2.3", "a.b", "-1.0", "+1.0"] {
             assert_eq!(ProtocolVersion::parse(bad), None, "{bad}");
         }

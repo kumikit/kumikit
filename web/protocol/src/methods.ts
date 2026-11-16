@@ -4,6 +4,13 @@ import type { Empty } from "./Empty";
 import type { EventNotification } from "./EventNotification";
 import type { HelloParams } from "./HelloParams";
 import type { HelloResult } from "./HelloResult";
+import type { PluginEnableParams } from "./PluginEnableParams";
+import type { PluginInstallParams } from "./PluginInstallParams";
+import type { PluginListResult } from "./PluginListResult";
+import type { PluginRef } from "./PluginRef";
+import type { PluginResult } from "./PluginResult";
+import type { PluginUninstallParams } from "./PluginUninstallParams";
+import type { PluginsChanged } from "./PluginsChanged";
 import type { RespondApprovalParams } from "./RespondApprovalParams";
 import type { SubscribeParams } from "./SubscribeParams";
 import type { SubscribeResult } from "./SubscribeResult";
@@ -22,7 +29,7 @@ import type { WorkspaceOpenResult } from "./WorkspaceOpenResult";
 import type { WorkspaceRef } from "./WorkspaceRef";
 
 /** Protocol version spoken by this package, `MAJOR.MINOR`. */
-export const PROTOCOL_VERSION = "0.1";
+export const PROTOCOL_VERSION = "0.2";
 
 /** Every request method with its params and result types. */
 export type Methods = {
@@ -39,11 +46,17 @@ export type Methods = {
   "thread.archive": { params: ThreadRef; result: Empty };
   "events.subscribe": { params: SubscribeParams; result: SubscribeResult };
   "events.unsubscribe": { params: UnsubscribeParams; result: Empty };
+  "plugin.list": { params: Empty; result: PluginListResult };
+  "plugin.install": { params: PluginInstallParams; result: PluginResult };
+  "plugin.enable": { params: PluginEnableParams; result: PluginResult };
+  "plugin.disable": { params: PluginRef; result: PluginResult };
+  "plugin.uninstall": { params: PluginUninstallParams; result: Empty };
 };
 
 /** Every notification the core sends, with its params type. */
 export type Notifications = {
   "events.event": EventNotification;
+  "core.pluginsChanged": PluginsChanged;
 };
 
 export type MethodName = keyof Methods;

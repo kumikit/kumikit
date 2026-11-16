@@ -1,0 +1,15 @@
+id = "kumikit.provider-acp"
+name = "ACP agents"
+version = "0.1.0"
+description = "Runs any agent that speaks the Agent Client Protocol, from a manifest entry."
+license = "MIT"
+repository = "https://github.com/kumikit/kumikit"
+kind = ["provider"]
+api = "^0.1"
+
+[runtime]
+wasm = "plugin.wasm"
+worlds = ["kumikit:provider/plugin@0.1.0"]
+
+[contributes]
+provider-backends = [{ key = "acp", schema = "acp.schema.json" }]

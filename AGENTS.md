@@ -12,8 +12,10 @@ spec, not here.
 
 ## Status
 
-M0 (protocol and kernel) is built: `kumikit serve`, the protocol crate and the kernel
-([plan](docs/plans/2026-11-15-m0-protocol-and-kernel.md)). M1 (plugin host) is next. Build
+M0 (protocol and kernel) and M1 (plugin host) are built: `kumikit serve`, the kernel,
+WASM plugins with permissions and a lifecycle, provider-acp, and `kumikit plugin`
+([M0 plan](docs/plans/2026-11-15-m0-protocol-and-kernel.md),
+[M1 plan](docs/plans/2026-11-15-m1-plugin-host.md)). M2 (client) is next. Build
 in milestone order
 ([roadmap](docs/spec/12-roadmap.md)); do not start a later milestone's code before the
 earlier one's exit criteria pass.
@@ -38,8 +40,14 @@ earlier one's exit criteria pass.
 Now:
 - `sh scripts/check-docs.sh`: AGENTS.md size, and every relative Markdown link resolves.
 - `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo test --workspace`
+- `cargo test --workspace` (builds the test plugins for `wasm32-wasip2`; the target comes
+  with `rust-toolchain.toml` under rustup, or a distribution's Rust WASM package)
+- `cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-test-hello -p kumikit-test-probe -p kumikit-provider-acp -- -D warnings`
+- `sh scripts/check-plugin-names.sh`: no plugin id, provider id or backend key in
+  `crates/*/src`
 - `cargo deny check licenses bans sources` (CI runs it; locally when dependencies change)
+- `cargo test -p kumikit-core --test exit_m1 -- --ignored`: live smoke test of provider-acp
+  with real Claude Code (needs `claude-agent-acp` and a Claude login; manual)
 - `cargo test -p kumikit-protocol` also fails when generated TypeScript is stale;
   `KUMIKIT_BLESS=1 cargo test -p kumikit-protocol` regenerates `web/protocol/`.
 - `npx -p typescript@7.0.2 tsc --noEmit -p web/protocol` when protocol types change.
@@ -53,8 +61,7 @@ From M2:
 ## Architecture rules (do not break these)
 
 - **The kernel knows no plugin by name.** No provider, bot, theme or tool id or name in
-  `crates/` or `web/kernel/` (sole, temporary exception: the M0 scripted provider,
-  [ADR 0009](docs/decisions/0009-temporary-scripted-provider.md)). A special case for one plugin means the plugin API is
+  `crates/` or `web/kernel/`. A special case for one plugin means the plugin API is
   missing something: add the general API instead. ([ADR 0006](docs/decisions/0006-kernel-owns-domain-model.md))
 - **First-party plugins use only public SDKs** (`wit/`, `sdk/rust`, `@kumikit/ui-sdk`,
   `@kumikit/protocol`). No private hooks for them.
@@ -105,7 +112,7 @@ From M2:
 ## Security and privacy
 
 - Kumikit is MIT-licensed ([LICENSE](LICENSE)); every crate and package declares
-  `license = "MIT"`. Add a dependency only if its license is compatible (MIT, Apache-2.0,
+  `license = "MIT"`. Add a dependency only if its license is compatible (MIT, MIT-0, Apache-2.0,
   BSD, ISC, Zlib, MPL-2.0); ask before adding anything else.
 
 - No telemetry, no accounts, no network traffic the user did not start or opt into. Any

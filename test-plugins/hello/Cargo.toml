@@ -1,0 +1,18 @@
+[package]
+name = "kumikit-test-hello"
+description = "Test plugin: the smallest plugin, used to measure activation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+kumikit-plugin = { path = "../../sdk/rust" }

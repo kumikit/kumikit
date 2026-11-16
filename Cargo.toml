@@ -1,11 +1,23 @@
 [workspace]
 resolver = "3"
-members = ["crates/kumikit-protocol", "crates/kumikit-kernel", "crates/kumikit-core"]
+members = [
+  "crates/kumikit-protocol",
+  "crates/kumikit-kernel",
+  "crates/kumikit-plugin-host",
+  "crates/kumikit-core",
+  "sdk/rust",
+  "sdk/rust-provider",
+  "plugins/provider-acp",
+  "test-plugins/fake-acp-agent",
+  "test-plugins/hello",
+  "test-plugins/probe",
+  "test-plugins/kumikit-test-plugins",
+]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.99"
+rust-version = "1.100"
 license = "MIT"
 repository = "https://github.com/kumikit/kumikit"
 publish = false
@@ -13,6 +25,10 @@ publish = false
 [workspace.dependencies]
 kumikit-protocol = { path = "crates/kumikit-protocol" }
 kumikit-kernel = { path = "crates/kumikit-kernel" }
+kumikit-plugin-host = { path = "crates/kumikit-plugin-host" }
+kumikit-plugin = { path = "sdk/rust" }
+kumikit-provider = { path = "sdk/rust-provider" }
+kumikit-test-plugins = { path = "test-plugins/kumikit-test-plugins" }
 
 [workspace.lints.rust]
 # Denied, not forbidden: the Windows named-pipe ACL module needs FFI and allows it locally.

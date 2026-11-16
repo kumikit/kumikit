@@ -1,6 +1,6 @@
 # 0008 — Generate TypeScript protocol types with ts-rs
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-15
 
 ## Context

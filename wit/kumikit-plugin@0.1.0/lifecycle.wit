@@ -1,0 +1,19 @@
+package kumikit:plugin@0.1.0;
+
+/// Exports every plugin implements.
+interface lifecycle {
+  use kumikit:host/types@0.1.0.{error};
+
+  /// Called once after each instance is created, before any other export.
+  activate: func() -> result<_, error>;
+  /// Called before an instance is dropped (idle unload, disable, shutdown). The host
+  /// gives it a short time limit.
+  deactivate: func();
+}
+
+/// The base world: imports every plugin may use, and the lifecycle exports.
+world plugin {
+  import kumikit:host/log@0.1.0;
+  import kumikit:host/kv@0.1.0;
+  export lifecycle;
+}

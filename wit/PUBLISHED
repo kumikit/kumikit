@@ -1,0 +1,13 @@
+# Published WIT package versions and the SHA-256 of their directory.
+#
+# A published version is never changed in place (AGENTS.md, Interfaces and versioning):
+# make a new directory with a new version instead. The test
+# `crates/kumikit-plugin-host/tests/published_wit.rs` fails when a listed directory no
+# longer matches its hash, and prints the hash of every directory.
+#
+# Packages are listed here when the milestone that introduces them is merged to main.
+#
+# <directory> <sha256>
+kumikit-host@0.1.0 d2d9aaecff62c555180ad13b0a0f4f6aab2b49f3f9150331672a1021288114d6
+kumikit-plugin@0.1.0 7e203d417d5d2323c49de7a31d7a6b0219da8052bb0660e15b224611f11ce9cf
+kumikit-provider@0.1.0 121faa834f25c0ba26ed1f3eac3e665e36c56ac1bcba0c58bebbe1cfe43e3f84

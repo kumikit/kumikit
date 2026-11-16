@@ -7,7 +7,7 @@ disabled; the UI kernel works (with an empty state) without any of them.
 
 | Plugin | Side | Why it is preinstalled |
 |---|---|---|
-| `kumikit.provider-acp` | core | Runs any ACP agent from a manifest; gives a working agent with no code |
+| `kumikit.provider-acp` | core | Runs any ACP agent from a manifest; gives a working agent with no code. Installed with `kumikit plugin add` until the desktop installer ships it (M2). |
 | `kumikit.ui-chat` | client | Transcript and composer |
 | `kumikit.ui-settings` | client | Settings pages for the kernel and declarative plugin settings |
 | `kumikit.theme-default` | client | Light and dark themes; the fallback for missing tokens |
@@ -47,6 +47,26 @@ plugins, and locally for UI plugins and themes.
 
 Install steps: download → check hash → check signature against the registry's publisher
 key → validate manifest → show permissions → unpack → enable.
+
+### Local packages (before signing)
+
+Until signing and the registry exist (M4), `kumikit plugin add <file.kkp>` is the only way
+to install a core plugin:
+
+- `kumikit plugin add <file.kkp> [--yes]`, `kumikit plugin list`, `kumikit plugin remove
+  <id> [--yes] [--keep-data]`, and `kumikit plugin pack <dir> [-o <file.kkp>]` to build a
+  package. All take `--socket` and `--data-dir`.
+- The commands talk to the running core through `plugin.*`. When no core runs, they open
+  the data directory themselves (holding its lock) and do the same work.
+- `add` unpacks and validates the package, then prints the plugin's name, publisher,
+  repository and permissions in plain words, and that the package is not signed so its
+  publisher cannot be verified. It asks before granting the permissions and enabling the
+  plugin; `--yes` grants without asking. Without a terminal and without `--yes`, the
+  plugin stays installed but not enabled.
+- `remove` asks before deleting the plugin's data; `--keep-data` keeps it.
+- The SHA-256 of the package is recorded for the lockfile. Installing an id that is
+  already installed fails until updates exist; remove it first. Adding the same version
+  of a plugin that is installed but not enabled asks again for the grant.
 
 ## Lockfiles
 

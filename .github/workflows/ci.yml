@@ -17,6 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sh scripts/check-docs.sh
+      - run: sh scripts/check-plugin-names.sh
 
   rust:
     strategy:
@@ -31,6 +32,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # Guest crates (SDK, plugins, test plugins) also build for the plugin target.
+      - run: cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-test-hello -p kumikit-test-probe -p kumikit-provider-acp -- -D warnings
       - run: cargo test --workspace --no-fail-fast
 
   footprint:

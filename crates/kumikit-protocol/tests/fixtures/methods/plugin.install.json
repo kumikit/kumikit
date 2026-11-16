@@ -1,0 +1,75 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 12,
+    "method": "plugin.install",
+    "params": {
+      "path": "/home/user/Downloads/community.provider-gemini-0.1.0.kkp"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 12,
+    "result": {
+      "plugin": {
+        "id": "community.provider-gemini",
+        "name": "Gemini CLI",
+        "version": "0.1.0",
+        "state": "installed",
+        "requested": {
+          "spawn": [
+            "gemini"
+          ],
+          "network": [],
+          "files": "none",
+          "secrets": [],
+          "tools": false
+        },
+        "contributes": {
+          "providers": [],
+          "commands": [],
+          "settings": false
+        },
+        "signed": false
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 13,
+    "method": "plugin.install",
+    "params": {
+      "path": "/home/user/bad.kkp"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 13,
+    "error": {
+      "code": -32602,
+      "message": "invalid plugin manifest: version `one` is not a semver version; permissions.spawn entry `/bin/sh` must be a bare program name, not a path",
+      "data": {
+        "code": "invalid_params"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 14,
+    "method": "plugin.install",
+    "params": {
+      "path": "/home/user/Downloads/community.provider-gemini-0.1.0.kkp"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 14,
+    "error": {
+      "code": -32000,
+      "message": "plugin community.provider-gemini is already installed; remove it first",
+      "data": {
+        "code": "conflict"
+      }
+    }
+  }
+]

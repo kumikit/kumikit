@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use kumikit_core::paths::{self, Platform};
 use kumikit_core::serve::{ServeOptions, serve};
-use kumikit_core::transport;
+use kumikit_core::{cli, transport};
 
 /// Kumikit core: a headless server for working with coding agents.
 #[derive(Debug, Parser)]
@@ -27,6 +27,50 @@ enum Command {
         #[arg(long)]
         data_dir: Option<PathBuf>,
     },
+    /// Manage core plugins (local .kkp files).
+    Plugin {
+        /// The core's socket (Linux, macOS) or pipe (Windows). Default: per platform.
+        #[arg(long, global = true)]
+        socket: Option<String>,
+        /// The core's data directory, used when no core is running. Default: per platform.
+        #[arg(long, global = true)]
+        data_dir: Option<PathBuf>,
+        #[command(subcommand)]
+        action: PluginAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum PluginAction {
+    /// Install a .kkp file, show its permissions and, if you agree, enable it.
+    Add {
+        /// The package.
+        file: PathBuf,
+        /// Grant the permissions without asking.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// List installed plugins.
+    List,
+    /// Remove a plugin.
+    Remove {
+        /// Plugin id.
+        id: String,
+        /// Also delete its data without asking.
+        #[arg(long, conflicts_with = "keep_data")]
+        yes: bool,
+        /// Keep its data without asking.
+        #[arg(long)]
+        keep_data: bool,
+    },
+    /// Build a .kkp package from a plugin directory.
+    Pack {
+        /// Directory with plugin.toml and the files it names.
+        dir: PathBuf,
+        /// Output file. Default: <id>-<version>.kkp.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -38,6 +82,42 @@ fn main() -> Result<()> {
         .context("starting the async runtime")?;
     match cli.command {
         Command::Serve { socket, data_dir } => runtime.block_on(run_serve(socket, data_dir)),
+        Command::Plugin {
+            socket,
+            data_dir,
+            action,
+        } => runtime.block_on(run_plugin(socket, data_dir, action)),
+    }
+}
+
+fn target(socket: Option<String>, data_dir: Option<PathBuf>) -> Result<cli::Target> {
+    let platform = Platform::current();
+    let data_dir = match data_dir {
+        Some(d) => d,
+        None => paths::data_dir(platform, &paths::process_env)
+            .context("cannot find a data directory; pass --data-dir")?,
+    };
+    let address = socket.unwrap_or_else(|| {
+        paths::default_address(platform, &paths::process_env, transport::current_uid())
+    });
+    Ok(cli::Target { data_dir, address })
+}
+
+async fn run_plugin(
+    socket: Option<String>,
+    data_dir: Option<PathBuf>,
+    action: PluginAction,
+) -> Result<()> {
+    let out = &mut cli::Stdout;
+    match action {
+        PluginAction::Pack { dir, output } => cli::pack(&dir, output.as_deref(), out),
+        PluginAction::Add { file, yes } => {
+            cli::add(&target(socket, data_dir)?, &file, yes, out).await
+        }
+        PluginAction::List => cli::list(&target(socket, data_dir)?, out).await,
+        PluginAction::Remove { id, yes, keep_data } => {
+            cli::remove(&target(socket, data_dir)?, &id, yes, keep_data, out).await
+        }
     }
 }
 

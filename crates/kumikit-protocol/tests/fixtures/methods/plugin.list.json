@@ -1,0 +1,119 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 10,
+    "method": "plugin.list"
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 10,
+    "result": {
+      "plugins": [
+        {
+          "id": "community.provider-gemini",
+          "name": "Gemini CLI",
+          "version": "0.1.0",
+          "state": "enabled",
+          "requested": {
+            "spawn": [
+              "gemini"
+            ],
+            "network": [],
+            "files": "none",
+            "secrets": [],
+            "tools": false
+          },
+          "contributes": {
+            "providers": [
+              "community.provider-gemini/gemini"
+            ],
+            "commands": [],
+            "settings": false
+          },
+          "signed": false,
+          "granted": {
+            "spawn": [
+              "gemini"
+            ],
+            "network": [],
+            "files": "none",
+            "secrets": [],
+            "tools": false
+          }
+        },
+        {
+          "id": "kumikit.provider-acp",
+          "name": "ACP agents",
+          "version": "0.1.0",
+          "state": "enabled",
+          "requested": {
+            "spawn": [],
+            "network": [],
+            "files": "none",
+            "secrets": [],
+            "tools": false
+          },
+          "contributes": {
+            "providers": [],
+            "commands": [],
+            "settings": false
+          },
+          "signed": false,
+          "granted": {
+            "spawn": [],
+            "network": [],
+            "files": "none",
+            "secrets": [],
+            "tools": false
+          },
+          "description": "Runs any agent that speaks the Agent Client Protocol.",
+          "repository": "https://github.com/kumikit/kumikit"
+        }
+      ]
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 11,
+    "method": "plugin.list",
+    "params": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 11,
+    "result": {
+      "plugins": [
+        {
+          "id": "test.broken",
+          "name": "Broken",
+          "version": "0.2.0",
+          "state": "enabled",
+          "requested": {
+            "spawn": [],
+            "network": [],
+            "files": "none",
+            "secrets": [],
+            "tools": false
+          },
+          "granted": {
+            "spawn": [],
+            "network": [],
+            "files": "none",
+            "secrets": [],
+            "tools": false
+          },
+          "contributes": {
+            "providers": [],
+            "commands": [],
+            "settings": false
+          },
+          "signed": false,
+          "failure": {
+            "message": "plugin test.broken failed: wasm trap: unreachable",
+            "retryInSeconds": 4
+          }
+        }
+      ]
+    }
+  }
+]
