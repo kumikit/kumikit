@@ -37,15 +37,18 @@ connect catches up from the event log.
 
 ```
 crates/
-  kumikit-protocol/      # protocol types and method table; generates TypeScript
+  kumikit-protocol/      # protocol types, method table, local address; generates TypeScript
+  kumikit-package/       # .kkp packing and defensive unpacking, shared by core and shell
   kumikit-kernel/        # domain model, event log, storage, secrets, processes, permissions
   kumikit-plugin-host/   # wasmtime component host, WIT bindings, sidecar host (later)
   kumikit-core/          # the `kumikit` binary: transports, auth, CLI
-  kumikit-shell/         # Tauri desktop shell
+  kumikit-shell/         # Tauri desktop shell: window, bridge, client plugin store
 wit/                     # WIT packages: kumikit:host, kumikit:provider, kumikit:bot, …
 web/
   kernel/                # Svelte 5 UI kernel
   sdk/                   # @kumikit/ui-sdk: types and helpers for UI plugin authors
+  e2e/                   # Playwright tests of the browser build against a real core
+  e2e-desktop/           # WebDriver tests of the desktop app
   protocol/              # @kumikit/protocol: generated from kumikit-protocol, never edited
 sdk/
   rust/                  # kumikit-plugin crate: guest bindings for the base world, helpers
@@ -68,17 +71,20 @@ docs/
 ```
 kumikit-protocol  ←  kumikit-kernel  ←  kumikit-plugin-host  ←  kumikit-core
 kumikit-protocol  ←  kumikit-shell
+kumikit-package   ←  kumikit-plugin-host, kumikit-core, kumikit-shell
 @kumikit/protocol ←  web/kernel, web/sdk
+@kumikit/ui-sdk   ←  web/kernel, plugins/ui-*
 wit/              ←  kumikit-plugin-host, sdk/rust*, plugins/*, test-plugins/*
 ```
 
 - `kumikit-protocol` depends on nothing in the workspace. It has no I/O.
+- `kumikit-package` depends on nothing in the workspace and knows no kernel types.
 - `kumikit-shell` and `web/` never depend on `kumikit-kernel`: the client knows the core
   only through the protocol.
 - `plugins/*` and `test-plugins/*` depend only on `wit/`, `sdk/`, `web/sdk` and
   `@kumikit/protocol` (test helpers may also use test-only crates).
 - No crate or package outside `plugins/` and `test-plugins/` names a plugin;
-  `scripts/check-plugin-names.sh` checks `crates/`.
+  `scripts/check-plugin-names.sh` checks `crates/`, `web/kernel/src` and `web/sdk/src`.
 
 ## Technology
 
@@ -106,5 +112,6 @@ wit/              ←  kumikit-plugin-host, sdk/rust*, plugins/*, test-plugins/*
 or above.
 
 Core data holds the database, installed core plugins, plugin data and the secret store.
-Client data holds connection profiles, layout, installed UI plugins and themes. Neither
-directory is shared between the two.
+Client data holds connection profiles, layout, installed UI plugins and themes, and the
+webview's own storage, where the UI kernel keeps client settings. Neither directory is
+shared between the two.

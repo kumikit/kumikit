@@ -54,11 +54,11 @@ The first call after authentication is `core.hello`:
 ```jsonc
 // → client
 { "jsonrpc": "2.0", "id": 1, "method": "core.hello",
-  "params": { "protocol": "0.2", "client": { "name": "kumikit-desktop", "version": "0.1.0" } } }
+  "params": { "protocol": "0.3", "client": { "name": "kumikit-desktop", "version": "0.1.0" } } }
 
 // ← core
 { "jsonrpc": "2.0", "id": 1, "result": {
-    "protocol": "0.2",
+    "protocol": "0.3",
     "core": { "version": "0.1.0", "name": "devbox", "os": "linux" },
     "plugins": [
       { "id": "kumikit.provider-acp", "version": "0.1.0",
@@ -66,7 +66,7 @@ The first call after authentication is `core.hello`:
       { "id": "community.provider-gemini", "version": "0.1.0",
         "contributes": { "providers": ["community.provider-gemini/gemini"], "commands": [], "settings": false } }
     ],
-    "capabilities": ["threads", "approvals", "plugins"] } }
+    "capabilities": ["threads", "approvals", "plugins", "providers", "workspace_events"] } }
 ```
 
 - `protocol` is `MAJOR.MINOR`. A client refuses a core with a different major version and
@@ -124,7 +124,10 @@ and both sides ignore fields they do not know.
 | `events.subscribe` | `topic`, `after` | `head` (the topic's last `seq` at subscribe time) |
 | `events.unsubscribe` | `topic` | `{}` |
 | `plugin.list` | — | `plugins`: every installed plugin (`id`, `name`, `version`, `description?`, `repository?`, `state`, `requested`, `granted?`, `contributes`, `signed`, `failure?`, `error?`) |
-| `plugin.install` | `path` (a `.kkp` file on the core's machine) | `plugin`, in state `installed`. Invalid packages and manifests fail with `invalid_params`, listing the problems; an id that is already installed fails with `conflict`. |
+| `core.shutdown` | — | `{}`, sent before the core stops. Running turns end as on any stop: the next start ends them as `core_restarted`. |
+| `provider.list` | — | `providers`: `{ id (qualified), name, plugin }` for every available provider, read from manifests without activating anything |
+| `provider.models` | `provider` (qualified id) | `models`: `{ id, label, capabilities }`. Activates the provider's plugin; an unknown provider gives `not_found`. |
+| `plugin.install` | `path` on the core's machine: a `.kkp` file, or a directory holding a `plugin.toml` (packed as `kumikit plugin pack` would, and the packed archive's SHA-256 recorded) | `plugin`, in state `installed`. Invalid packages and manifests fail with `invalid_params`, listing the problems; an id that is already installed fails with `conflict`. |
 | `plugin.enable` | `plugin`, `grant` | `plugin`. `grant` must equal the plugin's requested permissions (they are granted as a whole), otherwise `conflict`. Compiles the component. |
 | `plugin.disable` | `plugin` | `plugin`. Cancels the plugin's running turns and unloads it. |
 | `plugin.uninstall` | `plugin`, `deleteData?` | `{}`. Disables it first; deletes its kv and data directory only if `deleteData` is true. |
@@ -182,10 +185,29 @@ per-thread sequence number. Clients read state by subscribing.
               "kind": "text.delta", "data": { "turn": "t3", "text": "Looking at…" } } }
 ```
 
-Topics: `thread:<id>` is defined. `workspace:<id>` (threads created, renamed, archived),
-`core` (plugins, status) and `approvals` (all pending approvals on this core) are
-reserved: subscribing to them fails with `unsupported` until their delivery rules are
-specified.
+Topics: `thread:<id>` and `workspace:<id>` are defined. `core` (plugins, status) and
+`approvals` (all pending approvals on this core) are reserved: subscribing to them fails
+with `unsupported` until their delivery rules are specified.
+
+### Workspace topic
+
+`workspace:<id>` tells a client about changes to a workspace's threads, so a sidebar can
+show every thread's status without subscribing to each thread:
+
+| Kind | Data |
+|---|---|
+| `thread.created` | `thread` |
+| `thread.updated` | `thread` (status, title or `updated` changed) |
+| `thread.archived` | `thread` |
+
+- The topic has no log: `after` must be 0 (otherwise `invalid_params`), `head` is 0, and
+  only changes after the subscription follow. They arrive as `events.event` notifications
+  whose `seq` counts from 1 within the subscription; it is not a cursor and is not kept.
+- A client subscribes first, then calls `thread.list`, and keeps whichever copy of a
+  thread has the later `updated`, so nothing is missed between the two calls.
+- An unknown workspace gives `not_found`.
+
+The rules below are for thread topics.
 
 Delivery rules:
 - The `events.subscribe` result is sent before any `events.event` for that topic.

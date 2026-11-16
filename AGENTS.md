@@ -68,7 +68,8 @@ From M2:
 - **The protocol is the only client–core contract.** `kumikit-shell` and `web/` never
   depend on `kumikit-kernel`. Respect the dependency rules in
   [01-architecture](docs/spec/01-architecture.md#dependency-rules).
-- **The shell has no feature commands.** Features go in the core or in plugins.
+- **The shell has no feature commands.** Features go in the core or in plugins. Its
+  commands are the connection bridge and the client plugin store ([ADR 0013](docs/decisions/0013-desktop-shell.md)).
 - **Core plugins contribute declarative UI only**; UI code comes from client-installed UI
   plugins. ([ADR 0007](docs/decisions/0007-core-plugins-declarative-ui.md))
 - **Default deny.** Every host import checks the plugin's granted permissions. Never add
@@ -86,8 +87,9 @@ From M2:
   changing anything is major and needs an ADR. Update the recorded fixtures with the change.
 - WIT packages in `wit/` are versioned. Never change a published version in place: add a
   new version.
-- The manifest format, the token set (`tokens@N`) and the slot list are public APIs
-  under the same rules.
+- The manifest format, the token set and the slot list are public APIs under the same
+  rules: published UI SDK versions live in `web/sdk/api/<version>/`, recorded in
+  `web/sdk/api/PUBLISHED` ([ADR 0014](docs/decisions/0014-ui-sdk-versioning.md)).
 
 ## Rust
 
@@ -95,7 +97,8 @@ From M2:
 - No `unwrap`/`expect` outside tests and provably infallible spots (comment why). Errors:
   `thiserror` in libraries, `anyhow` only in binaries.
 - No blocking calls on async tasks; use `spawn_blocking` for SQLite and file I/O.
-- External programs run only through the kernel's process supervisor.
+- External programs run only through the kernel's process supervisor. One exception: the
+  desktop shell starts its own bundled core binary ([ADR 0013](docs/decisions/0013-desktop-shell.md)).
 - Every public item in `kumikit-protocol` and `sdk/rust` has a doc comment.
 
 ## TypeScript and Svelte

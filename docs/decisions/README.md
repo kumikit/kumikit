@@ -36,3 +36,5 @@ Small, local choices do not need one; a clear commit message is enough.
 | [0010](0010-wasi-p2-and-session-instances.md) | WASI 0.2, one instance per session, blocking host imports | Proposed |
 | [0011](0011-providers-from-plugins.md) | Providers come from plugins: qualified ids and provider backends | Proposed |
 | [0012](0012-activation-memory-budget.md) | Budgets for plugin activation memory and the core binary | Proposed |
+| [0013](0013-desktop-shell.md) | The desktop shell: own asset protocol, raw-line bridge, client plugin store | Proposed |
+| [0014](0014-ui-sdk-versioning.md) | UI SDK 0.1: versioning, published lists, thread views | Proposed |

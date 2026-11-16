@@ -7,12 +7,22 @@ disabled; the UI kernel works (with an empty state) without any of them.
 
 | Plugin | Side | Why it is preinstalled |
 |---|---|---|
-| `kumikit.provider-acp` | core | Runs any ACP agent from a manifest; gives a working agent with no code. Installed with `kumikit plugin add` until the desktop installer ships it (M2). |
+| `kumikit.provider-acp` | core | Runs any ACP agent from a manifest; gives a working agent with no code. Shipped with the desktop app and preinstalled through `--bundled-plugins` (below). |
 | `kumikit.ui-chat` | client | Transcript and composer |
 | `kumikit.ui-settings` | client | Settings pages for the kernel and declarative plugin settings |
 | `kumikit.theme-default` | client | Light and dark themes; the fallback for missing tokens |
 
-On first run, a "starter pack" screen offers common plugins (agent providers, git, a bot)
+### Bundled core plugins
+
+`kumikit serve --bundled-plugins <dir>` preinstalls the core plugins shipped with an
+installer. The desktop app passes its own directory when it starts the core. At start the
+core installs every `.kkp` in the directory whose id it has not seeded before, and records
+the id and version as seeded, so a plugin the user removed is not installed again. It
+enables a seeded plugin only if it requests no permissions; any other stays installed
+until the user grants it. The core names no plugin: the directory decides. A core started
+without the flag (for example from the CLI) preinstalls nothing.
+
+On first run (from M4, with the registry), a "starter pack" screen offers common plugins (agent providers, git, a bot)
 to install. Nothing is installed without the user choosing it.
 
 ## Package format
@@ -42,8 +52,9 @@ kumikit plugin add ./my-plugin-0.1.0.kkp            # local file
 kumikit plugin list | update | disable <id> | remove <id>
 ```
 
-The desktop plugin manager does the same through the protocol (`plugin.install`) for core
-plugins, and locally for UI plugins and themes.
+The desktop plugin manager does the same through the protocol (`plugin.install`, with a
+`.kkp` or a folder holding a `plugin.toml`) for core plugins, and through the shell's
+client plugin store for UI plugins and themes ([06](06-client.md#shell-rust-kumikit-shell)).
 
 Install steps: download → check hash → check signature against the registry's publisher
 key → validate manifest → show permissions → unpack → enable.

@@ -62,7 +62,7 @@ the core binary. The others become checks when their parts exist (see
 | Core binary, release build, uncompressed | ≤ 32 MiB ([ADR 0012](../decisions/0012-activation-memory-budget.md)) |
 | Desktop shell resident memory, excluding the webview process | ≤ 25 MB |
 | UI kernel JavaScript, compressed | ≤ 150 KB |
-| Installer size, per platform | ≤ 20 MB |
+| Installer size, per platform (`.deb`, `.rpm`, `.dmg`, NSIS `.exe`; an AppImage bundles WebKitGTK and is not counted) | ≤ 20 MB |
 
 ## Glossary
 
