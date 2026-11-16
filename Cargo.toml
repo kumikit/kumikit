@@ -5,6 +5,7 @@ members = [
   "crates/kumikit-kernel",
   "crates/kumikit-plugin-host",
   "crates/kumikit-core",
+  "crates/kumikit-shell",
   "sdk/rust",
   "sdk/rust-provider",
   "plugins/provider-acp",
