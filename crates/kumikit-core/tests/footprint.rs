@@ -53,6 +53,21 @@ async fn install_plugins(dirs: &Dirs) {
     }
 }
 
+/// The kernel's memory summary of a process (Linux only), for explaining the numbers:
+/// which kind of memory grew. Returns `(field, KiB)` pairs.
+fn smaps(pid: u32) -> Vec<(String, u64)> {
+    let Ok(text) = std::fs::read_to_string(format!("/proc/{pid}/smaps_rollup")) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter_map(|l| {
+            let (k, v) = l.split_once(':')?;
+            let kb = v.split_whitespace().next()?.parse().ok()?;
+            Some((k.trim().to_owned(), kb))
+        })
+        .collect()
+}
+
 fn mb(kb: u64) -> f64 {
     kb as f64 / 1024.0
 }
@@ -74,6 +89,7 @@ async fn sample(with_plugins: bool) -> Sample {
     // Let startup work settle before sampling idle memory.
     tokio::time::sleep(Duration::from_secs(1)).await;
     let idle_kb = rss_kb(core.pid());
+    let idle_smaps = smaps(core.pid());
     let (mut activate, mut activate_kb) = (None, None);
     if with_plugins {
         let ws = client
@@ -89,6 +105,19 @@ async fn sample(with_plugins: bool) -> Sample {
         activate = Some(t.elapsed());
         tokio::time::sleep(Duration::from_secs(1)).await;
         activate_kb = rss_kb(core.pid());
+        // Which kinds of memory the activation added (Linux).
+        let after = smaps(core.pid());
+        let grew: Vec<String> = after
+            .iter()
+            .filter_map(|(k, v)| {
+                let before = idle_smaps.iter().find(|(bk, _)| bk == k)?.1;
+                let d = v.saturating_sub(before);
+                (d >= 64).then(|| format!("{k} +{:.1} MB", mb(d)))
+            })
+            .collect();
+        if !grew.is_empty() {
+            println!("  activation added: {}", grew.join(", "));
+        }
     }
     drop(client);
     core.stop().await;
