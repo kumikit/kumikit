@@ -71,5 +71,41 @@
         "code": "conflict"
       }
     }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 15,
+    "method": "plugin.install",
+    "params": {
+      "path": "/home/user/plugins/claude-code"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 15,
+    "result": {
+      "plugin": {
+        "id": "community.claude-code",
+        "name": "Claude Code",
+        "version": "0.1.0",
+        "description": "Claude Code, run through kumikit.provider-acp.",
+        "state": "installed",
+        "requested": {
+          "spawn": [
+            "claude-agent-acp"
+          ],
+          "network": [],
+          "files": "none",
+          "secrets": [],
+          "tools": false
+        },
+        "contributes": {
+          "providers": [],
+          "commands": [],
+          "settings": false
+        },
+        "signed": false
+      }
+    }
   }
 ]

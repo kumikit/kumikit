@@ -84,6 +84,15 @@ pub trait Provider: Send + Sync + fmt::Debug {
     fn plugin_id(&self) -> &str {
         self.id()
     }
+    /// Display name. Defaults to [`Provider::id`].
+    fn name(&self) -> &str {
+        self.id()
+    }
+    /// The plugin whose manifest declares this provider. Defaults to
+    /// [`Provider::plugin_id`]; delegated providers return the contributing plugin.
+    fn contributor(&self) -> &str {
+        self.plugin_id()
+    }
     /// Models this provider offers; the first is the default.
     fn list_models(&self) -> BoxFuture<'_, ProviderResult<Vec<Model>>>;
     /// Starts (or resumes) a session; returns the provider's session id.

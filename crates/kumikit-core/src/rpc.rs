@@ -7,19 +7,22 @@ use std::sync::Arc;
 
 use kumikit_kernel::{Kernel, KernelError, ThreadSubscription};
 use kumikit_plugin_host::lifecycle::PluginHost;
-use kumikit_protocol::event::EventNotification;
+use kumikit_protocol::WorkspaceEvent;
+use kumikit_protocol::event::{EventNotification, ThreadChange};
 use kumikit_protocol::jsonrpc::{Notification, Request, RequestId, Response};
 use kumikit_protocol::methods::{
-    self as m, CoreInfo, Empty, HelloResult, Method, NotificationMethod, PluginListResult,
-    PluginResult, PluginsChanged, SubscribeResult, ThreadCreateResult, ThreadListResult,
-    WorkspaceListResult, WorkspaceOpenResult,
+    self as m, CoreInfo, Empty, HelloResult, Method, ModelInfo, NotificationMethod,
+    PluginListResult, PluginResult, PluginsChanged, ProviderListResult, ProviderModelsResult,
+    SubscribeResult, ThreadCreateResult, ThreadListResult, WorkspaceListResult,
+    WorkspaceOpenResult,
 };
+use kumikit_protocol::model::WorkspaceId;
 use kumikit_protocol::{ErrorCode, PROTOCOL_VERSION, ProtocolVersion, RpcError, Topic};
 use serde_json::Value;
 use tokio::io::{
     AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, BufWriter,
 };
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{Notify, broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 
 /// Longest accepted message, in bytes (`docs/spec/02-protocol.md#transports`).
@@ -29,7 +32,13 @@ pub const MAX_MESSAGE: usize = 8 * 1024 * 1024;
 const OUTBOUND: usize = 256;
 
 /// Capability strings this core reports in `core.hello`.
-pub const CAPABILITIES: &[&str] = &["threads", "approvals", "plugins"];
+pub const CAPABILITIES: &[&str] = &[
+    "threads",
+    "approvals",
+    "plugins",
+    "providers",
+    "workspace_events",
+];
 
 /// What `core.hello` says about this core.
 #[derive(Debug, Clone)]
@@ -40,6 +49,9 @@ pub struct ServerInfo {
     pub name: String,
     /// `linux`, `macos` or `windows`.
     pub os: String,
+    /// Notified when a client asks the core to stop (`core.shutdown`), after the reply
+    /// has been written.
+    pub shutdown: Arc<Notify>,
 }
 
 impl ServerInfo {
@@ -49,6 +61,7 @@ impl ServerInfo {
             version: env!("CARGO_PKG_VERSION").to_owned(),
             name: crate::paths::host_name(),
             os: std::env::consts::OS.to_owned(),
+            shutdown: Arc::new(Notify::new()),
         }
     }
 }
@@ -68,6 +81,7 @@ where
         info,
         tx,
         hello: false,
+        stop: false,
         subs: HashMap::new(),
         deferred: None,
         plugins_watch: None,
@@ -103,6 +117,9 @@ where
         if let Some((topic, sub)) = conn.deferred.take() {
             conn.start(topic, sub);
         }
+        if conn.stop {
+            break;
+        }
         // Likewise, plugin changes are announced only after the hello result.
         if let Some(changes) = conn.plugin_changes.take() {
             conn.plugins_watch = Some(tokio::spawn(announce_plugin_changes(
@@ -118,8 +135,20 @@ where
     if let Some(task) = conn.plugins_watch.take() {
         task.abort();
     }
+    let stop = conn.stop;
+    let info = Arc::clone(&conn.info);
     drop(conn);
     let _ = writer.await;
+    // Only now: the `core.shutdown` reply has been written.
+    if stop {
+        info.shutdown.notify_one();
+    }
+}
+
+/// A subscription whose result is queued but whose events must wait for it.
+enum Deferred {
+    Thread(ThreadSubscription),
+    Workspace(WorkspaceId, broadcast::Receiver<WorkspaceEvent>),
 }
 
 struct Conn {
@@ -128,8 +157,10 @@ struct Conn {
     info: Arc<ServerInfo>,
     tx: mpsc::Sender<String>,
     hello: bool,
+    /// Set by `core.shutdown`: close this connection, then stop the core.
+    stop: bool,
     subs: HashMap<String, JoinHandle<()>>,
-    deferred: Option<(String, ThreadSubscription)>,
+    deferred: Option<(String, Deferred)>,
     /// Sends `core.pluginsChanged`; started after `core.hello`.
     plugins_watch: Option<JoinHandle<()>>,
     /// Taken in `core.hello` before its plugin list is built, so no change between the
@@ -260,6 +291,32 @@ impl Conn {
                     capabilities: CAPABILITIES.iter().map(|s| (*s).to_owned()).collect(),
                 })
             }
+            m::CoreShutdown::NAME => {
+                parse::<m::CoreShutdown>(params)?;
+                tracing::info!("shutdown requested by a client");
+                self.stop = true;
+                reply::<m::CoreShutdown>(Empty {})
+            }
+            m::ProviderList::NAME => {
+                parse::<m::ProviderList>(params)?;
+                reply::<m::ProviderList>(ProviderListResult {
+                    providers: k.provider_list(),
+                })
+            }
+            m::ProviderModels::NAME => {
+                let p = parse::<m::ProviderModels>(params)?;
+                let models = k.provider_models(&p.provider).await.map_err(kernel_err)?;
+                reply::<m::ProviderModels>(ProviderModelsResult {
+                    models: models
+                        .into_iter()
+                        .map(|m| ModelInfo {
+                            id: m.id,
+                            label: m.label,
+                            capabilities: m.capabilities,
+                        })
+                        .collect(),
+                })
+            }
             m::WorkspaceList::NAME => {
                 parse::<m::WorkspaceList>(params)?;
                 let workspaces = k.workspace_list().await.map_err(kernel_err)?;
@@ -330,8 +387,24 @@ impl Conn {
                         format!("unknown topic {}", p.topic),
                     )
                 })?;
-                let thread = match &topic {
-                    Topic::Thread(t) => t.clone(),
+                let (deferred, head) = match &topic {
+                    Topic::Thread(t) => {
+                        let sub = k.subscribe(t, p.after).await.map_err(kernel_err)?;
+                        let head = sub.head();
+                        (Deferred::Thread(sub), head)
+                    }
+                    Topic::Workspace(w) => {
+                        if p.after != 0 {
+                            return Err(RpcError::new(
+                                ErrorCode::InvalidParams,
+                                "workspace topics have no log; subscribe with after: 0",
+                            ));
+                        }
+                        // Listen before checking, so no change after the result is missed.
+                        let rx = k.workspace_changes();
+                        k.workspace_require(w).await.map_err(kernel_err)?;
+                        (Deferred::Workspace(w.clone(), rx), 0)
+                    }
                     Topic::Reserved(name) => {
                         return Err(RpcError::new(
                             ErrorCode::Unsupported,
@@ -339,13 +412,11 @@ impl Conn {
                         ));
                     }
                 };
-                let sub = k.subscribe(&thread, p.after).await.map_err(kernel_err)?;
-                let head = sub.head();
                 let key = topic.to_string();
                 if let Some(old) = self.subs.remove(&key) {
                     old.abort();
                 }
-                self.deferred = Some((key, sub));
+                self.deferred = Some((key, deferred));
                 reply::<m::EventsSubscribe>(SubscribeResult { head })
             }
             m::EventsUnsubscribe::NAME => {
@@ -391,8 +462,17 @@ impl Conn {
         }
     }
 
-    fn start(&mut self, topic: String, sub: ThreadSubscription) {
-        let task = tokio::spawn(pump(sub, topic.clone(), self.tx.clone()));
+    fn start(&mut self, topic: String, deferred: Deferred) {
+        let task = match deferred {
+            Deferred::Thread(sub) => tokio::spawn(pump(sub, topic.clone(), self.tx.clone())),
+            Deferred::Workspace(ws, rx) => tokio::spawn(pump_workspace(
+                self.kernel.clone(),
+                ws,
+                rx,
+                topic.clone(),
+                self.tx.clone(),
+            )),
+        };
         self.subs.insert(topic, task);
     }
 }
@@ -414,7 +494,7 @@ async fn pump(mut sub: ThreadSubscription, topic: String, tx: mpsc::Sender<Strin
                 topic: topic.clone(),
                 seq: e.seq,
                 time: e.time,
-                event: e.event,
+                event: e.event.into(),
             };
             let params = match serde_json::to_value(params) {
                 Ok(v) => v,
@@ -425,6 +505,62 @@ async fn pump(mut sub: ThreadSubscription, topic: String, tx: mpsc::Sender<Strin
             };
             let line = encode(&Notification::new(m::EventsEvent::NAME, params));
             if tx.send(line).await.is_err() {
+                return;
+            }
+        }
+    }
+}
+
+/// Forwards live changes to one workspace's threads. Nothing is logged: `seq` counts
+/// within this subscription. A listener that lags re-sends every thread of the workspace
+/// as `thread.updated`, so the client converges without a gap.
+async fn pump_workspace(
+    kernel: Kernel,
+    workspace: WorkspaceId,
+    mut rx: broadcast::Receiver<WorkspaceEvent>,
+    topic: String,
+    tx: mpsc::Sender<String>,
+) {
+    let mut seq = 0u64;
+    loop {
+        let events = match rx.recv().await {
+            Ok(event) if event.thread().workspace == workspace => vec![event],
+            Ok(_) => continue,
+            Err(broadcast::error::RecvError::Lagged(missed)) => {
+                tracing::debug!(%topic, missed, "workspace listener lagged; resending threads");
+                match kernel.thread_list(&workspace, true).await {
+                    Ok(threads) => threads
+                        .into_iter()
+                        .map(|thread| WorkspaceEvent::ThreadUpdated(ThreadChange { thread }))
+                        .collect(),
+                    Err(e) => {
+                        tracing::warn!(%topic, error = %e, "cannot resend threads");
+                        return;
+                    }
+                }
+            }
+            Err(broadcast::error::RecvError::Closed) => return,
+        };
+        for event in events {
+            seq += 1;
+            let params = EventNotification {
+                topic: topic.clone(),
+                seq,
+                time: kernel.now(),
+                event: event.into(),
+            };
+            let params = match serde_json::to_value(params) {
+                Ok(v) => v,
+                Err(err) => {
+                    tracing::error!(%topic, error = %err, "failed to encode an event");
+                    return;
+                }
+            };
+            if tx
+                .send(encode(&Notification::new(m::EventsEvent::NAME, params)))
+                .await
+                .is_err()
+            {
                 return;
             }
         }

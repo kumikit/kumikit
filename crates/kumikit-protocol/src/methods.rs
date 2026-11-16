@@ -80,6 +80,12 @@ methods! {
     methods {
         /// `core.hello`: the handshake; the first call on a connection.
         CoreHello = "core.hello" (HelloParams) -> HelloResult;
+        /// `core.shutdown`: stop the core; running turns end as on any stop.
+        CoreShutdown = "core.shutdown" (Empty) -> Empty;
+        /// `provider.list`: available providers, from manifests, without activating any.
+        ProviderList = "provider.list" (Empty) -> ProviderListResult;
+        /// `provider.models`: a provider's models; activates its plugin.
+        ProviderModels = "provider.models" (ProviderModelsParams) -> ProviderModelsResult;
         /// `workspace.list`: open workspaces.
         WorkspaceList = "workspace.list" (Empty) -> WorkspaceListResult;
         /// `workspace.open`: register a directory, or return the existing workspace for it.
@@ -333,7 +339,8 @@ pub struct PluginListResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginInstallParams {
-    /// Absolute path of a `.kkp` file on the core's machine.
+    /// Absolute path on the core's machine of a `.kkp` file, or of a directory holding a
+    /// `plugin.toml`, which is packed as `kumikit plugin pack` would.
     pub path: String,
 }
 
@@ -373,6 +380,54 @@ pub struct PluginUninstallParams {
     /// Also delete its kv store and data directory (default false).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delete_data: Option<bool>,
+}
+
+/// A provider a core offers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderInfo {
+    /// Qualified id: `<plugin id>/<local id>`.
+    pub id: String,
+    /// Display name, from the manifest.
+    pub name: String,
+    /// The plugin whose manifest declares it.
+    pub plugin: String,
+}
+
+/// Result of `provider.list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderListResult {
+    /// Available providers, by id.
+    pub providers: Vec<ProviderInfo>,
+}
+
+/// Params of `provider.models`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModelsParams {
+    /// Qualified provider id.
+    pub provider: String,
+}
+
+/// A model a provider offers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelInfo {
+    /// Model id, as passed to `thread.create`.
+    pub id: String,
+    /// Display label.
+    pub label: String,
+    /// Capability strings (`docs/spec/05-providers.md#capabilities`).
+    pub capabilities: Vec<String>,
+}
+
+/// Result of `provider.models`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModelsResult {
+    /// Models; the first is the default.
+    pub models: Vec<ModelInfo>,
 }
 
 /// Result of `workspace.list`.

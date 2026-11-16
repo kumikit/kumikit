@@ -1,0 +1,21 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 31,
+    "method": "provider.list",
+    "params": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 31,
+    "result": {
+      "providers": [
+        {
+          "id": "community.provider-gemini/gemini",
+          "name": "Gemini CLI",
+          "plugin": "community.provider-gemini"
+        }
+      ]
+    }
+  }
+]

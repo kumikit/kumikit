@@ -75,7 +75,7 @@ async fn add_on_a_stopped_core_then_serve_offers_the_provider() {
         let hello = c
             .call(
                 "core.hello",
-                json!({"protocol": "0.2", "client": {"name": "t", "version": "0"}}),
+                json!({"protocol": "0.3", "client": {"name": "t", "version": "0"}}),
             )
             .await;
         assert_eq!(

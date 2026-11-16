@@ -1,0 +1,13 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 30,
+    "method": "core.shutdown",
+    "params": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 30,
+    "result": {}
+  }
+]

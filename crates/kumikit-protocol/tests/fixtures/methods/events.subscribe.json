@@ -34,5 +34,41 @@
         "code": "unsupported"
       }
     }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 17,
+    "method": "events.subscribe",
+    "params": {
+      "topic": "workspace:01JCWS00000000000000000001",
+      "after": 0
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 17,
+    "result": {
+      "head": 0
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 18,
+    "method": "events.subscribe",
+    "params": {
+      "topic": "workspace:01JCWS00000000000000000001",
+      "after": 4
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 18,
+    "error": {
+      "code": -32602,
+      "message": "workspace topics have no log; subscribe with after: 0",
+      "data": {
+        "code": "invalid_params"
+      }
+    }
   }
 ]

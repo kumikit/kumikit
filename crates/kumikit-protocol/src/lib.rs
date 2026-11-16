@@ -12,7 +12,7 @@ pub mod topic;
 pub mod version;
 
 pub use error::{ErrorCode, RpcError};
-pub use event::{EventNotification, ThreadEvent};
+pub use event::{EventNotification, ThreadEvent, TopicEvent, WorkspaceEvent};
 pub use methods::{Method, NotificationMethod};
 pub use topic::Topic;
 pub use version::{PROTOCOL_VERSION, ProtocolVersion};

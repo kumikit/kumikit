@@ -540,3 +540,59 @@ async fn a_forgotten_session_is_started_again_with_resume() {
     let session = format!("session-{}", e.thread);
     assert_eq!(resumes, [None, Some(session)]);
 }
+
+#[tokio::test]
+async fn providers_are_listed_with_their_models() {
+    let e = env().await;
+    let list = e.kernel.provider_list();
+    assert_eq!(list.len(), 1);
+    assert_eq!(
+        (
+            list[0].id.as_str(),
+            list[0].name.as_str(),
+            list[0].plugin.as_str()
+        ),
+        ("fake", "fake", "fake")
+    );
+    let models = e.kernel.provider_models("fake").await.unwrap();
+    let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids, ["one", "two"]);
+    let err = e.kernel.provider_models("nope").await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::NotFound);
+}
+
+#[tokio::test]
+async fn workspace_changes_follow_thread_status() {
+    use kumikit_protocol::WorkspaceEvent;
+    let e = env().await;
+    let mut rx = e.kernel.workspace_changes();
+    e.send("echo hi").await;
+    e.until(0, "turn.ended").await;
+    // A turn moves the thread to running and back to idle; text events change nothing.
+    let mut seen = Vec::new();
+    for _ in 0..2 {
+        let ev = rx.recv().await.unwrap();
+        seen.push((ev.kind(), ev.thread().status));
+    }
+    assert_eq!(
+        seen,
+        [
+            ("thread.updated", ThreadStatus::Running),
+            ("thread.updated", ThreadStatus::Idle)
+        ]
+    );
+    e.kernel.thread_archive(&e.thread).await.unwrap();
+    let ev = rx.recv().await.unwrap();
+    assert!(matches!(ev, WorkspaceEvent::ThreadArchived(_)));
+    assert_eq!(ev.thread().status, ThreadStatus::Archived);
+    let ws = ev.thread().workspace.clone();
+    let created = e
+        .kernel
+        .thread_create(&ws, None, None, Some("second".into()))
+        .await
+        .unwrap();
+    let ev = rx.recv().await.unwrap();
+    assert!(matches!(ev, WorkspaceEvent::ThreadCreated(_)));
+    assert_eq!(ev.thread(), &created);
+    assert!(rx.try_recv().is_err(), "no other change");
+}

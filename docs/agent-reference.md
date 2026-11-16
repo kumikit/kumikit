@@ -111,6 +111,14 @@ is about the code.
 - **`unsafe` lives only in `transport/windows.rs`** (Win32 security descriptor for the
   pipe DACL) and `kumikit-kernel/src/process/windows.rs` (job objects). The workspace
   lint is `deny`, allowed on those modules alone. Each block has a `SAFETY:` comment.
+- **Workspace topics** (`pump_workspace` in `rpc.rs`) read a kernel broadcast of thread
+  changes, taken before the workspace check so nothing after the result is lost. Only
+  status-changing kinds (`turn.started`, `approval.*`, `turn.ended`) announce
+  `thread.updated`. A lagging listener resends every thread rather than dropping changes.
+- **`core.shutdown`** sets a flag; the connection closes after its reply is written and
+  only then notifies the serve loop, so the client always gets the answer.
+- **Bundled plugins** (`bundled.rs`) seed after `ready`, in file-name order; ids are
+  remembered in `seeded_plugins` (migration 3) so removals stick.
 - **Subscription result before events.** `rpc.rs` queues the `events.subscribe` result,
   then starts the pump (`Conn::deferred`). Starting the pump inside the handler would
   let an event overtake the result.

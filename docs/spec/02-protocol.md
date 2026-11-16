@@ -197,7 +197,7 @@ show every thread's status without subscribing to each thread:
 | Kind | Data |
 |---|---|
 | `thread.created` | `thread` |
-| `thread.updated` | `thread` (status, title or `updated` changed) |
+| `thread.updated` | `thread` (its status or title changed; text and tool events do not count) |
 | `thread.archived` | `thread` |
 
 - The topic has no log: `after` must be 0 (otherwise `invalid_params`), `head` is 0, and

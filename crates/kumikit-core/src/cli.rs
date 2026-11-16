@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use kumikit_plugin_host::lifecycle::PluginHost;
-use kumikit_plugin_host::manifest::{MANIFEST_FILE, Manifest};
+use kumikit_plugin_host::manifest::Manifest;
 use kumikit_plugin_host::package;
 use kumikit_protocol::methods::{
     FilesAccess, InstalledPlugin, Method, Permissions, PluginEnable, PluginInstall, PluginList,
@@ -257,11 +257,7 @@ pub fn describe(p: &Permissions) -> Vec<String> {
 
 /// Reads the manifest inside a package without installing it.
 fn peek_manifest(file: &Path) -> Result<Manifest> {
-    let dir = tempfile::tempdir()?;
-    package::unpack(file, dir.path()).map_err(|e| anyhow!("{e}"))?;
-    let text = std::fs::read_to_string(dir.path().join(MANIFEST_FILE))
-        .with_context(|| format!("{MANIFEST_FILE} is missing from the package"))?;
-    Manifest::parse(&text).map_err(|e| anyhow!("{e}"))
+    crate::plugins::peek_manifest(file).map_err(|e| anyhow!(e))
 }
 
 /// `kumikit plugin add <file> [--yes]`.

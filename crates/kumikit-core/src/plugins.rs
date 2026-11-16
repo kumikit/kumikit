@@ -7,7 +7,8 @@ use kumikit_kernel::grants::{FilesGrant, Grants};
 use kumikit_kernel::plugins::PluginState as KState;
 use kumikit_plugin_host::lifecycle::PluginHost;
 use kumikit_plugin_host::manager::{HostError, PluginView};
-use kumikit_plugin_host::manifest::Manifest;
+use kumikit_plugin_host::manifest::{MANIFEST_FILE, Manifest};
+use kumikit_plugin_host::package;
 use kumikit_protocol::methods::{
     Contributions, FilesAccess, InstalledPlugin, Limits, Permissions, PluginFailure, PluginInfo,
     PluginState,
@@ -154,17 +155,53 @@ pub fn infos(host: &PluginHost) -> Vec<PluginInfo> {
         .collect()
 }
 
-/// Installs a package file.
+/// Reads the manifest inside a package without installing it.
+pub fn peek_manifest(file: &Path) -> Result<Manifest, String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    package::unpack(file, dir.path()).map_err(|e| e.to_string())?;
+    let text = std::fs::read_to_string(dir.path().join(MANIFEST_FILE))
+        .map_err(|_| format!("{MANIFEST_FILE} is missing from the package"))?;
+    Manifest::parse(&text).map_err(|e| e.to_string())
+}
+
+/// Installs a package file, or a directory holding a `plugin.toml`, which is packed
+/// first exactly as `kumikit plugin pack` would.
 pub async fn install(host: &PluginHost, path: &str) -> Result<InstalledPlugin, RpcError> {
     let path = Path::new(path);
     if !path.is_absolute() {
         return Err(RpcError::new(
             ErrorCode::InvalidParams,
-            "path must be absolute (a file on the core's machine)",
+            "path must be absolute (a file or directory on the core's machine)",
         ));
     }
-    let view = host.install(path).await.map_err(host_err)?;
+    let view = if path.is_dir() {
+        let packed = pack_dir(path.to_owned()).await?;
+        host.install(&packed.path().join("plugin.kkp"))
+            .await
+            .map_err(host_err)?
+    } else {
+        host.install(path).await.map_err(host_err)?
+    };
     Ok(installed(host, &view))
+}
+
+/// Packs a plugin directory into `plugin.kkp` in a new temporary directory.
+async fn pack_dir(dir: std::path::PathBuf) -> Result<tempfile::TempDir, RpcError> {
+    tokio::task::spawn_blocking(move || {
+        if !dir.join(MANIFEST_FILE).is_file() {
+            return Err(RpcError::new(
+                ErrorCode::InvalidParams,
+                format!("{} has no {MANIFEST_FILE}", dir.display()),
+            ));
+        }
+        let out =
+            tempfile::tempdir().map_err(|e| RpcError::new(ErrorCode::Internal, e.to_string()))?;
+        package::pack(&dir, &out.path().join("plugin.kkp"))
+            .map_err(|e| RpcError::new(ErrorCode::InvalidParams, e.to_string()))?;
+        Ok(out)
+    })
+    .await
+    .map_err(|e| RpcError::new(ErrorCode::Internal, e.to_string()))?
 }
 
 /// Grants and enables a plugin.

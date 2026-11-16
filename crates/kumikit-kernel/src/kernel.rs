@@ -4,13 +4,13 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use kumikit_protocol::ThreadEvent;
-use kumikit_protocol::event::{ApprovalResolved, TurnEnded};
+use kumikit_protocol::event::{ApprovalResolved, ThreadChange, TurnEnded};
 use kumikit_protocol::methods::ThreadSnapshot;
 use kumikit_protocol::model::{
     Resolution, Thread, ThreadId, ThreadStatus, Timestamp, TurnOutcome, Workspace, WorkspaceId,
 };
-use tokio::sync::watch;
+use kumikit_protocol::{ThreadEvent, WorkspaceEvent};
+use tokio::sync::{broadcast, watch};
 
 use crate::clock::{Clock, IdGen, SystemClock, UlidGen};
 use crate::error::{KernelError, KernelResult};
@@ -27,6 +27,9 @@ pub const CORE_RESTARTED: &str = "core_restarted";
 
 /// Events returned per read while replaying.
 const REPLAY_BATCH: usize = 256;
+
+/// Workspace changes buffered per listener before it lags.
+const WORKSPACE_EVENTS: usize = 256;
 
 /// How to open a kernel.
 #[derive(Debug, Clone)]
@@ -73,6 +76,9 @@ pub(crate) struct Inner {
     heads: Mutex<HashMap<ThreadId, watch::Sender<u64>>>,
     /// Registered providers.
     providers: Mutex<Vec<Arc<dyn Provider>>>,
+    /// Live changes to threads, for `workspace:<id>` topics. Nothing is kept for late
+    /// listeners.
+    workspace_events: broadcast::Sender<WorkspaceEvent>,
     /// Threads with a running turn.
     runs: Mutex<HashMap<ThreadId, ThreadRun>>,
     /// Provider session per thread, started on first use in this process.
@@ -110,6 +116,7 @@ impl Kernel {
                 ids: config.ids,
                 heads: Mutex::new(HashMap::new()),
                 providers: Mutex::new(Vec::new()),
+                workspace_events: broadcast::Sender::new(WORKSPACE_EVENTS),
                 runs: Mutex::new(HashMap::new()),
                 sessions: Mutex::new(HashMap::new()),
                 secrets: SecretStore::new(config.secrets),
@@ -284,6 +291,9 @@ impl Kernel {
                 repo::thread_insert(c, &t)
             })
             .await?;
+        self.announce(WorkspaceEvent::ThreadCreated(ThreadChange {
+            thread: thread.clone(),
+        }));
         Ok(thread)
     }
 
@@ -363,10 +373,11 @@ impl Kernel {
                 "thread {id} has a running turn"
             )));
         }
-        let id = id.clone();
+        let thread = id.clone();
         self.inner
             .store
             .write(move |c| {
+                let id = thread;
                 let row = repo::thread_require(c, &id)?;
                 if matches!(
                     row.thread.status,
@@ -378,7 +389,48 @@ impl Kernel {
                 }
                 repo::thread_set_archived(c, &id)
             })
+            .await?;
+        self.announce_row(id, WorkspaceEvent::ThreadArchived).await;
+        Ok(())
+    }
+
+    // ---- workspace events ----
+
+    /// Live changes to threads on every workspace: created, status or title changed,
+    /// archived. A listener that falls more than a buffer behind gets `Lagged` and should
+    /// list the threads again.
+    pub fn workspace_changes(&self) -> broadcast::Receiver<WorkspaceEvent> {
+        self.inner.workspace_events.subscribe()
+    }
+
+    /// Fails with `not_found` if the workspace does not exist.
+    pub async fn workspace_require(&self, id: &WorkspaceId) -> KernelResult<()> {
+        let ws = id.clone();
+        self.inner
+            .store
+            .read(move |c| match repo::workspace_get(c, &ws)? {
+                Some(_) => Ok(()),
+                None => Err(KernelError::NotFound(format!("no workspace {ws}"))),
+            })
             .await
+    }
+
+    fn announce(&self, event: WorkspaceEvent) {
+        // No listener is not an error.
+        let _ = self.inner.workspace_events.send(event);
+    }
+
+    /// Announces a thread as it is stored now.
+    async fn announce_row(&self, id: &ThreadId, make: fn(ThreadChange) -> WorkspaceEvent) {
+        if self.inner.workspace_events.receiver_count() == 0 {
+            return;
+        }
+        match self.thread_row(id).await {
+            Ok(row) => self.announce(make(ThreadChange {
+                thread: row.public(),
+            })),
+            Err(e) => tracing::warn!(thread = %id, error = %e, "cannot announce a thread change"),
+        }
     }
 
     // ---- the log ----
@@ -388,12 +440,24 @@ impl Kernel {
     pub(crate) async fn append(&self, thread: &ThreadId, event: ThreadEvent) -> KernelResult<u64> {
         let time = self.now();
         let id = thread.clone();
+        // Only these kinds move a thread's derived status.
+        let changes_status = matches!(
+            event,
+            ThreadEvent::TurnStarted(_)
+                | ThreadEvent::ApprovalRequested(_)
+                | ThreadEvent::ApprovalResolved(_)
+                | ThreadEvent::TurnEnded(_)
+        );
         let seq = self
             .inner
             .store
             .write(move |c| repo::append_event(c, &id, &time, &event))
             .await?;
         self.bump_head(thread, seq);
+        if changes_status {
+            self.announce_row(thread, WorkspaceEvent::ThreadUpdated)
+                .await;
+        }
         Ok(seq)
     }
 

@@ -90,6 +90,8 @@ struct ProviderSpec {
     /// `<contributor>/<local>`.
     id: String,
     local: String,
+    /// Display name from the manifest.
+    name: String,
     /// The plugin whose manifest declares it (its grants apply to sessions).
     contributor: String,
     /// The plugin whose code serves it.
@@ -318,6 +320,7 @@ impl PluginHost {
                     None => ProviderSpec {
                         id: id.clone(),
                         local: entry.id.clone(),
+                        name: entry.name.clone(),
                         contributor: record.id.clone(),
                         backend: record.id.clone(),
                         config: None,
@@ -373,6 +376,7 @@ impl PluginHost {
                         ProviderSpec {
                             id: id.clone(),
                             local: entry.id.clone(),
+                            name: entry.name.clone(),
                             contributor: record.id.clone(),
                             backend: backend.clone(),
                             config: Some(table.to_string()),
@@ -712,6 +716,14 @@ impl Provider for WasmProvider {
 
     fn plugin_id(&self) -> &str {
         &self.spec.backend
+    }
+
+    fn name(&self) -> &str {
+        &self.spec.name
+    }
+
+    fn contributor(&self) -> &str {
+        &self.spec.contributor
     }
 
     fn list_models(&self) -> BoxFuture<'_, ProviderResult<Vec<Model>>> {
