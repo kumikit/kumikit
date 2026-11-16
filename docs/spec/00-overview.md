@@ -58,7 +58,7 @@ the core binary. The others become checks when their parts exist (see
 |---|---|
 | Core resident memory, idle | ≤ 30 MB |
 | Core cold start to accepting connections | ≤ 300 ms |
-| Activating a typical WASM plugin (the first in a core) | ≤ 50 ms, ≤ 12 MB ([ADR 0012](../decisions/0012-activation-memory-budget.md)) |
+| Activating a typical WASM plugin (the first in a core) | ≤ 50 ms, ≤ 16 MB ([ADR 0012](../decisions/0012-activation-memory-budget.md)) |
 | Core binary, release build, uncompressed | ≤ 32 MiB ([ADR 0012](../decisions/0012-activation-memory-budget.md)) |
 | Desktop shell resident memory, excluding the webview process | ≤ 25 MB |
 | UI kernel JavaScript, compressed | ≤ 150 KB |

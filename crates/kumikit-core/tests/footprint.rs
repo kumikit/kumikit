@@ -1,6 +1,6 @@
 //! Footprint budgets (`docs/spec/00-overview.md#footprint-budgets`) for the core:
 //! cold start to accepting connections ≤ 300 ms, idle resident memory ≤ 30 MB, and
-//! activating a typical WASM plugin ≤ 50 ms and ≤ 12 MB, and a core binary ≤ 32 MiB
+//! activating a typical WASM plugin ≤ 50 ms and ≤ 16 MB, and a core binary ≤ 32 MiB
 //! (ADR 0012). Three phases, each the median of
 //! five runs from a fresh data directory:
 //!
@@ -27,7 +27,7 @@ const RUNS: usize = 5;
 const START_BUDGET: Duration = Duration::from_millis(300);
 const RSS_BUDGET_KB: u64 = 30 * 1024;
 const ACTIVATE_BUDGET: Duration = Duration::from_millis(50);
-const ACTIVATE_RSS_BUDGET_KB: u64 = 12 * 1024;
+const ACTIVATE_RSS_BUDGET_KB: u64 = 16 * 1024;
 const BINARY_BUDGET_BYTES: u64 = 32 * 1024 * 1024;
 
 /// A manifest-only plugin served by provider-acp. Its agent is never started here.

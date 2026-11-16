@@ -629,3 +629,7 @@ live smoke test's agent.
 - 2026-11-16: CI's footprint job measured 11.7 MB for the first activation (local 7.7 MB,
   also on four CPUs; not explained). The activation budget became 12 MB, and a core
   binary budget of 32 MiB was added (25.3 MiB now; 6.8–9.6 MiB compressed). ADR 0012.
+- 2026-11-16: CI then measured 12.4 MB and 11.8 MB, around the 12 MB budget. The printed
+  breakdown shows the runner's added memory is almost all private dirty and counted as
+  file-backed (probably memfd-backed memory images); locally half is clean binary pages.
+  The activation budget became 16 MB (ADR 0012).

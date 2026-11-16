@@ -24,9 +24,21 @@ still cost 2.6 MB).
 
 Most of the cost is paid once per core (engine, linker), not per plugin.
 
-CI's Ubuntu runner measured 11.7 MB for the same activation (time 8.1 ms, so the compiled
-code came from the cache), against 7.7 MB locally even when pinned to the runner's four
-CPUs. The difference is not explained yet.
+CI's Ubuntu runner measured 11.7–12.4 MB for the same activation (time 7.5–8.1 ms, so
+the compiled code came from the cache), against 7.7 MB locally even when pinned to the
+runner's four CPUs. The kernel's breakdown (`/proc/<pid>/smaps_rollup`, printed by the
+footprint check) differs in kind, not only in size:
+
+| Added by activation | Local (Arch, kernel 7.2) | CI (Ubuntu runner) |
+|---|---|---|
+| Resident | 7.8 MB | 11.8 MB |
+| Private dirty | 3.5 MB | 11.8 MB |
+| Anonymous | 3.4 MB | 1.4 MB |
+| Clean pages of the core binary | 4.0 MB | none |
+
+On the runner almost everything added is written memory that the kernel counts as
+file-backed, which suggests wasmtime's copy-on-write memory images backed by memfd.
+This is not verified.
 
 The core binary grew from 4.2 MiB (M0) to 25.3 MiB with the plugin host: the Cranelift
 compiler (about 5 MiB), wasmtime and wasmparser (about 2.7 MiB), jsonschema and its regex
@@ -37,9 +49,9 @@ gives 19.1 MiB at some cost in speed.
 ## Decision
 
 - Keep the pooling allocator and wasmtime's compile cache.
-- The activation budget becomes **≤ 50 ms and ≤ 12 MB**, measured as the first
-  activation in a core (it includes creating the engine), leaving room for the
-  difference between machines seen in CI.
+- The activation budget becomes **≤ 50 ms and ≤ 16 MB**, measured as the first
+  activation in a core (it includes creating the engine). That covers the CI runner's
+  11.7–12.4 MB with room for run-to-run variation.
 - A new budget: the **core binary is ≤ 32 MiB** (release build, uncompressed). The
   installer budget (≤ 20 MB, compressed) stays.
 
@@ -50,5 +62,5 @@ gives 19.1 MiB at some cost in speed.
   (the engine and linker are shared).
 - If activation memory or binary size becomes a problem, the measured alternatives above
   are the starting point. `scripts/footprint.sh` checks both budgets.
-- The CI/local gap should be explained when the footprint check next needs attention
-  (for example by printing `/proc/<pid>/smaps_rollup` in the check).
+- The CI/local gap is not explained. The footprint check prints the breakdown on Linux,
+  so the next change to activation memory can start from it.
