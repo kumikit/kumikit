@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-client-plugins-install"
+description = "Enables the client_plugins_install command without any pre-configured scope."
+commands.allow = ["client_plugins_install"]
+
+[[permission]]
+identifier = "deny-client-plugins-install"
+description = "Denies the client_plugins_install command without any pre-configured scope."
+commands.deny = ["client_plugins_install"]

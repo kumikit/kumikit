@@ -71,6 +71,10 @@ with its own components:
   draws them with the active theme.
 - **Notifications and quick picks**.
 
+The vocabulary's types (`DeclarativeView`, `SettingsSchema`, `StatusItem`) are part of
+the UI SDK. A UI plugin's `contributes.settings` names a schema file; the UI kernel draws
+its page and keeps the values in the plugin's client storage.
+
 This covers most plugin UI and keeps it consistent with the theme for free.
 
 ## Level 2: sandboxed panels
@@ -137,3 +141,5 @@ export default {
 - `ctx.notify(message)`
 - `ctx.ui.markdown(el, text)` — renders markdown with the UI kernel's renderer (raw HTML
   shown as text)
+- `ctx.ui.renderItem(el, props)` — mounts the `transcript.renderer` registered for an item
+  (by any plugin), or a plain fallback, so a thread view shows other plugins' renderers

@@ -40,7 +40,9 @@ The shell's jobs, and its only commands ([ADR 0013](../decisions/0013-desktop-sh
 The shell holds the client data directory ([01](01-architecture.md#data-directories)) and
 puts the webview's storage inside it. For tests and development, environment variables
 override the defaults: `KUMIKIT_SOCKET` (the local address), `KUMIKIT_CORE_DATA_DIR`,
-`KUMIKIT_CLIENT_DATA_DIR` and `KUMIKIT_CORE_BIN` (the core binary to start).
+`KUMIKIT_CLIENT_DATA_DIR`, `KUMIKIT_CORE_BIN` (the core binary to start), and the app's
+resource directories `KUMIKIT_UI_DIR`, `KUMIKIT_BUNDLED_UI_PLUGINS` and
+`KUMIKIT_BUNDLED_CORE_PLUGINS`.
 
 ## UI kernel (Svelte, `web/kernel`)
 
@@ -60,8 +62,8 @@ Svelte 5 with runes, TypeScript strict, Vite
 | Sidebar | Workspaces and their threads with status, kept current by the `workspace:<id>` topic |
 
 The plugin manager is part of the UI kernel, not a plugin, so the user can always remove
-a plugin that broke the UI. **Safe mode** (the `?safe` start parameter, or Shift held while
-the app starts) loads no UI plugins.
+a plugin that broke the UI. **Safe mode** (`kumikit-desktop --safe`) loads no UI plugins; themes
+still load.
 
 - **Core plugins:** installed from a `.kkp` or a folder with a `plugin.toml`, picked with
   the file picker and passed to `plugin.install`. The requested permissions are shown in
@@ -69,7 +71,8 @@ the app starts) loads no UI plugins.
   package is unsigned, and granted as a whole.
 - **Client plugins:** installed through the shell's client plugin store. A third-party UI
   plugin with inline code asks for trust first: it runs with full access to the app and to
-  every connected core. Themes run no code and need no trust.
+  every connected core. Themes run no code and need no trust. A disabled UI plugin's
+  contributions disappear at once; its module stays loaded until the app restarts.
 - **Bundled plugins.** The app's resources hold the bundled UI plugins and a data file,
   `bundled.json`, which lists them and names the fallback theme. The UI kernel names no
   plugin in code. If the fallback theme is missing, the base styles fall back to system

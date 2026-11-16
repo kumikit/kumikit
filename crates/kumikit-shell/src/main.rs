@@ -11,6 +11,7 @@ use kumikit_protocol::local::Platform;
 use kumikit_shell::assets::{self, APP_SCHEME, Asset, PLUGIN_SCHEME, SchemeForm};
 use kumikit_shell::bridge::{Bridge, Incoming};
 use kumikit_shell::local::{self, LocalCore};
+use kumikit_shell::store::{Entry, Store};
 use tauri::http::{Request, Response};
 use tauri::ipc::Channel;
 use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
@@ -19,6 +20,9 @@ use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 struct Shell {
     bridge: Bridge,
     local: LocalCore,
+    store: Store,
+    /// The UI kernel's files.
+    ui: PathBuf,
 }
 
 fn respond(asset: Asset, form: SchemeForm, cors: bool) -> Response<Cow<'static, [u8]>> {
@@ -84,6 +88,35 @@ fn bridge_close(shell: State<'_, Shell>, connection: String) -> bool {
     shell.bridge.close(&connection)
 }
 
+/// The UI plugins and themes on this client.
+#[tauri::command]
+async fn client_plugins_list(shell: State<'_, Shell>) -> Result<Vec<Entry>, String> {
+    let store = shell.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.list())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Installs a UI plugin or theme package.
+#[tauri::command]
+async fn client_plugins_install(shell: State<'_, Shell>, path: String) -> Result<Entry, String> {
+    let store = shell.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.install(std::path::Path::new(&path)))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Removes an installed UI plugin or theme.
+#[tauri::command]
+async fn client_plugins_remove(shell: State<'_, Shell>, id: String) -> Result<(), String> {
+    let store = shell.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.remove(&id))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
 /// Test hook: the page reports a line on the shell's stdout.
 #[cfg(feature = "test-hooks")]
 #[tauri::command]
@@ -98,11 +131,16 @@ fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.is_empty())
 }
 
+/// A resource directory, or the environment variable that overrides it (06-client).
+fn resource(app: &tauri::App, var: &str, name: &str) -> Option<PathBuf> {
+    env(var)
+        .map(PathBuf::from)
+        .or_else(|| app.path().resource_dir().ok().map(|d| d.join(name)))
+}
+
 fn main() {
     let form = SchemeForm::current();
-    let ui_dir = env("KUMIKIT_UI_DIR").map(PathBuf::from);
-    let plugins_dir = env("KUMIKIT_UI_PLUGINS_DIR").map(PathBuf::from);
-    let app_ui = ui_dir.clone();
+    let safe = std::env::args().any(|a| a == "--safe");
     // The open dialog only: packages and workspace folders (ADR 0013).
     let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
     #[cfg(feature = "test-hooks")]
@@ -110,37 +148,34 @@ fn main() {
         bridge_connect,
         bridge_send,
         bridge_close,
+        client_plugins_list,
+        client_plugins_install,
+        client_plugins_remove,
         test_report
     ]);
     #[cfg(not(feature = "test-hooks"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         bridge_connect,
         bridge_send,
-        bridge_close
+        bridge_close,
+        client_plugins_list,
+        client_plugins_install,
+        client_plugins_remove
     ]);
     let result = builder
         .register_uri_scheme_protocol(APP_SCHEME, move |ctx, request: Request<Vec<u8>>| {
-            let root = app_ui
-                .clone()
-                .or_else(|| {
-                    ctx.app_handle()
-                        .path()
-                        .resource_dir()
-                        .ok()
-                        .map(|d| d.join("ui"))
-                })
-                .unwrap_or_default();
-            respond(assets::load(&root, request.uri().path()), form, false)
+            let shell = ctx.app_handle().state::<Shell>();
+            respond(assets::load(&shell.ui, request.uri().path()), form, false)
         })
-        .register_uri_scheme_protocol(PLUGIN_SCHEME, move |_ctx, request: Request<Vec<u8>>| {
+        .register_uri_scheme_protocol(PLUGIN_SCHEME, move |ctx, request: Request<Vec<u8>>| {
+            let shell = ctx.app_handle().state::<Shell>();
             let uri = request.uri();
             let host = uri.host().unwrap_or("");
-            let asset = match (
-                plugins_dir.as_ref(),
-                assets::plugin_target(form, host, uri.path()),
-            ) {
-                (Some(dir), Some((id, path))) => assets::load(&dir.join(id), &path),
-                _ => assets::load(&PathBuf::new(), "/"),
+            let asset = match assets::plugin_target(form, host, uri.path())
+                .and_then(|(id, path)| shell.store.dir(&id).map(|d| (d, path)))
+            {
+                Some((dir, path)) => assets::load(&dir, &path),
+                None => assets::load(&PathBuf::new(), "/missing"),
             };
             respond(asset, form, true)
         })
@@ -149,30 +184,34 @@ fn main() {
                 .parent()
                 .map(PathBuf::from)
                 .unwrap_or_default();
-            let bundled = app
-                .path()
-                .resource_dir()
-                .ok()
-                .map(|d| d.join("core-plugins"))
+            let core_plugins = resource(app, "KUMIKIT_BUNDLED_CORE_PLUGINS", "core-plugins")
                 .filter(|d| d.is_dir());
-            let local = LocalCore::from_env(&env, local::current_uid(), &exe_dir, bundled);
+            let local = LocalCore::from_env(&env, local::current_uid(), &exe_dir, core_plugins);
+            let client = local::client_data_dir(Platform::current(), &env)
+                .ok_or("cannot find a client data directory; set KUMIKIT_CLIENT_DATA_DIR")?;
+            let store = Store {
+                bundled: resource(app, "KUMIKIT_BUNDLED_UI_PLUGINS", "ui-plugins"),
+                installed: client.join("ui-plugins"),
+            };
+            let ui = resource(app, "KUMIKIT_UI_DIR", "ui").unwrap_or_default();
             app.manage(Shell {
                 bridge: Bridge::default(),
                 local,
+                store,
+                ui,
             });
-            let mut window = WebviewWindowBuilder::new(
+            let query = if safe { "?safe" } else { "" };
+            WebviewWindowBuilder::new(
                 app,
                 "main",
                 WebviewUrl::CustomProtocol(
-                    format!("{}/index.html", form.origin(APP_SCHEME)).parse()?,
+                    format!("{}/index.html{query}", form.origin(APP_SCHEME)).parse()?,
                 ),
             )
             .title("Kumikit")
-            .inner_size(1100.0, 760.0);
-            if let Some(dir) = local::client_data_dir(Platform::current(), &env) {
-                window = window.data_directory(dir.join("webview"));
-            }
-            window.build()?;
+            .inner_size(1100.0, 760.0)
+            .data_directory(client.join("webview"))
+            .build()?;
             Ok(())
         })
         .run(tauri::generate_context!());

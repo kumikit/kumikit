@@ -6,4 +6,5 @@
 pub mod assets;
 pub mod bridge;
 pub mod local;
+pub mod store;
 pub mod transport;

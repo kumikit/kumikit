@@ -2452,8 +2452,10 @@ dependencies = [
 name = "kumikit-shell"
 version = "0.1.0"
 dependencies = [
+ "kumikit-package",
  "kumikit-protocol",
  "rustix",
+ "semver",
  "serde",
  "serde_json",
  "tauri",
@@ -2462,6 +2464,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "toml 1.2.1+spec-1.1.0",
 ]
 
 [[package]]

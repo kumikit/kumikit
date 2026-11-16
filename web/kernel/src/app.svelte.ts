@@ -7,6 +7,8 @@ import type { Thread } from '@kumikit/protocol';
 import type { Connection, ThreadAddress } from '@kumikit/ui-sdk';
 
 import { CommandRegistry, type WhenContext } from './commands/registry.svelte';
+import { ClientPlugins } from './plugins/client.svelte';
+import { CorePlugins } from './plugins/core.svelte';
 import { CoreConnection } from './connections/connection.svelte';
 import type { Platform } from './platform/index';
 import { RpcError } from './rpc/client';
@@ -50,6 +52,8 @@ export class Kernel {
   readonly theme: ThemeEngine;
   readonly settings: SettingsStore;
   readonly mac: boolean;
+  readonly clientPlugins: ClientPlugins;
+  readonly corePlugins: CorePlugins;
   main = $state.raw<MainView>({ kind: 'tab' });
   dialog = $state.raw<Dialog>(undefined);
   toasts = $state.raw<Toast[]>([]);
@@ -66,17 +70,23 @@ export class Kernel {
     this.theme = new ThemeEngine(options.document);
     this.settings = new SettingsStore(options.storage);
     this.#systemDark = options.systemDark ?? (() => false);
+    this.clientPlugins = new ClientPlugins(this);
+    this.corePlugins = new CorePlugins(this);
     this.#registerCommands();
   }
 
   /** Called when the slot registry disables a plugin; the plugin manager replaces it. */
   onPluginFailed = (plugin: string, reason: string): void => {
     this.notify(`The plugin ${plugin} was disabled after repeated failures: ${reason}`, 'danger');
+    void this.clientPlugins.failed(plugin);
   };
 
   async start(): Promise<void> {
     this.applyTheme();
+    // Plugins and the connection start side by side; neither waits for the other.
+    const plugins = this.clientPlugins.load();
     await this.connection.start();
+    await plugins;
     for (const tab of this.tabs) this.#watch(tab.workspace);
   }
 

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-client-plugins-list"
+description = "Enables the client_plugins_list command without any pre-configured scope."
+commands.allow = ["client_plugins_list"]
+
+[[permission]]
+identifier = "deny-client-plugins-list"
+description = "Denies the client_plugins_list command without any pre-configured scope."
+commands.deny = ["client_plugins_list"]

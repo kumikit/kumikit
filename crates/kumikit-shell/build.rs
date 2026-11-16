@@ -5,6 +5,9 @@ fn main() {
         "bridge_connect",
         "bridge_send",
         "bridge_close",
+        "client_plugins_list",
+        "client_plugins_install",
+        "client_plugins_remove",
         "test_report",
     ]);
     if let Err(e) = tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest)) {
