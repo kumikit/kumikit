@@ -191,7 +191,7 @@ impl Manager {
         let mut entries = BTreeMap::new();
         for record in records {
             let dir = dirs.package(&record.id, &record.version);
-            let manifest = blocking(move || Ok(Manifest::load(&dir)))
+            let manifest = blocking(move || Ok(Manifest::load_installed(&dir)))
                 .await?
                 .map(Arc::new)
                 .map_err(|e| e.to_string());

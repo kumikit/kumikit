@@ -293,7 +293,8 @@ impl PluginHost {
     /// unregisters the difference with the kernel.
     async fn reconcile(&self) {
         let enabled = self.inner.manager.enabled();
-        let mut backends: HashMap<String, (String, Option<PathBuf>)> = HashMap::new();
+        // key -> (backend plugin, its version, its schema file)
+        let mut backends: HashMap<String, (String, String, Option<PathBuf>)> = HashMap::new();
         for (record, manifest) in &enabled {
             for b in &manifest.contributes.provider_backends {
                 let schema = b.schema.as_ref().map(|s| {
@@ -303,7 +304,10 @@ impl PluginHost {
                         .package(&record.id, &record.version)
                         .join(s)
                 });
-                backends.insert(b.key.clone(), (record.id.clone(), schema));
+                backends.insert(
+                    b.key.clone(),
+                    (record.id.clone(), record.version.clone(), schema),
+                );
             }
         }
         let mut wanted = BTreeMap::new();
@@ -319,11 +323,26 @@ impl PluginHost {
                         config: None,
                     },
                     Some((key, table)) => {
-                        let Some((backend, schema)) = backends.get(key) else {
+                        let Some((backend, backend_version, schema)) = backends.get(key) else {
                             tracing::debug!(provider = %id, key, "no enabled plugin serves this backend");
                             continue;
                         };
-                        if let Some(schema) = schema {
+                        // A table that passed this backend version's schema once is not
+                        // checked again (that would start the schema validator at every
+                        // startup); the marker lives with the contributor's files.
+                        let marker = self
+                            .inner
+                            .manager
+                            .dirs()
+                            .package(&record.id, &record.version)
+                            .join(format!(".checked-{backend}-{backend_version}-{}", entry.id));
+                        let checked = {
+                            let m = marker.clone();
+                            tokio::task::spawn_blocking(move || m.is_file())
+                                .await
+                                .unwrap_or(false)
+                        };
+                        if let Some(schema) = schema.as_ref().filter(|_| !checked) {
                             let path = schema.clone();
                             let read =
                                 tokio::task::spawn_blocking(move || std::fs::read_to_string(path))
@@ -340,6 +359,15 @@ impl PluginHost {
                             if let Err(e) = check_backend_entry(&text, table) {
                                 tracing::warn!(provider = %id, error = %e, "provider entry does not match its backend's schema");
                                 continue;
+                            }
+                            let m = marker.clone();
+                            let written =
+                                tokio::task::spawn_blocking(move || std::fs::write(m, b""))
+                                    .await
+                                    .map_err(std::io::Error::other)
+                                    .and_then(|r| r);
+                            if let Err(e) = written {
+                                tracing::debug!(provider = %id, error = %e, "cannot record the schema check");
                             }
                         }
                         ProviderSpec {

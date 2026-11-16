@@ -487,3 +487,40 @@ async fn ending_a_session_that_is_mid_turn_does_not_wait_for_it() {
     e.kernel.close().await;
     assert_eq!(e.host.instances("test.probe").1, 0);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_checked_delegated_entry_is_not_checked_again_after_a_restart() {
+    let e = env().await;
+    let wasm = std::fs::read(kumikit_test_plugins::PROBE_WASM).unwrap();
+    e.install(
+        "backend",
+        BACKEND,
+        &[
+            ("plugin.wasm", &wasm),
+            ("entry.schema.json", ENTRY_SCHEMA.as_bytes()),
+        ],
+        &[],
+    )
+    .await;
+    e.install("declarative", DECLARATIVE, &[], &["fake-acp-agent"])
+        .await;
+    let package = e.dir.path().join("plugins/test.declarative/0.1.0");
+    let marker = package.join(".checked-test.backend-0.1.0-delegated");
+    assert!(marker.is_file(), "the passed check is recorded");
+
+    // Restart on the same data directory: the recorded check is trusted.
+    e.kernel.close().await;
+    let kernel = Kernel::open(KernelConfig::new(e.dir.path().join("core.sqlite")))
+        .await
+        .unwrap();
+    let dirs = Dirs::new(e.dir.path());
+    let runtime = Arc::new(Runtime::new(EngineConfig::default(), dirs.cache.clone()));
+    let manager = Manager::open(kernel, dirs, runtime).await.unwrap();
+    let reopened = PluginHost::open(manager, HostConfig::default()).await;
+    let declarative = reopened
+        .enabled()
+        .into_iter()
+        .find(|p| p.record.id == "test.declarative")
+        .unwrap();
+    assert_eq!(declarative.providers, ["test.declarative/delegated"]);
+}

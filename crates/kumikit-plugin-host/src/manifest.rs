@@ -345,6 +345,19 @@ impl Manifest {
         serde_json::from_value(json).map_err(|e| ManifestError::one(e.to_string()))
     }
 
+    /// Reads an installed plugin's manifest: strict types and the semantic rules, but not
+    /// the JSON Schema, which [`Manifest::load`] already applied at install. Starting the
+    /// schema validator costs about 3 MB, which a core that only lists its plugins should
+    /// not pay.
+    pub fn load_installed(package: &Path) -> Result<Manifest, ManifestError> {
+        let text = std::fs::read_to_string(package.join(MANIFEST_FILE))
+            .map_err(|e| ManifestError::one(format!("cannot read {MANIFEST_FILE}: {e}")))?;
+        let manifest: Manifest =
+            toml::from_str(&text).map_err(|e| ManifestError::one(e.message().to_owned()))?;
+        manifest.check(Some(package))?;
+        Ok(manifest)
+    }
+
     /// Parses and checks a manifest inside an unpacked package at `package`.
     pub fn load(package: &Path) -> Result<Manifest, ManifestError> {
         let text = std::fs::read_to_string(package.join(MANIFEST_FILE))
