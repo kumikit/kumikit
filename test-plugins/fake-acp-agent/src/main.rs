@@ -17,8 +17,10 @@
 //! - `replay <transcript>`: plays the agent side of a transcript. Before each recorded
 //!   client message it reads one from stdin and checks it has the same method (or is a
 //!   response to the same request); then it writes the agent messages that followed.
-//!   Client request ids are mapped, so responses carry the ids the client used. A
-//!   mismatch is reported on stderr and ends the process with a failure.
+//!   Client request ids are mapped, so responses carry the ids the client used, and the
+//!   recorded workspace path `/workspace` becomes this process's working directory, as
+//!   a real agent would report it. A mismatch is reported on stderr and ends the
+//!   process with a failure.
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
 use std::io::{self, Read, Write};
@@ -190,6 +192,9 @@ fn replay(path: &str) -> ExitCode {
     let mut out = io::stdout();
     // Recorded client request id -> the id the client used now.
     let mut ids: HashMap<String, Value> = HashMap::new();
+    let cwd = std::env::current_dir()
+        .map(|d| d.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "/workspace".to_owned());
     for (i, entry) in entries.iter().enumerate() {
         let message = &entry["message"];
         if entry["from"] == "client" {
@@ -219,6 +224,7 @@ fn replay(path: &str) -> ExitCode {
             }
         } else {
             let mut message = message.clone();
+            rewrite_paths(&mut message, &cwd);
             // A response to a client request takes the id the client used.
             if message.get("method").is_none()
                 && let Some(id) = message.get("id").map(Value::to_string)
@@ -226,7 +232,10 @@ fn replay(path: &str) -> ExitCode {
             {
                 message["id"] = now.clone();
             }
-            if writeln!(out, "{message}").and_then(|()| out.flush()).is_err() {
+            if writeln!(out, "{message}")
+                .and_then(|()| out.flush())
+                .is_err()
+            {
                 return ExitCode::SUCCESS;
             }
         }
@@ -234,4 +243,16 @@ fn replay(path: &str) -> ExitCode {
     // Like a real agent, stay until the client closes stdin.
     for _ in lines {}
     ExitCode::SUCCESS
+}
+
+/// Replaces the recorded workspace path in every string of `v` with `cwd`.
+fn rewrite_paths(v: &mut serde_json::Value, cwd: &str) {
+    match v {
+        serde_json::Value::String(s) if s.contains("/workspace") => {
+            *s = s.replace("/workspace", cwd);
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(|i| rewrite_paths(i, cwd)),
+        serde_json::Value::Object(map) => map.values_mut().for_each(|i| rewrite_paths(i, cwd)),
+        _ => {}
+    }
 }

@@ -88,6 +88,11 @@ is about the code.
   offline path uses it too. Core tests use the probe test plugin
   (`test-plugins/probe`, installed through `plugin.install` by `tests/support`); unit
   tests in `rpc/tests.rs` use a fake provider defined in the test module.
+- **End-to-end ACP tests** (`tests/exit_m1.rs`) run `fake-acp-agent replay
+  <transcript>` as the agent, found on the core's `PATH` (`Core::start_with_path`). The
+  fake checks each client message's method in order and rewrites the recorded
+  `/workspace` to its working directory. The probe's manifest is
+  `test-plugins/probe/plugin.toml`, read by the tests and by `check-plugin-names.sh`.
 - **Test client notifications.** `tests/support::Client::event` sets aside
   notifications other than `events.event` (`core.pluginsChanged`); read them with
   `Client::notification`.

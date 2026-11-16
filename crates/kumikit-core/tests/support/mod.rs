@@ -91,8 +91,21 @@ impl Core {
 
     /// Starts the core; also returns the time from spawn to the `ready` line.
     pub async fn start_timed(dirs: &Dirs) -> (Core, Duration) {
+        Core::start_with_path(dirs, None).await
+    }
+
+    /// Starts the core with `dir` first on its `PATH` (where test agents live).
+    pub async fn start_with_path(dirs: &Dirs, dir: Option<&Path>) -> (Core, Duration) {
         let started = std::time::Instant::now();
-        let mut child = Command::new(env!("CARGO_BIN_EXE_kumikit"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_kumikit"));
+        if let Some(dir) = dir {
+            let mut paths = vec![dir.to_path_buf()];
+            if let Some(p) = std::env::var_os("PATH") {
+                paths.extend(std::env::split_paths(&p));
+            }
+            command.env("PATH", std::env::join_paths(paths).unwrap());
+        }
+        let mut child = command
             .arg("serve")
             .arg("--socket")
             .arg(&dirs.address)
@@ -295,20 +308,7 @@ pub fn record(name: &str, transcript: &[Value]) {
 }
 
 /// The probe test plugin's manifest (`test-plugins/probe`).
-pub const PROBE_MANIFEST: &str = r#"
-id = "test.probe"
-name = "Probe"
-version = "0.1.0"
-kind = ["provider"]
-api = "^0.1"
-[runtime]
-wasm = "plugin.wasm"
-worlds = ["kumikit:provider/plugin@0.1.0"]
-[permissions]
-spawn = ["fake-acp-agent"]
-[contributes]
-providers = [{ id = "probe", name = "Probe" }]
-"#;
+pub const PROBE_MANIFEST: &str = include_str!("../../../../test-plugins/probe/plugin.toml");
 
 /// The probe's qualified provider id.
 pub const PROBE: &str = "test.probe/probe";
@@ -345,4 +345,39 @@ pub async fn install(c: &mut Client, package: &Path) -> Value {
     c.call("plugin.enable", json!({ "plugin": id, "grant": grant }))
         .await["plugin"]
         .clone()
+}
+
+/// Runs `kumikit plugin <args>` against this test's core (stdin is not a terminal).
+/// Returns success, stdout and stderr.
+pub async fn plugin_cli(dirs: &Dirs, args: &[&str]) -> (bool, String, String) {
+    let out = Command::new(env!("CARGO_BIN_EXE_kumikit"))
+        .arg("plugin")
+        .args(args)
+        .arg("--socket")
+        .arg(&dirs.address)
+        .arg("--data-dir")
+        .arg(dirs.data())
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .unwrap();
+    (
+        out.status.success(),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+/// The provider-acp plugin (`plugins/provider-acp`) as a `.kkp`.
+pub fn provider_acp_kkp(dirs: &Dirs) -> PathBuf {
+    let dir = Path::new(kumikit_test_plugins::PROVIDER_ACP_DIR);
+    let manifest = std::fs::read_to_string(dir.join("plugin.toml")).unwrap();
+    let schema = std::fs::read(dir.join("acp.schema.json")).unwrap();
+    let wasm = std::fs::read(kumikit_test_plugins::PROVIDER_ACP_WASM).unwrap();
+    kkp(
+        dirs,
+        "provider-acp",
+        &manifest,
+        &[("plugin.wasm", &wasm), ("acp.schema.json", &schema)],
+    )
 }

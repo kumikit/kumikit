@@ -389,7 +389,7 @@ Steps marked *(CI)* contain macOS/Windows code that is only compiled and run in 
   reply; tool call with approval allowed; denied; cancelled mid-turn), native replay
   tests, `#[ignore]`d live smoke test. Verify: also `cargo clippy --target wasm32-wasip2`.
   Commit: `feat: add provider-acp`.
-- [ ] **13. Exit test.** `crates/kumikit-core/tests/exit_m1.rs`: `serve` with the fake
+- [x] **13. Exit test.** `crates/kumikit-core/tests/exit_m1.rs`: `serve` with the fake
   agent on `PATH`; `kumikit plugin add --yes` for provider-acp and a manifest-only
   `.kkp`; a subscribed client sees `core.pluginsChanged`; `thread.create` with the
   qualified id; send; events match the transcript's expected events; approval answered;
@@ -611,3 +611,12 @@ live smoke test's agent.
   approval needs `mode = "default"`; `tool_call_update` resends the whole content list
   (outputs are deduplicated); usage and cost arrive on `usage_update` and the prompt
   result. The adapter's writes match every recorded client message exactly.
+- Step 13: `exit_m1` installs provider-acp and a manifest-only plugin with the real CLI
+  against a running core and replays the recorded Claude Code transcripts as real turns
+  (text, approval allowed, denied, cancel); each turn's events equal the adapter replay
+  test's expected events plus the kernel's own. The probe's unpermitted `spawn sh`
+  fails its turn with `not in permissions.spawn` (logged as a denial). The live smoke
+  test against real Claude Code passed (2026-11-16). `fake-acp-agent replay` rewrites
+  the recorded `/workspace` to its working directory, as a real agent reports paths.
+  `check-plugin-names.sh` skips unit-test files (`tests.rs`), which name spec examples.
+  Exit tests passed 10 of 10 local runs.
