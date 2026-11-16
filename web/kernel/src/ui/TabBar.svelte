@@ -13,17 +13,17 @@
   }
 </script>
 
-<div class="tabs" role="tablist" aria-label="Open workspaces">
+<nav class="tabs" aria-label="Open workspaces">
   {#each kernel.tabs as tab, i (`${tab.connection}/${tab.workspace}`)}
     {@const active = i === kernel.activeIndex && kernel.main.kind === 'tab'}
     <div class="tab" class:active>
-      <button type="button" role="tab" aria-selected={active} tabindex={active ? 0 : -1} onclick={() => kernel.selectTab(i)} onkeydown={(e) => onKey(e, i)}>
+      <button type="button" aria-current={active ? 'page' : undefined} onclick={() => kernel.selectTab(i)} onkeydown={(e) => onKey(e, i)}>
         {name(tab.workspace)}
       </button>
       <button type="button" class="close" aria-label={`Close ${name(tab.workspace)}`} onclick={() => kernel.closeTab(i)}>×</button>
     </div>
   {/each}
-</div>
+</nav>
 
 <style>
   .tabs {

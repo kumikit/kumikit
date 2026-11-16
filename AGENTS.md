@@ -57,7 +57,8 @@ Now:
 From M2 (npm commands run at the repository root, an npm workspace):
 - `npm ci`, then `npm run check` (svelte-check + tsc) and `npm test` (Vitest)
 - `node scripts/check-npm-licenses.mjs` when npm dependencies change
-- `npx playwright test` against the browser build
+- Browser end-to-end: `node scripts/bundle.mjs && cargo build -p kumikit-core -p
+  kumikit-web-relay`, then `npx playwright test` in `web/e2e`
 
 ## Architecture rules (do not break these)
 

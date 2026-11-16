@@ -163,8 +163,8 @@
     <p>Its running turns are cancelled. Keep its data (settings and stored state) for a later install, or delete it too.</p>
     <div class="actions">
       <button type="button" class="kk-button" data-autofocus onclick={() => (removing = undefined)}>Cancel</button>
-      <button type="button" class="kk-button" onclick={() => { removing = undefined; void core.uninstall(p.id, false); }}>Remove, keep data</button>
-      <button type="button" class="kk-button danger" onclick={() => { removing = undefined; void core.uninstall(p.id, true); }}>Remove and delete data</button>
+      <button type="button" class="kk-button" onclick={() => { const id = p.id; removing = undefined; void core.uninstall(id, false); }}>Remove, keep data</button>
+      <button type="button" class="kk-button danger" onclick={() => { const id = p.id; removing = undefined; void core.uninstall(id, true); }}>Remove and delete data</button>
     </div>
   </div>
 {/if}
@@ -177,7 +177,7 @@
     <p class="warning">This UI plugin runs its code inside the app, with full access to this app and to every core it is connected to. Trust it only if you trust its publisher, <strong>{publisher(p.entry.id)}</strong>.</p>
     <div class="actions">
       <button type="button" class="kk-button" data-autofocus onclick={() => (trusting = undefined)}>Not now</button>
-      <button type="button" class="kk-button primary" onclick={() => { trusting = undefined; void client.trust(p.entry.id); }}>Trust and enable</button>
+      <button type="button" class="kk-button primary" onclick={() => { const id = p.entry.id; trusting = undefined; void client.trust(id); }}>Trust and enable</button>
     </div>
   </div>
 {/if}

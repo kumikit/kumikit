@@ -14,6 +14,7 @@ members = [
   "test-plugins/hello",
   "test-plugins/probe",
   "test-plugins/kumikit-test-plugins",
+  "test-plugins/web-relay",
 ]
 
 [workspace.package]

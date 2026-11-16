@@ -41,7 +41,11 @@ export function relayPlatform(): Platform {
     clientPlugins: {
       list: () => json<ClientPluginEntry[]>('/client-plugins'),
       install: (path) =>
-        json<ClientPluginEntry>('/client-plugins', { method: 'POST', body: JSON.stringify({ path }) }),
+        json<ClientPluginEntry>('/client-plugins', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ path }),
+        }),
       remove: async (id) => {
         await fetch(`/client-plugins/${encodeURIComponent(id)}`, { method: 'DELETE' });
       },

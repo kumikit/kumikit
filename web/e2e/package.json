@@ -1,0 +1,16 @@
+{
+  "name": "@kumikit/e2e",
+  "version": "0.1.0",
+  "description": "Playwright tests of the browser-test build against a real core, through the test relay.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "e2e": "playwright test",
+    "check": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.63.0"
+  }
+}
