@@ -24,11 +24,19 @@ path = "src/main.rs"
 test-hooks = []
 
 [dependencies]
+kumikit-protocol.workspace = true
+serde = { version = "1.0.229", features = ["derive"] }
 tauri = { version = "2.12.6", default-features = false, features = ["wry", "compression", "x11"] }
-thiserror = "2"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["rt", "net", "io-util", "sync", "time", "macros"] }
+
+[target."cfg(unix)".dependencies]
+rustix = { version = "1.1.6", features = ["process"] }
 
 [build-dependencies]
 tauri-build = { version = "2.7.5", default-features = false }
 
 [dev-dependencies]
+serde_json = "1.0.154"
 tempfile = "3.27.0"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "io-util", "net", "time"] }

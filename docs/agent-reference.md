@@ -87,6 +87,18 @@ is about the code.
 - **Test components in WAT**: an imported instance with no exports is satisfied
   without a definition; give it a function to test a missing import.
 
+## Shell (`crates/kumikit-shell`)
+
+- **Logic in the library, wiring in `main.rs`.** Asset serving, the CSP, finding and
+  starting the core and the bridge are plain modules with tests that need no window.
+- **Commands need a capability.** `build.rs` declares the app's commands, so Tauri refuses
+  any that `capabilities/*.json` does not grant to the window. A new command goes in both.
+- **Shell tests find `kumikit`** by walking up from the test executable (cargo puts test
+  binaries under `build/` in 1.100). `cargo test --workspace` builds it; `-p
+  kumikit-shell` alone does not, and the tests say so.
+- **Window tests run in a container** (`sh scripts/desktop/run.sh <cmd>`): Ubuntu, Xvfb,
+  WebKitGTK and its WebDriver. Builds there use `target/desktop-container`.
+
 ## Core (`crates/kumikit-core`)
 
 - **Providers come only from plugins** ([ADR 0011](decisions/0011-providers-from-plugins.md)).

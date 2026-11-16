@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "The main window: the bridge and nothing else.",
+  "description": "The main window: the connection bridge and nothing else (ADR 0013).",
   "windows": ["main"],
-  "permissions": []
+  "permissions": ["allow-bridge-connect", "allow-bridge-send", "allow-bridge-close"]
 }

@@ -4,3 +4,6 @@
 //! Tauri.
 
 pub mod assets;
+pub mod bridge;
+pub mod local;
+pub mod transport;

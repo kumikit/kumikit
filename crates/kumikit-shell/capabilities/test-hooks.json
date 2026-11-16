@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "test-hooks",
+  "description": "Only builds with the test-hooks feature register the command this allows.",
+  "windows": ["main"],
+  "permissions": ["allow-test-report"]
+}
