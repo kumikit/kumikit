@@ -79,6 +79,8 @@ pub(crate) struct Inner {
     /// Live changes to threads, for `workspace:<id>` topics. Nothing is kept for late
     /// listeners.
     workspace_events: broadcast::Sender<WorkspaceEvent>,
+    /// Ids of revoked devices, for closing their connections.
+    pub(crate) revocations: broadcast::Sender<String>,
     /// Threads with a running turn.
     runs: Mutex<HashMap<ThreadId, ThreadRun>>,
     /// Provider session per thread, started on first use in this process.
@@ -117,6 +119,7 @@ impl Kernel {
                 heads: Mutex::new(HashMap::new()),
                 providers: Mutex::new(Vec::new()),
                 workspace_events: broadcast::Sender::new(WORKSPACE_EVENTS),
+                revocations: broadcast::Sender::new(crate::devices::REVOCATIONS),
                 runs: Mutex::new(HashMap::new()),
                 sessions: Mutex::new(HashMap::new()),
                 secrets: SecretStore::new(config.secrets),

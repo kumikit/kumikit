@@ -540,7 +540,7 @@ code first needs macOS and Windows; the next after step 13; the last after step 
   the container) before and after. Check that WebKitWebDriver and msedgedriver can fill a
   file input (for the upload test) *(Windows: CI)*. Check port 7463. Commit: `chore: add
   TLS and WebSocket dependencies`.
-- [ ] **3. Kernel: devices and `by`.** Migration 0004, the devices API with the revocation
+- [x] **3. Kernel: devices and `by`.** Migration 0004, the devices API with the revocation
   broadcast, `respond_approval(…, by)`, tests. Commit: `feat: store paired devices in the
   kernel`.
 - [ ] **4. Protocol 0.4.** `auth.*` types and methods, `unauthenticated`, `Device`,
@@ -685,3 +685,6 @@ Q11 take the recommendation unless you say otherwise.
   7444–7470 as unassigned). The binary size is measured in step 6, once the code is linked:
   unused dependencies add nothing to the binary. Whether the WebDrivers can fill a file
   input is checked with the upload test in step 11/13.
+- Step 3: the kernel already wrote `by` on `approval.resolved` (with a test) since M0, so
+  only the core has to pass the device id. Revocation listeners that lag check
+  `device_exists` instead of trusting the broadcast.
