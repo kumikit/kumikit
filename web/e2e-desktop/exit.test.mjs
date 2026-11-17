@@ -87,7 +87,8 @@ after(async () => {
     c.resume();
   });
   driver?.kill();
-  rmSync(work, { recursive: true, force: true });
+  // On Windows the core may still hold its files for a moment after shutting down.
+  rmSync(work, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 });
 
 const session = () => Session.start('http://127.0.0.1:4444', { 'tauri:options': { application: need('KK_APP') } });
