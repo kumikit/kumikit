@@ -43,8 +43,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev xvfb
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
       - run: sh scripts/footprint.sh
+      # The desktop shell's memory (ADR 0015) and the UI kernel's compressed size.
+      - run: node scripts/bundle.mjs
+      - run: sh scripts/desktop/footprint.sh
+      - run: node scripts/size.mjs
+        working-directory: web/kernel
 
   web:
     runs-on: ubuntu-latest
@@ -87,6 +98,94 @@ jobs:
         with:
           name: playwright-report-${{ matrix.os }}
           path: web/e2e/playwright-report
+
+  e2e-desktop:
+    # The M2 exit test on the real app over WebDriver. macOS has no WebDriver for
+    # WKWebView; e2e-browser covers WebKit there (M2 plan, Tests).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev webkit2gtk-driver xvfb
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: cargo install --locked tauri-driver --version 2.1.0
+      - if: runner.os == 'Windows'
+        name: msedgedriver matching the installed WebView2
+        shell: pwsh
+        run: |
+          $v = (Get-ItemProperty "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}").pv
+          Invoke-WebRequest "https://msedgedriver.microsoft.com/$v/edgedriver_win64.zip" -OutFile edgedriver.zip
+          Expand-Archive edgedriver.zip -DestinationPath "$env:USERPROFILE\edgedriver"
+          "$env:USERPROFILE\edgedriver" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+      - run: node scripts/bundle.mjs
+      - run: cargo build -p kumikit-core -p kumikit-test-plugins && cargo build -p kumikit-shell --features test-hooks
+      - if: runner.os == 'Linux'
+        run: sh scripts/desktop/e2e.sh
+      - if: runner.os == 'Windows'
+        run: |
+          agent=$(dirname "$(find target/kumikit-test -type f -name fake-acp-agent.exe | head -n 1)")
+          KK_APP="$PWD/target/debug/kumikit-desktop.exe" KK_CORE_BIN="$PWD/target/debug/kumikit.exe" \
+          KK_FAKE_AGENT_DIR="$(cygpath -w "$agent")" KK_BUNDLE="$PWD/target/bundle" \
+          node --test web/e2e-desktop/exit.test.mjs
+
+  installers:
+    # Installers are built only to check their size; they are not published (M2).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            bundles: deb,rpm
+          - os: macos-latest
+            bundles: dmg
+          - os: windows-latest
+            bundles: nsis
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev rpm
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: node scripts/bundle.mjs
+      - run: |
+          cargo build --release -p kumikit-core
+          triple=$(rustc -vV | sed -n 's/^host: //p')
+          ext=""; [ "$RUNNER_OS" = Windows ] && ext=.exe
+          mkdir -p crates/kumikit-shell/binaries
+          cp "target/release/kumikit$ext" "crates/kumikit-shell/binaries/kumikit-$triple$ext"
+      - run: npx -y @tauri-apps/cli@2.12.5 build --config tauri.bundle.conf.json --bundles ${{ matrix.bundles }}
+        working-directory: crates/kumikit-shell
+      - run: node scripts/check-installer-size.mjs target/release/bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.os }}
+          path: |
+            target/release/bundle/**/*.deb
+            target/release/bundle/**/*.rpm
+            target/release/bundle/**/*.dmg
+            target/release/bundle/**/*-setup.exe
 
   protocol-ts:
     runs-on: ubuntu-latest

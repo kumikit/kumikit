@@ -45,6 +45,10 @@ override the defaults: `KUMIKIT_SOCKET` (the local address), `KUMIKIT_CORE_DATA_
 resource directories `KUMIKIT_UI_DIR`, `KUMIKIT_BUNDLED_UI_PLUGINS` and
 `KUMIKIT_BUNDLED_CORE_PLUGINS`.
 
+Builds with the `test-hooks` cargo feature (never released) add what end-to-end tests
+need: the open dialog answers from a queue file (`KUMIKIT_TEST_PICKS`, one path per line),
+and the shell prints `ui-connected` once the UI kernel's first connection is up.
+
 ## UI kernel (Svelte, `web/kernel`)
 
 Svelte 5 with runes, TypeScript strict, Vite

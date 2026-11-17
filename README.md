@@ -25,6 +25,12 @@ Kumikit has no accounts and no telemetry. It makes no network requests on its ow
 only traffic is what you start: agents you run, plugin registry lookups when you browse or
 install, and connections to cores you pair with.
 
+The desktop app shows web pages only from its own files: links in agent output are copied,
+not opened, and markdown images are shown as text, so nothing is fetched from the web. On
+Windows the app uses the system's WebView2, whose own diagnostic data follows your Windows
+settings; the Windows installer carries the WebView2 bootstrapper, which downloads the
+runtime only if it is missing when you install.
+
 ## Documentation
 
 - [Specification](docs/spec/README.md): how Kumikit works.

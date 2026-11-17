@@ -7,4 +7,6 @@ pub mod assets;
 pub mod bridge;
 pub mod local;
 pub mod store;
+#[cfg(feature = "test-hooks")]
+pub mod test_hooks;
 pub mod transport;

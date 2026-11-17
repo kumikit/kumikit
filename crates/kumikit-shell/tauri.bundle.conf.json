@@ -1,0 +1,19 @@
+{
+  "$comment": "Merged by the installer build only (`tauri build --config tauri.bundle.conf.json`), so plain cargo builds need neither the bundle nor the core binary. Run node scripts/bundle.mjs first, and copy the release core to binaries/kumikit-<target triple>.",
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "externalBin": ["binaries/kumikit"],
+    "resources": {
+      "../../target/bundle/ui/": "ui/",
+      "../../target/bundle/ui-plugins/": "ui-plugins/",
+      "../../target/bundle/core-plugins/": "core-plugins/"
+    },
+    "category": "DeveloperTool",
+    "shortDescription": "A small, pluggable client for coding agents",
+    "license": "MIT",
+    "windows": {
+      "webviewInstallMode": { "type": "embedBootstrapper" }
+    }
+  }
+}

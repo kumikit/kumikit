@@ -24,7 +24,7 @@ export interface Kumikit {
   /** Drops every bridge connection, as a lost network would. */
   drop(): Promise<void>;
   /** A declarative ACP provider replaying a recorded transcript; returns its folder. */
-  provider(transcript: string, options?: { mode?: string }): string;
+  provider(transcript: string, options?: { mode?: string; live?: boolean }): string;
 }
 
 function startRelay(work: string): Promise<{ child: ChildProcess; url: string }> {
@@ -62,6 +62,8 @@ export const test = base.extend<{ kk: Kumikit }>({
         mkdirSync(dir);
         const mode = options.mode ? `, mode = "${options.mode}"` : '';
         const file = join(TRANSCRIPTS, `${transcript}.jsonl`).replaceAll('\\', '\\\\');
+        // Live: the real Claude Code ACP adapter instead of a recording.
+        const [program, args] = options.live ? ['claude-agent-acp', ''] : ['fake-acp-agent', `, args = ["replay", "${file}"]`];
         writeFileSync(
           join(dir, 'plugin.toml'),
           `id = "test.recorded${n}"
@@ -70,9 +72,9 @@ version = "0.1.0"
 kind = ["provider"]
 api = "^0.1"
 [permissions]
-spawn = ["fake-acp-agent"]
+spawn = ["${program}"]
 [contributes]
-providers = [{ id = "agent", name = "Recorded agent ${n}", acp = { command = "fake-acp-agent", args = ["replay", "${file}"]${mode} } }]
+providers = [{ id = "agent", name = "Recorded agent ${n}", acp = { command = "${program}"${args}${mode} } }]
 `,
         );
         return dir;

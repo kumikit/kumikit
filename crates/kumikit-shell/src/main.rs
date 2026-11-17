@@ -117,6 +117,24 @@ async fn client_plugins_remove(shell: State<'_, Shell>, id: String) -> Result<()
         .map_err(|e| e.to_string())
 }
 
+// Test builds keep the real plugin as a dependency: its permission set (`dialog:allow-open`)
+// is what the capability grants, and the stand-in answers under the same name.
+#[cfg(feature = "test-hooks")]
+use tauri_plugin_dialog as _;
+
+/// The `dialog` plugin of test builds: `open` returns the next queued path.
+#[cfg(feature = "test-hooks")]
+fn test_dialog() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    #[tauri::command]
+    fn open() -> Option<String> {
+        let queue = env("KUMIKIT_TEST_PICKS")?;
+        kumikit_shell::test_hooks::next_pick(std::path::Path::new(&queue))
+    }
+    tauri::plugin::Builder::new("dialog")
+        .invoke_handler(tauri::generate_handler![open])
+        .build()
+}
+
 /// Test hook: the page reports a line on the shell's stdout.
 #[cfg(feature = "test-hooks")]
 #[tauri::command]
@@ -141,8 +159,12 @@ fn resource(app: &tauri::App, var: &str, name: &str) -> Option<PathBuf> {
 fn main() {
     let form = SchemeForm::current();
     let safe = std::env::args().any(|a| a == "--safe");
-    // The open dialog only: packages and workspace folders (ADR 0013).
+    // The open dialog only: packages and workspace folders (ADR 0013). Test builds answer
+    // it from a queue file instead, since WebDriver cannot drive native dialogs.
+    #[cfg(not(feature = "test-hooks"))]
     let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    #[cfg(feature = "test-hooks")]
+    let builder = tauri::Builder::default().plugin(test_dialog());
     #[cfg(feature = "test-hooks")]
     let builder = builder.invoke_handler(tauri::generate_handler![
         bridge_connect,

@@ -59,6 +59,9 @@ From M2 (npm commands run at the repository root, an npm workspace):
 - `node scripts/check-npm-licenses.mjs` when npm dependencies change
 - Browser end-to-end: `node scripts/bundle.mjs && cargo build -p kumikit-core -p
   kumikit-web-relay`, then `npx playwright test` in `web/e2e`
+- Desktop exit test (Linux, in the container): `sh scripts/desktop/run.sh sh
+  scripts/desktop/e2e.sh` after `node scripts/bundle.mjs`; Windows runs in CI
+- Desktop shell memory: `sh scripts/desktop/run.sh sh scripts/desktop/footprint.sh`
 
 ## Architecture rules (do not break these)
 

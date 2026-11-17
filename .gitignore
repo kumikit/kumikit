@@ -23,3 +23,5 @@ test-results/
 
 # Tauri's generated capability schemas
 /crates/kumikit-shell/gen/
+# The core binary the installer build bundles (copied in by CI)
+/crates/kumikit-shell/binaries/

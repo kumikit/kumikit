@@ -1,0 +1,11 @@
+{
+  "name": "@kumikit/e2e-desktop",
+  "version": "0.1.0",
+  "description": "The M2 exit test against the real desktop app over WebDriver (tauri-driver). No dependencies: a small W3C WebDriver client.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "e2e": "node --test exit.test.mjs"
+  }
+}
