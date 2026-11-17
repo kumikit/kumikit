@@ -556,7 +556,7 @@ code first needs macOS and Windows; the next after step 13; the last after step 
   revocation, keepalive, `by`, logging rules, `remote` line, busy port, `plugin.install {
   package }`. Tests above. *(CI: Windows and macOS loopback TLS.)* Commit: `feat: serve
   paired remote clients over WebSocket and TLS`.
-- [ ] **7. Core CLI.** `kumikit pair`, `kumikit devices list|revoke`, `kumikit bridge`,
+- [x] **7. Core CLI.** `kumikit pair`, `kumikit devices list|revoke`, `kumikit bridge`,
   tests. Commit: `feat: pair devices and bridge SSH from the CLI`.
 - [ ] **8. Shell: profiles, pinning, tokens, SSH.** Library modules and commands,
   capabilities, `test-plugins/fake-ssh`, tests *(CI: keychain on macOS and Windows,

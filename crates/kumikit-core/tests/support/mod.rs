@@ -452,3 +452,127 @@ pub fn provider_acp_kkp(dirs: &Dirs) -> PathBuf {
         &[("plugin.wasm", &wasm), ("acp.schema.json", &schema)],
     )
 }
+
+use std::sync::Arc;
+
+use futures_util::{SinkExt, StreamExt};
+use kumikit_protocol::remote::parse_fingerprint;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::{DigitallySignedStruct, SignatureScheme};
+use sha2::{Digest, Sha256};
+use tokio::net::TcpStream;
+use tokio_rustls::client::TlsStream;
+use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::Message;
+
+// ---- a TLS client pinned to the core's certificate ----
+
+#[derive(Debug)]
+struct Pinned {
+    sha256: [u8; 32],
+    provider: Arc<rustls::crypto::CryptoProvider>,
+}
+
+impl ServerCertVerifier for Pinned {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        _: &[CertificateDer<'_>],
+        _: &ServerName<'_>,
+        _: &[u8],
+        _: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        let got: [u8; 32] = Sha256::digest(end_entity.as_ref()).into();
+        if got == self.sha256 {
+            Ok(ServerCertVerified::assertion())
+        } else {
+            Err(rustls::Error::General("certificate changed".into()))
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.provider
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
+}
+
+pub async fn tls_with(
+    info: &RemoteInfo,
+    versions: &[&'static rustls::SupportedProtocolVersion],
+) -> Result<TlsStream<TcpStream>, std::io::Error> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let config = rustls::ClientConfig::builder_with_provider(Arc::clone(&provider))
+        .with_protocol_versions(versions)
+        .unwrap()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(Pinned {
+            sha256: parse_fingerprint(&info.fingerprint).unwrap(),
+            provider,
+        }))
+        .with_no_client_auth();
+    let tcp = TcpStream::connect(&info.addr).await?;
+    tokio_rustls::TlsConnector::from(Arc::new(config))
+        .connect(ServerName::try_from("localhost").unwrap(), tcp)
+        .await
+}
+
+pub async fn tls(info: &RemoteInfo) -> TlsStream<TcpStream> {
+    tls_with(info, &[&rustls::version::TLS13]).await.unwrap()
+}
+
+pub type Ws = WebSocketStream<TlsStream<TcpStream>>;
+
+pub async fn ws(info: &RemoteInfo) -> Ws {
+    tokio_tungstenite::client_async(info.url.as_str(), tls(info).await)
+        .await
+        .unwrap()
+        .0
+}
+
+/// Opens a remote connection, sends one request as its first message, and returns the
+/// response.
+pub async fn remote_call_once(info: &RemoteInfo, method: &str, params: Value) -> Value {
+    let mut ws = ws(info).await;
+    ws.send(Message::text(
+        json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).to_string(),
+    ))
+    .await
+    .unwrap();
+    loop {
+        match ws.next().await {
+            Some(Ok(Message::Text(t))) => return serde_json::from_str(t.as_str()).unwrap(),
+            Some(Ok(_)) => {}
+            other => panic!("connection ended: {other:?}"),
+        }
+    }
+}

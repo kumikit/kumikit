@@ -99,8 +99,9 @@ to install a core plugin:
 - `kumikit serve --listen <host[:port]> [--tls-cert <pem> --tls-key <pem>] [--web <dir>]`
   turns on the remote transport for that run, and with `--web` serves the browser client
   ([02](02-protocol.md#remote-transport), [06](06-client.md#browser-client)).
-- `kumikit pair` prints a pairing code, its expiry, the certificate fingerprint and the URL.
-  It needs a running core with remote access on.
+- `kumikit pair [--json]` prints a pairing code, its expiry, the certificate fingerprint and
+  the URL (`--json`: the `auth.pairing.create` result). It needs a running core with
+  remote access on.
 - `kumikit devices list` and `kumikit devices revoke <id>` manage paired devices, through
   the running core or, when none runs, on the data directory.
 - `kumikit bridge` copies JSON-RPC lines between stdin/stdout and the local core; the

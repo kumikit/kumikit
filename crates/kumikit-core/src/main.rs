@@ -50,6 +50,34 @@ enum Command {
         #[arg(long, hide = true)]
         keepalive_idle_ms: Option<u64>,
     },
+    /// Show a one-time code to pair a device with this core (needs a running core
+    /// started with --listen).
+    Pair {
+        /// The core's socket (Linux, macOS) or pipe (Windows). Default: per platform.
+        #[arg(long)]
+        socket: Option<String>,
+        /// Print the code, expiry, fingerprint and address as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// List or revoke paired devices.
+    Devices {
+        /// The core's socket (Linux, macOS) or pipe (Windows). Default: per platform.
+        #[arg(long, global = true)]
+        socket: Option<String>,
+        /// The core's data directory, used when no core is running. Default: per platform.
+        #[arg(long, global = true)]
+        data_dir: Option<PathBuf>,
+        #[command(subcommand)]
+        action: DevicesAction,
+    },
+    /// Copy JSON-RPC lines between stdin/stdout and the core on this machine (what the
+    /// desktop app runs over SSH).
+    Bridge {
+        /// The core's socket (Linux, macOS) or pipe (Windows). Default: per platform.
+        #[arg(long)]
+        socket: Option<String>,
+    },
     /// Manage core plugins (local .kkp files).
     Plugin {
         /// The core's socket (Linux, macOS) or pipe (Windows). Default: per platform.
@@ -60,6 +88,17 @@ enum Command {
         data_dir: Option<PathBuf>,
         #[command(subcommand)]
         action: PluginAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum DevicesAction {
+    /// List paired devices.
+    List,
+    /// Unpair a device: its token stops working and its connections close.
+    Revoke {
+        /// Device id, from `kumikit devices list`.
+        id: String,
     },
 }
 
@@ -140,6 +179,24 @@ fn main() -> Result<()> {
             data_dir,
             action,
         } => runtime.block_on(run_plugin(socket, data_dir, action)),
+        Command::Pair { socket, json } => runtime
+            .block_on(async { cli::pair(&target(socket, None)?, json, &mut cli::Stdout).await }),
+        Command::Devices {
+            socket,
+            data_dir,
+            action,
+        } => runtime.block_on(async {
+            let t = target(socket, data_dir)?;
+            match action {
+                DevicesAction::List => cli::devices_list(&t, &mut cli::Stdout).await,
+                DevicesAction::Revoke { id } => {
+                    cli::devices_revoke(&t, &id, &mut cli::Stdout).await
+                }
+            }
+        }),
+        Command::Bridge { socket } => {
+            runtime.block_on(async { cli::bridge(&target(socket, None)?).await })
+        }
     }
 }
 
