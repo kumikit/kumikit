@@ -223,7 +223,7 @@ fn main() {
                 ui,
             });
             let query = if safe { "?safe" } else { "" };
-            WebviewWindowBuilder::new(
+            let mut window = WebviewWindowBuilder::new(
                 app,
                 "main",
                 WebviewUrl::CustomProtocol(
@@ -231,9 +231,14 @@ fn main() {
                 ),
             )
             .title("Kumikit")
-            .inner_size(1100.0, 760.0)
-            .data_directory(client.join("webview"))
-            .build()?;
+            .inner_size(1100.0, 760.0);
+            // The webview's storage lives in the client data directory, unless WebView2 was
+            // told where to keep it: msedgedriver does that and then waits for a file in
+            // that folder.
+            if env("WEBVIEW2_USER_DATA_FOLDER").is_none() {
+                window = window.data_directory(client.join("webview"));
+            }
+            window.build()?;
             Ok(())
         })
         .run(tauri::generate_context!());

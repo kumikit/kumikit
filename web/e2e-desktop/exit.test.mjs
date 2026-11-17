@@ -95,17 +95,7 @@ const session = () => Session.start('http://127.0.0.1:4444', { 'tauri:options': 
 const pick = (path) => writeFileSync(picks, path + '\n');
 const step = (what) => process.stderr.write(`[e2e] ${what}\n`);
 
-async function connected(b) {
-  try {
-    await b.wait('footer', 'Connected');
-  } catch (e) {
-    // Show what the window shows, for the report.
-    const out = process.env.KK_ARTIFACTS ?? work;
-    await b.screenshot(join(out, 'not-connected.png')).catch(() => {});
-    step(`dom: ${await b.execute("return JSON.stringify({url: location.href, n: document.querySelectorAll('*').length, footer: document.querySelector('footer')?.outerHTML?.slice(0, 300), status: [...document.querySelectorAll('[role=status]')].map((e) => e.textContent).join(' | '), text: document.body.textContent.slice(0, 300)})").catch((x) => String(x))}`);
-    throw e;
-  }
-}
+const connected = (b) => b.wait('footer', 'Connected');
 
 async function palette(b, title) {
   await b.keys(['Control', 'k']);
@@ -122,6 +112,26 @@ test('the exit criteria on the desktop app', { timeout: 300_000 }, async () => {
   step('starting the app');
   let b = await session();
   step('session started');
+  try {
+    await exitFlow(b);
+  } catch (e) {
+    await report(current ?? b);
+    throw e;
+  }
+});
+
+let current;
+
+/** Saves what the window shows for a failure report. */
+async function report(b) {
+  const out = process.env.KK_ARTIFACTS ?? work;
+  mkdirSync(out, { recursive: true });
+  await b.screenshot(join(out, 'failure.png')).catch(() => {});
+  step(`page text: ${await b.execute('return document.body.textContent').catch((x) => String(x))}`);
+}
+
+async function exitFlow(b) {
+  current = b;
   await connected(b);
 
   step('installing the provider');
@@ -156,6 +166,7 @@ test('the exit criteria on the desktop app', { timeout: 300_000 }, async () => {
   step('reopening');
   // Reopen: the same turn, still waiting for the approval.
   b = await session();
+  current = b;
   await connected(b);
   await b.wait(APPROVAL, 'Needs your approval');
   await b.click(await button(b, APPROVAL, 'Allow'));
@@ -170,4 +181,4 @@ test('the exit criteria on the desktop app', { timeout: 300_000 }, async () => {
   await palette(b, 'Theme: Kumikit Light');
   await b.until(async () => (await panel()) === '#ffffff', 'the light theme');
   await b.end();
-});
+}

@@ -143,8 +143,14 @@ jobs:
         run: |
           agent=$(dirname "$(find target/kumikit-test -type f -name fake-acp-agent.exe | head -n 1)")
           KK_APP="$PWD/target/debug/kumikit-desktop.exe" KK_CORE_BIN="$PWD/target/debug/kumikit.exe" \
-          KK_FAKE_AGENT_DIR="$(cygpath -w "$agent")" KK_BUNDLE="$PWD/target/bundle" \
-          node --test web/e2e-desktop/exit.test.mjs
+          KK_FAKE_AGENT_DIR="$(cygpath -w "$(cd "$agent" && pwd)")" KK_BUNDLE="$PWD/target/bundle" \
+          KK_ARTIFACTS="$PWD/target/e2e-desktop" node --test web/e2e-desktop/exit.test.mjs
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-desktop-${{ matrix.os }}
+          path: target/e2e-desktop
+          if-no-files-found: ignore
 
   installers:
     # Installers are built only to check their size; they are not published (M2).
