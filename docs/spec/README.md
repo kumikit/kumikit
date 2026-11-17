@@ -33,6 +33,6 @@ Decisions behind the spec are recorded in [../decisions/](../decisions/).
 
 ## Status
 
-M0 (protocol and kernel) and M1 (plugin host) are built; later milestones are not. Interfaces shown here (WIT, JSON, TOML) are the
+M0 (protocol and kernel), M1 (plugin host) and M2 (client) are built; later milestones are not. Interfaces shown here (WIT, JSON, TOML) are the
 intended shape, not frozen APIs. They freeze at version 1.0 of each interface; until then
 they may change, with the change recorded in the spec and, when significant, in an ADR.

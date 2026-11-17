@@ -48,6 +48,12 @@ footprint is within the budget in [00-overview.md](00-overview.md#footprint-budg
 **Exit:** from the desktop app, a user installs an ACP provider, starts a thread, approves
 a tool call and switches themes; closing and reopening the window resumes the running turn.
 
+**Status:** built. The exit test (`web/e2e-desktop/exit.test.mjs`) drives the real app over
+WebDriver with a recorded Claude Code transcript and passes on Linux; it runs on Windows in
+CI. macOS has no WebDriver for its webview, so the same flow runs there in the browser
+build (`web/e2e`, Playwright WebKit). A live run against real Claude Code passed. Plan:
+[M2 — Client](../plans/2026-11-16-m2-client.md).
+
 ## M3 — Multiple cores
 
 - WebSocket/TLS transport, pairing, device tokens, revocation, SSH tunnels.
