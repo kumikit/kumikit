@@ -29,9 +29,11 @@ The shell's jobs, and its only commands ([ADR 0013](../decisions/0013-desktop-sh
   Profiles are names, not addresses: the webview cannot open arbitrary sockets. Remote TLS,
   certificate pinning, token authentication and SSH live here, not in JavaScript. For a TLS
   profile the shell sends `auth.token` itself and attaches the connection only after it
-  succeeds, so the webview's first message is always `core.hello`. `bridge_connect` fails
-  with a code the UI acts on: `unauthorized` (the token was refused: the device was revoked
-  or the core forgot it), `certificate_changed`, or `unreachable`. The shell pings TLS
+  succeeds, so the webview's first message is always `core.hello`. `bridge_connect` and the
+  profile commands fail with `{ code, message }`; the UI acts on the code: `unauthorized`
+  (the token was refused: the device was revoked or the core forgot it),
+  `certificate_changed`, `unreachable`, `unknown_profile`, `bad_address`, `invalid` (bad
+  input such as a taken name), `protocol` or `internal`. The shell pings TLS
   connections every 20 s and closes one that is silent for 45 s.
 - **Profiles** ([ADR 0017](../decisions/0017-shell-remote-profiles-and-ssh.md)), kept by the
   shell in `<client data>/profiles.json` (0600). `local` is built in. A profile's name
@@ -50,7 +52,7 @@ The shell's jobs, and its only commands ([ADR 0013](../decisions/0013-desktop-sh
   `profile_pair({ name, label, address, fingerprint, code, deviceName? })` (pinned to
   `fingerprint`; sends `auth.pair`, keeps the token, saves the profile; the device name
   defaults to this computer's host name), `profile_add_ssh({ name, label, destination,
-  command? })` (connects once to check it), and `profile_remove(name)` (revokes its own
+  command? })` (checks it with a `core.hello` over its own connection), and `profile_remove(name)` (revokes its own
   device on the core if it can reach it within 2 s, then forgets the token and profile).
   After a profile is added the webview never sees its address again.
 - **Client plugin store:** `client_plugins_list`, `client_plugins_install(path)` and

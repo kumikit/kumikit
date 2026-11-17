@@ -558,7 +558,7 @@ code first needs macOS and Windows; the next after step 13; the last after step 
   paired remote clients over WebSocket and TLS`.
 - [x] **7. Core CLI.** `kumikit pair`, `kumikit devices list|revoke`, `kumikit bridge`,
   tests. Commit: `feat: pair devices and bridge SSH from the CLI`.
-- [ ] **8. Shell: profiles, pinning, tokens, SSH.** Library modules and commands,
+- [x] **8. Shell: profiles, pinning, tokens, SSH.** Library modules and commands,
   capabilities, `test-plugins/fake-ssh`, tests *(CI: keychain on macOS and Windows,
   Windows OpenSSH path)*. Commit: `feat: connect the shell to remote cores`. **First push,
   draft PR.**
@@ -702,3 +702,14 @@ Q11 take the recommendation unless you say otherwise.
   `serve` flags to shorten the deadlines and waits on the core closing; stable over 6
   runs. The TLS 1.2 refusal test needs rustls's `tls12` feature as a dev-dependency
   only. Windows and macOS run these only in CI.
+- Step 8: `keyring-core` is a dependency on every platform, so the keychain code path
+  compiles and runs on Linux against its mock store; only the macOS and Windows store
+  constructors (and the real-keychain test) are checked in CI alone. The profile
+  commands live in `connections.rs`, shared by Tauri's commands and (step 9) the relay.
+  A child's stdin does not close on tokio's `shutdown`, and `io::join` plus `split` kept it
+  open until the read side dropped too, so the remote `kumikit bridge` never saw EOF
+  (found by the SSH test hanging): the bridge now takes separate read and write halves
+  (`attach_halves`) and drops the write side when it ends. ssh's stderr can arrive after
+  its stdout closes, so explaining a failure waits up to 2 s for it. The shell's
+  keepalive test freezes a core with SIGSTOP (Unix only), which is what a dead network
+  looks like to the client.

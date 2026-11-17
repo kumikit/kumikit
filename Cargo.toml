@@ -11,6 +11,7 @@ members = [
   "sdk/rust-provider",
   "plugins/provider-acp",
   "test-plugins/fake-acp-agent",
+  "test-plugins/fake-ssh",
   "test-plugins/hello",
   "test-plugins/probe",
   "test-plugins/kumikit-test-plugins",

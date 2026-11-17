@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-profile-add-ssh"
+description = "Enables the profile_add_ssh command without any pre-configured scope."
+commands.allow = ["profile_add_ssh"]
+
+[[permission]]
+identifier = "deny-profile-add-ssh"
+description = "Denies the profile_add_ssh command without any pre-configured scope."
+commands.deny = ["profile_add_ssh"]

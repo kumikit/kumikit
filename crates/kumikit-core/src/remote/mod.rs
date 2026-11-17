@@ -107,29 +107,6 @@ impl Remote {
     }
 }
 
-/// Parses `--listen`: `host`, `host:port`, `[v6]` or `[v6]:port`; the port defaults to
-/// [`kumikit_protocol::remote::DEFAULT_PORT`].
-pub fn parse_listen(value: &str) -> Option<(String, u16)> {
-    let default = kumikit_protocol::remote::DEFAULT_PORT;
-    if let Some(rest) = value.strip_prefix('[') {
-        let (host, after) = rest.split_once(']')?;
-        let port = match after.strip_prefix(':') {
-            Some(p) => p.parse().ok()?,
-            None if after.is_empty() => default,
-            None => return None,
-        };
-        return Some((host.to_owned(), port));
-    }
-    match value.rsplit_once(':') {
-        // A bare IPv6 address has several colons and no port.
-        Some((host, _)) if host.contains(':') => Some((value.to_owned(), default)),
-        Some((host, port)) if !host.is_empty() => Some((host.to_owned(), port.parse().ok()?)),
-        Some(_) => None,
-        None if !value.is_empty() => Some((value.to_owned(), default)),
-        None => None,
-    }
-}
-
 /// Binds the listener for `--listen <value>`.
 pub async fn bind(value: &str) -> io::Result<TcpListener> {
     let bad = |e: &dyn std::fmt::Display| {
@@ -138,7 +115,8 @@ pub async fn bind(value: &str) -> io::Result<TcpListener> {
             format!("cannot listen on {value}: {e}"),
         )
     };
-    let (host, port) = parse_listen(value).ok_or_else(|| bad(&"expected host[:port]"))?;
+    let (host, port) = kumikit_protocol::remote::parse_host_port(value)
+        .ok_or_else(|| bad(&"expected host[:port]"))?;
     let addr = tokio::net::lookup_host((host.as_str(), port))
         .await
         .map_err(|e| bad(&e))?
@@ -535,20 +513,6 @@ async fn pair(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn listen_values() {
-        assert_eq!(parse_listen("0.0.0.0"), Some(("0.0.0.0".into(), 7463)));
-        assert_eq!(parse_listen("127.0.0.1:0"), Some(("127.0.0.1".into(), 0)));
-        assert_eq!(parse_listen("devbox:9000"), Some(("devbox".into(), 9000)));
-        assert_eq!(parse_listen("[::1]:9000"), Some(("::1".into(), 9000)));
-        assert_eq!(parse_listen("[::1]"), Some(("::1".into(), 7463)));
-        assert_eq!(parse_listen("::1"), Some(("::1".into(), 7463)));
-        assert_eq!(parse_listen(""), None);
-        assert_eq!(parse_listen(":9000"), None);
-        assert_eq!(parse_listen("host:port"), None);
-        assert_eq!(parse_listen("[::1]x"), None);
-    }
 
     #[test]
     fn urls_name_the_host_when_bound_to_every_interface() {

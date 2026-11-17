@@ -8,6 +8,11 @@ fn main() {
         "client_plugins_list",
         "client_plugins_install",
         "client_plugins_remove",
+        "profiles_list",
+        "profile_probe",
+        "profile_pair",
+        "profile_add_ssh",
+        "profile_remove",
         "test_report",
     ]);
     if let Err(e) = tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest)) {

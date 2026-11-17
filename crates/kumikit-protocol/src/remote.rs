@@ -25,6 +25,35 @@ pub const CODE_LEN: usize = 8;
 /// Longest device name, in characters.
 pub const DEVICE_NAME_MAX: usize = 64;
 
+/// Reads `host`, `host:port`, `[v6]`, `[v6]:port` or a bare IPv6 address; the port
+/// defaults to [`DEFAULT_PORT`]. A `wss://` prefix and a `/rpc` suffix are ignored, so a
+/// user can paste the URL `kumikit pair` printed. Used by `serve --listen` and by clients.
+pub fn parse_host_port(value: &str) -> Option<(String, u16)> {
+    let value = value.trim();
+    let value = value.strip_prefix("wss://").unwrap_or(value);
+    let value = value.strip_suffix(RPC_PATH).unwrap_or(value);
+    if let Some(rest) = value.strip_prefix('[') {
+        let (host, after) = rest.split_once(']')?;
+        let port = match after.strip_prefix(':') {
+            Some(p) => p.parse().ok()?,
+            None if after.is_empty() => DEFAULT_PORT,
+            None => return None,
+        };
+        return (!host.is_empty()).then(|| (host.to_owned(), port));
+    }
+    if value.chars().any(|c| c.is_whitespace() || c == '/') {
+        return None;
+    }
+    match value.rsplit_once(':') {
+        // A bare IPv6 address has several colons and no port.
+        Some((host, _)) if host.contains(':') => Some((value.to_owned(), DEFAULT_PORT)),
+        Some((host, port)) if !host.is_empty() => Some((host.to_owned(), port.parse().ok()?)),
+        Some(_) => None,
+        None if !value.is_empty() => Some((value.to_owned(), DEFAULT_PORT)),
+        None => None,
+    }
+}
+
 /// Formats a certificate's SHA-256 as `SHA256:` and 64 lowercase hex digits in groups of
 /// four separated by spaces.
 pub fn format_fingerprint(sha256: &[u8; 32]) -> String {
@@ -100,6 +129,36 @@ pub fn valid_device_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_and_port() {
+        assert_eq!(parse_host_port("0.0.0.0"), Some(("0.0.0.0".into(), 7463)));
+        assert_eq!(
+            parse_host_port("127.0.0.1:0"),
+            Some(("127.0.0.1".into(), 0))
+        );
+        assert_eq!(
+            parse_host_port("devbox:9000"),
+            Some(("devbox".into(), 9000))
+        );
+        assert_eq!(parse_host_port("[::1]:9000"), Some(("::1".into(), 9000)));
+        assert_eq!(parse_host_port("[::1]"), Some(("::1".into(), 7463)));
+        assert_eq!(parse_host_port("::1"), Some(("::1".into(), 7463)));
+        assert_eq!(parse_host_port(""), None);
+        assert_eq!(parse_host_port(":9000"), None);
+        assert_eq!(parse_host_port("host:port"), None);
+        assert_eq!(parse_host_port("[::1]x"), None);
+        assert_eq!(
+            parse_host_port("wss://devbox:7463/rpc"),
+            Some(("devbox".into(), 7463))
+        );
+        assert_eq!(
+            parse_host_port("wss://[::1]:9/rpc"),
+            Some(("::1".into(), 9))
+        );
+        assert_eq!(parse_host_port("dev box"), None);
+        assert_eq!(parse_host_port("[]:9"), None);
+    }
 
     #[test]
     fn fingerprints_round_trip() {

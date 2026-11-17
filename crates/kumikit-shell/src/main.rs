@@ -10,7 +10,12 @@ use std::path::PathBuf;
 use kumikit_protocol::local::Platform;
 use kumikit_shell::assets::{self, APP_SCHEME, Asset, PLUGIN_SCHEME, SchemeForm};
 use kumikit_shell::bridge::{Bridge, Incoming};
+use kumikit_shell::connections::{
+    CommandError, Connections, Keepalive, PairRequest, Removed, SshRequest,
+};
 use kumikit_shell::local::{self, LocalCore};
+use kumikit_shell::profiles::{LOCAL, ProfileInfo, Profiles};
+use kumikit_shell::secrets::TokenStore;
 use kumikit_shell::store::{Entry, Store};
 use tauri::http::{Request, Response};
 use tauri::ipc::Channel;
@@ -21,6 +26,8 @@ struct Shell {
     bridge: Bridge,
     local: LocalCore,
     store: Store,
+    /// Remote profiles.
+    connections: Connections,
     /// The UI kernel's files.
     ui: PathBuf,
 }
@@ -40,19 +47,30 @@ fn respond(asset: Asset, form: SchemeForm, cors: bool) -> Response<Cow<'static, 
         .unwrap_or_else(|_| Response::new(Cow::Borrowed(&b""[..])))
 }
 
-/// Opens a connection to a profile's core. M2 knows only `local`.
+/// Opens a connection to a profile's core.
 #[tauri::command]
 async fn bridge_connect(
     shell: State<'_, Shell>,
     profile: String,
     channel: Channel<Incoming>,
-) -> Result<String, String> {
-    if profile != "local" {
-        return Err(format!("unknown connection profile {profile}"));
+) -> Result<String, CommandError> {
+    // A closed channel means the page went away; the connection closes with it.
+    let sink = move |m| {
+        let _ = channel.send(m);
+    };
+    if profile != LOCAL {
+        return shell
+            .connections
+            .connect(&shell.bridge, &profile, sink)
+            .await;
     }
-    let (stream, found) = local::connect_or_start(&shell.local)
-        .await
-        .map_err(|e| e.to_string())?;
+    let (stream, found) =
+        local::connect_or_start(&shell.local)
+            .await
+            .map_err(|e| CommandError {
+                code: "unreachable",
+                message: e.to_string(),
+            })?;
     #[cfg(feature = "test-hooks")]
     {
         #[allow(clippy::print_stdout)]
@@ -62,10 +80,43 @@ async fn bridge_connect(
     }
     #[cfg(not(feature = "test-hooks"))]
     let _ = found;
-    Ok(shell.bridge.attach(stream, move |m| {
-        // A closed channel means the page went away; the connection closes with it.
-        let _ = channel.send(m);
-    }))
+    Ok(shell.bridge.attach(stream, sink))
+}
+
+/// The profiles the webview may connect to: names, labels and kinds only.
+#[tauri::command]
+fn profiles_list(shell: State<'_, Shell>) -> Result<Vec<ProfileInfo>, CommandError> {
+    shell.connections.list()
+}
+
+/// The certificate fingerprint of the core at an address; sends nothing to it.
+#[tauri::command]
+async fn profile_probe(shell: State<'_, Shell>, address: String) -> Result<String, CommandError> {
+    shell.connections.probe(&address).await
+}
+
+/// Pairs with a core, pinned to the fingerprint the user confirmed, and saves it.
+#[tauri::command]
+async fn profile_pair(
+    shell: State<'_, Shell>,
+    request: PairRequest,
+) -> Result<ProfileInfo, CommandError> {
+    shell.connections.pair(request).await
+}
+
+/// Adds a core reached through `ssh`.
+#[tauri::command]
+async fn profile_add_ssh(
+    shell: State<'_, Shell>,
+    request: SshRequest,
+) -> Result<ProfileInfo, CommandError> {
+    shell.connections.add_ssh(request).await
+}
+
+/// Forgets a core (revoking this device there when it answers).
+#[tauri::command]
+async fn profile_remove(shell: State<'_, Shell>, name: String) -> Result<Removed, CommandError> {
+    shell.connections.remove(&name).await
 }
 
 /// Sends one JSON-RPC message.
@@ -145,6 +196,23 @@ fn test_report(text: String) {
     }
 }
 
+/// Keepalive of remote connections; test builds take `KUMIKIT_TEST_KEEPALIVE=<ping ms>,<idle ms>`
+/// so a lost network is noticed in seconds.
+fn keepalive() -> Keepalive {
+    #[cfg(feature = "test-hooks")]
+    if let Some((Ok(ping), Ok(idle))) = env("KUMIKIT_TEST_KEEPALIVE")
+        .as_deref()
+        .and_then(|v| v.split_once(','))
+        .map(|(p, i)| (p.parse(), i.parse()))
+    {
+        return Keepalive {
+            ping: std::time::Duration::from_millis(ping),
+            idle: std::time::Duration::from_millis(idle),
+        };
+    }
+    Keepalive::default()
+}
+
 fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.is_empty())
 }
@@ -173,6 +241,11 @@ fn main() {
         client_plugins_list,
         client_plugins_install,
         client_plugins_remove,
+        profiles_list,
+        profile_probe,
+        profile_pair,
+        profile_add_ssh,
+        profile_remove,
         test_report
     ]);
     #[cfg(not(feature = "test-hooks"))]
@@ -182,7 +255,12 @@ fn main() {
         bridge_close,
         client_plugins_list,
         client_plugins_install,
-        client_plugins_remove
+        client_plugins_remove,
+        profiles_list,
+        profile_probe,
+        profile_pair,
+        profile_add_ssh,
+        profile_remove
     ]);
     let result = builder
         .register_uri_scheme_protocol(APP_SCHEME, move |ctx, request: Request<Vec<u8>>| {
@@ -216,10 +294,21 @@ fn main() {
                 installed: client.join("ui-plugins"),
             };
             let ui = resource(app, "KUMIKIT_UI_DIR", "ui").unwrap_or_default();
+            let connections = Connections {
+                profiles: Profiles::new(&client),
+                secrets: TokenStore::for_platform(
+                    &client,
+                    env("KUMIKIT_CLIENT_SECRETS").as_deref() == Some("file"),
+                ),
+                ssh: kumikit_shell::ssh::program(env),
+                keepalive: keepalive(),
+                device_name: local::host_name(),
+            };
             app.manage(Shell {
                 bridge: Bridge::default(),
                 local,
                 store,
+                connections,
                 ui,
             });
             let query = if safe { "?safe" } else { "" };

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-profile-probe"
+description = "Enables the profile_probe command without any pre-configured scope."
+commands.allow = ["profile_probe"]
+
+[[permission]]
+identifier = "deny-profile-probe"
+description = "Denies the profile_probe command without any pre-configured scope."
+commands.deny = ["profile_probe"]
