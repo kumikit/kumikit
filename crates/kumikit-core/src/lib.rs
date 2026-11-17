@@ -4,6 +4,7 @@
 pub mod bundled;
 pub mod cli;
 pub mod lock;
+pub mod messages;
 pub mod paths;
 pub mod plugins;
 pub mod rpc;

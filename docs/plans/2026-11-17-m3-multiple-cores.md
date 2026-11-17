@@ -548,7 +548,7 @@ code first needs macOS and Windows; the next after step 13; the last after step 
   format), fixtures, TypeScript regenerated (`tsc` check of `web/protocol`). Routing stubs
   in the core return `unsupported` so `every_method_is_routed` passes. Commit: `feat: add
   authentication methods to the protocol`.
-- [ ] **5. Core: one message loop for every transport.** The message trait; lines
+- [x] **5. Core: one message loop for every transport.** The message trait; lines
   implementation; no behaviour change; all existing tests pass. Commit: `refactor: serve
   connections over a message stream`.
 - [ ] **6. Core: remote transport, pairing, revocation.** `--listen`, `--tls-cert/key`,
