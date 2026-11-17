@@ -562,7 +562,7 @@ code first needs macOS and Windows; the next after step 13; the last after step 
   capabilities, `test-plugins/fake-ssh`, tests *(CI: keychain on macOS and Windows,
   Windows OpenSSH path)*. Commit: `feat: connect the shell to remote cores`. **First push,
   draft PR.**
-- [ ] **9. Test tooling.** `test-plugins/net-cut` (library, binary, its own tests); the
+- [x] **9. Test tooling.** `test-plugins/net-cut` (library, binary, its own tests); the
   relay's `--remote`, profile endpoints and test endpoints. Commit: `test: add a cuttable
   network and a second core to the relay`.
 - [ ] **10. UI kernel: several cores.** Connections map, per-connection stores, statuses,
@@ -713,3 +713,12 @@ Q11 take the recommendation unless you say otherwise.
   its stdout closes, so explaining a failure waits up to 2 s for it. The shell's
   keepalive test freezes a core with SIGSTOP (Unix only), which is what a dead network
   looks like to the client.
+- CI on the first push (PR #4, steps 1–8): every job passes on Linux, macOS and Windows,
+  including the real-keychain round trip on macOS and Windows.
+- Step 9: `net-cut` uses epochs. Restoring bumps the epoch and closes every connection
+  from an earlier one, even if its task never saw the cut (a current-thread test cut and
+  restored before the task ran, which hung the first version). While cut it stops
+  accepting, so new connections wait in the kernel's backlog, as on a dead network. The
+  relay's bridge WebSocket now starts with `{"type":"open"}` or `{"type":"error","code",
+  "message"}`, so the test adapter can report `bridge_connect`'s typed errors.
+

@@ -6,6 +6,20 @@
 /** What arrives on a connection, in order (the shell bridge's `Incoming`). */
 export type Incoming = { type: 'line'; line: string } | { type: 'closed'; reason: string };
 
+/**
+ * Why connecting failed, as the shell's `bridge_connect` reports it: `unauthorized` (the
+ * device was revoked), `certificate_changed`, `unreachable`, `unknown_profile`, … The UI
+ * stops retrying on the first two.
+ */
+export class ConnectError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 /** An open line connection to a core. */
 export interface LineConnection {
   send(line: string): Promise<void>;

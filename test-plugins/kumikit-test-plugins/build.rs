@@ -23,6 +23,7 @@ const GUESTS: &[(&str, &str)] = &[
 const PROGRAMS: &[(&str, &str)] = &[
     ("kumikit-fake-acp-agent", "fake-acp-agent"),
     ("kumikit-test-fake-ssh", "fake-ssh"),
+    ("kumikit-test-net-cut", "net-cut"),
 ];
 
 /// Removes the outer build's settings (flags, target, profile, jobserver) so the nested

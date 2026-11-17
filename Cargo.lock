@@ -2643,6 +2643,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumikit-test-net-cut"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
 name = "kumikit-test-plugins"
 version = "0.1.0"
 
@@ -2660,6 +2667,7 @@ dependencies = [
  "anyhow",
  "axum",
  "kumikit-shell",
+ "kumikit-test-net-cut",
  "kumikit-test-plugins",
  "serde",
  "serde_json",

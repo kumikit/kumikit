@@ -3,11 +3,20 @@
 //! serves the browser-test UI bundle and the bundled UI plugins on loopback, and relays
 //! one WebSocket per page to the core with the shell's own bridge code. Never shipped.
 //!
-//! Usage: `kumikit-web-relay --ui <dir> --ui-plugins <dir> --core-plugins <dir> --work <dir>`
-//! Prints `ready <url>` once it serves. Control endpoints for tests:
+//! Usage: `kumikit-web-relay --ui <dir> --ui-plugins <dir> --core-plugins <dir> --work <dir>
+//! [--remote]`. Prints `ready <url>` once it serves. With `--remote` (M3) it also starts a
+//! second core with remote access on loopback, behind a cuttable proxy (`net-cut`), and
+//! serves the shell's profile commands with the shell's own code, so pairing, pinning and
+//! token login are the shipped ones.
+//!
+//! Control endpoints for tests:
 //! `POST /test/pick {"path"}` queues what the next file or folder picker returns, and
-//! `POST /test/drop` closes every bridge connection (the core keeps running). Closing the
-//! relay's stdin stops the core and the relay.
+//! `POST /test/drop` closes every bridge connection (the cores keep running). With
+//! `--remote`: `POST /test/pair-code` makes a pairing code on the remote core (`kumikit
+//! pair --json`, with the proxy's address as `address`), `POST /test/cut` and
+//! `/test/restore` cut and restore the remote's network, `POST /test/revoke` revokes every
+//! device of the remote core, and `POST /test/rotate` restarts the remote core with a new
+//! certificate on the same port. Closing the relay's stdin stops the cores and the relay.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -23,6 +32,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use kumikit_shell::assets::{self, Asset};
 use kumikit_shell::bridge::{Bridge, Incoming};
+use kumikit_shell::connections::{CommandError, Connections, Keepalive, PairRequest, SshRequest};
+use kumikit_shell::profiles::{LOCAL, Profiles};
+use kumikit_shell::secrets::TokenStore;
 use kumikit_shell::store::Store;
 use serde::Deserialize;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -39,6 +51,63 @@ struct Relay {
     address: String,
     picks: Mutex<VecDeque<Option<String>>>,
     drop_all: broadcast::Sender<()>,
+    connections: Connections,
+    remote: Option<RemoteSide>,
+}
+
+/// The second core of `--remote`.
+struct RemoteSide {
+    socket: String,
+    data: PathBuf,
+    /// The core's own address, behind the proxy.
+    target: std::net::SocketAddr,
+    proxy: net_cut::Proxy,
+    core: tokio::sync::Mutex<tokio::process::Child>,
+    path: std::ffi::OsString,
+    core_plugins: PathBuf,
+}
+
+/// Starts `kumikit serve`; returns it after its `ready` line, with the `remote` line if any.
+async fn start_core(
+    socket: &str,
+    data: &Path,
+    core_plugins: &Path,
+    path: &std::ffi::OsStr,
+    listen: Option<&str>,
+) -> Result<(tokio::process::Child, Option<String>)> {
+    let mut command = tokio::process::Command::new(core_bin()?);
+    command
+        .args(["serve", "--socket", socket])
+        .arg("--data-dir")
+        .arg(data)
+        .arg("--bundled-plugins")
+        .arg(core_plugins)
+        .env("PATH", path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .kill_on_drop(true);
+    if let Some(listen) = listen {
+        command.args([
+            "--listen",
+            listen,
+            "--keepalive-ping-ms",
+            "200",
+            "--keepalive-idle-ms",
+            "1500",
+        ]);
+    }
+    let mut core = command.spawn().context("start kumikit serve")?;
+    let stdout = core.stdout.take().context("core stdout")?;
+    let mut lines = BufReader::new(stdout).lines();
+    let mut remote = None;
+    loop {
+        match lines.next_line().await? {
+            Some(l) if l.starts_with("remote ") => remote = Some(l),
+            Some(l) if l.starts_with("ready ") => break,
+            other => bail!("the core did not start: {other:?}"),
+        }
+    }
+    Ok((core, remote))
 }
 
 fn arg(args: &[String], name: &str) -> Result<PathBuf> {
@@ -93,24 +162,48 @@ async fn main() -> Result<()> {
     let path = std::env::join_paths(std::iter::once(agent_dir).chain(std::env::split_paths(
         &std::env::var_os("PATH").unwrap_or_default(),
     )))?;
-    let mut core = tokio::process::Command::new(core_bin()?)
-        .args(["serve", "--socket", &address])
-        .arg("--data-dir")
-        .arg(work.join("core"))
-        .arg("--bundled-plugins")
-        .arg(&core_plugins)
-        .env("PATH", path)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .kill_on_drop(true)
-        .spawn()
-        .context("start kumikit serve")?;
-    let stdout = core.stdout.take().context("core stdout")?;
-    let mut lines = BufReader::new(stdout).lines();
-    match lines.next_line().await? {
-        Some(l) if l.starts_with("ready ") => {}
-        other => bail!("the core did not start: {other:?}"),
-    }
+    let (mut core, _) =
+        start_core(&address, &work.join("core"), &core_plugins, &path, None).await?;
+
+    let remote = if args.iter().any(|a| a == "--remote") {
+        #[cfg(unix)]
+        let socket = work.join("r.sock").to_string_lossy().into_owned();
+        #[cfg(windows)]
+        let socket = format!(r"\\.\pipe\kumikit-relay-remote-{}", std::process::id());
+        let data = work.join("remote-core");
+        let (child, line) =
+            start_core(&socket, &data, &core_plugins, &path, Some("127.0.0.1:0")).await?;
+        let target: std::net::SocketAddr = line
+            .as_deref()
+            .and_then(|l| l.split_whitespace().nth(1))
+            .and_then(|u| u.strip_prefix("wss://"))
+            .and_then(|u| u.strip_suffix("/rpc"))
+            .and_then(|a| a.parse().ok())
+            .context("the remote core printed no address")?;
+        Some(RemoteSide {
+            socket,
+            data,
+            target,
+            proxy: net_cut::Proxy::start(target).await?,
+            core: tokio::sync::Mutex::new(child),
+            path: path.clone(),
+            core_plugins: core_plugins.clone(),
+        })
+    } else {
+        None
+    };
+    let client = work.join("client");
+    let connections = Connections {
+        profiles: Profiles::new(&client),
+        secrets: TokenStore::for_platform(&client, true),
+        ssh: PathBuf::from(kumikit_test_plugins::FAKE_SSH),
+        // Short, so a cut network is noticed in a second or two.
+        keepalive: Keepalive {
+            ping: std::time::Duration::from_millis(200),
+            idle: std::time::Duration::from_millis(1000),
+        },
+        device_name: "Playwright".into(),
+    };
 
     let relay = Arc::new(Relay {
         ui,
@@ -118,11 +211,23 @@ async fn main() -> Result<()> {
         address,
         picks: Mutex::new(VecDeque::new()),
         drop_all: broadcast::Sender::new(4),
+        connections,
+        remote,
     });
     let app = Router::new()
         .route("/bridge", get(bridge))
         .route("/test/pick", get(take_pick).post(queue_pick))
         .route("/test/drop", post(drop_connections))
+        .route("/test/pair-code", post(pair_code))
+        .route("/test/cut", post(cut))
+        .route("/test/restore", post(restore))
+        .route("/test/revoke", post(revoke))
+        .route("/test/rotate", post(rotate))
+        .route("/profiles", get(profiles_list))
+        .route("/profiles/probe", post(profile_probe))
+        .route("/profiles/pair", post(profile_pair))
+        .route("/profiles/ssh", post(profile_add_ssh))
+        .route("/profiles/{name}", delete(profile_remove))
         .route("/client-plugins", get(list_plugins).post(install_plugin))
         .route("/client-plugins/{id}", delete(remove_plugin))
         .route("/plugins/{id}/{*path}", get(plugin_file))
@@ -241,23 +346,54 @@ async fn remove_plugin(State(r): State<Arc<Relay>>, UrlPath(id): UrlPath<String>
     }
 }
 
-async fn bridge(State(r): State<Arc<Relay>>, ws: WebSocketUpgrade) -> Response {
-    ws.on_upgrade(move |socket| relay_socket(r, socket))
+#[derive(Deserialize)]
+struct BridgeQuery {
+    profile: String,
 }
 
-/// One page connection: the shell's bridge on one side, the WebSocket on the other.
-async fn relay_socket(r: Arc<Relay>, mut socket: WebSocket) {
-    let stream = match kumikit_shell::transport::connect(&r.address).await {
-        Ok(s) => s,
+async fn bridge(
+    State(r): State<Arc<Relay>>,
+    axum::extract::Query(q): axum::extract::Query<BridgeQuery>,
+    ws: WebSocketUpgrade,
+) -> Response {
+    ws.on_upgrade(move |socket| relay_socket(r, q.profile, socket))
+}
+
+/// One page connection: the shell's bridge on one side, the WebSocket on the other. The
+/// first message says whether connecting worked: `{"type":"open"}`, or
+/// `{"type":"error","code","message"}` as `bridge_connect` would fail.
+async fn relay_socket(r: Arc<Relay>, profile: String, mut socket: WebSocket) {
+    let bridge = Bridge::default();
+    let (tx, mut rx) = mpsc::unbounded_channel::<Incoming>();
+    let sink = move |m| drop(tx.send(m));
+    let attached = if profile == LOCAL {
+        match kumikit_shell::transport::connect(&r.address).await {
+            Ok(stream) => Ok(bridge.attach(stream, sink)),
+            Err(e) => Err(CommandError {
+                code: "unreachable",
+                message: e.to_string(),
+            }),
+        }
+    } else {
+        r.connections.connect(&bridge, &profile, sink).await
+    };
+    let id = match attached {
+        Ok(id) => id,
         Err(e) => {
-            let msg = serde_json::json!({ "type": "closed", "reason": e.to_string() });
+            let msg = serde_json::json!({ "type": "error", "code": e.code, "message": e.message });
             let _ = socket.send(Message::Text(msg.to_string().into())).await;
+            let _ = socket.send(Message::Close(None)).await;
             return;
         }
     };
-    let bridge = Bridge::default();
-    let (tx, mut rx) = mpsc::unbounded_channel::<Incoming>();
-    let id = bridge.attach(stream, move |m| drop(tx.send(m)));
+    if socket
+        .send(Message::Text(r#"{"type":"open"}"#.into()))
+        .await
+        .is_err()
+    {
+        bridge.close(&id);
+        return;
+    }
     let mut drops = r.drop_all.subscribe();
     loop {
         tokio::select! {
@@ -283,4 +419,158 @@ async fn relay_socket(r: Arc<Relay>, mut socket: WebSocket) {
     }
     bridge.close(&id);
     let _ = socket.send(Message::Close(None)).await;
+}
+
+// ---- profiles (the shell's commands) ----
+
+fn command_err(e: CommandError) -> Response {
+    (StatusCode::BAD_REQUEST, axum::Json(e)).into_response()
+}
+
+async fn profiles_list(State(r): State<Arc<Relay>>) -> Response {
+    match r.connections.list() {
+        Ok(l) => axum::Json(l).into_response(),
+        Err(e) => command_err(e),
+    }
+}
+
+#[derive(Deserialize)]
+struct Probe {
+    address: String,
+}
+
+async fn profile_probe(State(r): State<Arc<Relay>>, axum::Json(p): axum::Json<Probe>) -> Response {
+    match r.connections.probe(&p.address).await {
+        Ok(f) => axum::Json(f).into_response(),
+        Err(e) => command_err(e),
+    }
+}
+
+async fn profile_pair(
+    State(r): State<Arc<Relay>>,
+    axum::Json(p): axum::Json<PairRequest>,
+) -> Response {
+    match r.connections.pair(p).await {
+        Ok(i) => axum::Json(i).into_response(),
+        Err(e) => command_err(e),
+    }
+}
+
+async fn profile_add_ssh(
+    State(r): State<Arc<Relay>>,
+    axum::Json(p): axum::Json<SshRequest>,
+) -> Response {
+    match r.connections.add_ssh(p).await {
+        Ok(i) => axum::Json(i).into_response(),
+        Err(e) => command_err(e),
+    }
+}
+
+async fn profile_remove(State(r): State<Arc<Relay>>, UrlPath(name): UrlPath<String>) -> Response {
+    match r.connections.remove(&name).await {
+        Ok(removed) => axum::Json(removed).into_response(),
+        Err(e) => command_err(e),
+    }
+}
+
+// ---- the remote core's test controls ----
+
+fn no_remote() -> Response {
+    (StatusCode::NOT_FOUND, "start the relay with --remote").into_response()
+}
+
+fn server_err(e: impl std::fmt::Display) -> Response {
+    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+}
+
+async fn kumikit_cli(args: &[&str]) -> Result<std::process::Output, String> {
+    let bin = core_bin().map_err(|e| e.to_string())?;
+    tokio::process::Command::new(bin)
+        .args(args)
+        .output()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn pair_code(State(r): State<Arc<Relay>>) -> Response {
+    let Some(remote) = &r.remote else {
+        return no_remote();
+    };
+    let out = match kumikit_cli(&["pair", "--json", "--socket", &remote.socket]).await {
+        Ok(o) => o,
+        Err(e) => return server_err(e),
+    };
+    let Ok(mut v) = serde_json::from_slice::<serde_json::Value>(&out.stdout) else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        )
+            .into_response();
+    };
+    // Clients reach the remote core through the proxy.
+    v["address"] = serde_json::json!(remote.proxy.addr().to_string());
+    axum::Json(v).into_response()
+}
+
+async fn cut(State(r): State<Arc<Relay>>) -> Response {
+    let Some(remote) = &r.remote else {
+        return no_remote();
+    };
+    remote.proxy.cut();
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn restore(State(r): State<Arc<Relay>>) -> Response {
+    let Some(remote) = &r.remote else {
+        return no_remote();
+    };
+    remote.proxy.restore();
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn revoke(State(r): State<Arc<Relay>>) -> Response {
+    let Some(remote) = &r.remote else {
+        return no_remote();
+    };
+    let out = match kumikit_cli(&["devices", "list", "--socket", &remote.socket]).await {
+        Ok(o) => o,
+        Err(e) => return server_err(e),
+    };
+    let ids: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| l.split_whitespace().next().filter(|w| w.len() == 26))
+        .map(str::to_owned)
+        .collect();
+    for id in ids {
+        if let Err(e) = kumikit_cli(&["devices", "revoke", &id, "--socket", &remote.socket]).await {
+            return server_err(e);
+        }
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// Restarts the remote core with a new certificate on the same port.
+async fn rotate(State(r): State<Arc<Relay>>) -> Response {
+    let Some(remote) = &r.remote else {
+        return no_remote();
+    };
+    let mut core = remote.core.lock().await;
+    let _ = core.kill().await;
+    let _ = std::fs::remove_dir_all(remote.data.join("tls"));
+    let listen = remote.target.to_string();
+    match start_core(
+        &remote.socket,
+        &remote.data,
+        &remote.core_plugins,
+        &remote.path,
+        Some(&listen),
+    )
+    .await
+    {
+        Ok((child, _)) => {
+            *core = child;
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Err(e) => server_err(e),
+    }
 }
