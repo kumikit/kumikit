@@ -249,6 +249,11 @@ fn main() {
                     );
                 }
             }
+            // Wry sets its own WebView2 arguments, which replace the ones in the
+            // environment; pass the driver's on (they include its debugging port).
+            if let Some(args) = env("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
+                window = window.additional_browser_args(&args);
+            }
             if !driven {
                 window = window.data_directory(client.join("webview"));
             }
