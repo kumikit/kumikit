@@ -10,14 +10,14 @@ edited by hand.
 |---|---|---|
 | Unix domain socket (`$XDG_RUNTIME_DIR/kumikit/core.sock`, mode 0600) | Local client on Linux/macOS | File permissions plus a peer-credential check (same user) |
 | Named pipe (`\\.\pipe\kumikit-<user>`) | Local client on Windows | Pipe ACL restricted to the user |
-| WebSocket over TLS (`wss://host:port/rpc`) | Remote clients | Device token from pairing (below) |
-| WebSocket over an SSH tunnel | Remote clients without a public port | SSH, then a device token |
+| WebSocket over TLS (`wss://host:port/rpc`) | Remote clients, browsers | Device token from pairing (below) |
+| Stdio over SSH (`ssh <host> kumikit bridge`) | Remote clients without an open port | SSH; the core sees a local connection of the same user ([ADR 0017](../decisions/0017-shell-remote-profiles-and-ssh.md)) |
 
 Every transport carries the same framing: one JSON-RPC 2.0 message per WebSocket text
-frame, or newline-delimited JSON on sockets and pipes. A message is at most 8 MiB; a
+frame, or newline-delimited JSON on sockets, pipes and SSH's stdio. A message is at most 8 MiB; a
 longer line gets an `invalid_request` error and the connection is closed. JSON-RPC batches (arrays) are not supported and get a
-single `-32600` error. A core listens only on the local socket unless the user enables
-remote access.
+single `-32600` error. A core listens only on the local socket unless it is started with
+`--listen` (below).
 
 ### Local transport details
 
@@ -33,19 +33,71 @@ remote access.
 - **Named pipe.** The core creates `\\.\pipe\kumikit-<user>` as the first instance (if
   another process already owns the name, `serve` fails), rejects remote clients, and sets
   a DACL that grants access only to the core's user SID.
-- **Readiness.** Once it accepts connections, `kumikit serve` prints one line
-  `ready <address>` on stdout, so scripts can wait for it without polling.
+- **Readiness.** Once it accepts connections, `kumikit serve` prints `ready <address>` on
+  stdout as its last startup line, so scripts can wait for it without polling. With remote
+  access on, a line `remote <url> <fingerprint>` comes before it.
+
+### Remote transport
+
+Decided in [ADR 0016](../decisions/0016-remote-transport-and-pairing.md).
+
+- **Off by default.** `kumikit serve --listen <host[:port]>` turns it on for that run
+  (default port 7463; there is no default address, so `--listen 0.0.0.0` is how to listen
+  on every interface). Nothing about it is stored, and no method turns it on. Without the
+  flag no TCP port is bound and no certificate is read or made. A busy port fails `serve`
+  before `ready`.
+- **TLS.** TLS 1.3 only. The core uses `--tls-cert <pem> --tls-key <pem>` if given;
+  otherwise `<core data>/tls/cert.pem` and `key.pem` (0600), generated on the first start
+  with `--listen` (self-signed, ECDSA P-256). Deleting them makes a new certificate, which
+  every paired client then refuses. The **fingerprint** is the SHA-256 of the certificate
+  (DER), written `SHA256:` and 64 hex digits in groups of four.
+- **WebSocket.** `GET /rpc` over HTTP/1.1 is upgraded. One JSON-RPC message per text
+  frame, at most 8 MiB; a binary frame gets `invalid_request` and the connection closes.
+  When a device is revoked the core closes its connections with close code 4001. The core
+  pings each connection and closes one that sends nothing (not even a pong) for 60 s.
+- **Native clients** send no `Origin` header. Their first message must be a request for
+  `auth.token` or `auth.pair`; anything else gets `unauthenticated` and the connection
+  closes, as does a failed `auth.*`. The TLS handshake, the upgrade and that first
+  message must finish within 10 s, and at most 32 connections may be unauthenticated at
+  once.
+- **Browsers** send an `Origin` header. It must be the core's own origin (`https://` and the
+  request's `Host`) and the core must serve the web UI (`--web`, [06](06-client.md#browser-client));
+  otherwise the upgrade is refused. The upgrade is authenticated by the `kk_device` cookie
+  set at pairing (401 without a valid one), so the page's first message is `core.hello`.
+- **Web routes** (only with `--web`): the UI bundle and its UI plugins, `GET /auth/status` →
+  `{ paired, core: { name } }`, `POST /auth/pair { code, deviceName }` → `{ device }` and the
+  cookie `kk_device=<token>; HttpOnly; Secure; SameSite=Strict; Path=/`, and
+  `POST /auth/logout`, which revokes the cookie's device. Both `POST`s need
+  `Content-Type: application/json` and the core's own `Origin`.
+
+### Stdio over SSH
+
+`kumikit bridge` connects to the local socket (or pipe) of the machine it runs on and
+copies newline-delimited messages between it and its stdin and stdout, with the 8 MiB
+limit. The desktop shell runs it through the system `ssh`; the core sees an ordinary local
+connection.
 
 ### Pairing
 
-1. On the core: `kumikit pair` (or Settings → Remote access) shows a one-time code and the
-   core's certificate fingerprint. The code is valid for 5 minutes.
-2. The client connects, checks the fingerprint, and sends `auth.pair { code, deviceName }`.
-3. The core returns a long-lived device token. The client stores it in its secret store.
-4. Later connections send `auth.token { token }` as the first message. The user can list
-   and revoke devices on the core.
+1. On the core: `kumikit pair` shows a one-time code, the core's certificate fingerprint
+   and its URL. It asks the running core with `auth.pairing.create`, which works only on
+   local connections and only while remote access is on.
+2. The client connects, shows the fingerprint for the user to compare, and sends
+   `auth.pair { code, deviceName }` over that connection, pinned to that certificate.
+3. The core returns a long-lived device token; the connection is now authenticated as the
+   new device. The client stores the token in its secret store.
+4. Later connections send `auth.token { token }` as the first message. Devices are listed
+   and revoked with `auth.devices.*` or `kumikit devices`.
 
-The core uses a self-signed certificate pinned at pairing unless the user supplies one.
+- A code is 8 characters of Crockford base32, shown as `ABCD-EFGH` (case, `-` and spaces
+  are ignored). It is valid for 5 minutes and works once; 5 wrong attempts burn it; a new
+  code replaces the previous one. Wrong, expired, used and burnt codes give the same
+  `unauthenticated` error.
+- A token is 32 random bytes, base64url, prefixed `kkd_`. The core stores only its SHA-256
+  ([03](03-kernel.md#storage)) and cannot show it again.
+- Pairing codes, tokens and `auth.*` params are never logged.
+- Clients pin the certificate's fingerprint; a changed certificate is refused until the
+  user re-adds the core.
 
 ## Handshake
 
@@ -54,11 +106,11 @@ The first call after authentication is `core.hello`:
 ```jsonc
 // → client
 { "jsonrpc": "2.0", "id": 1, "method": "core.hello",
-  "params": { "protocol": "0.3", "client": { "name": "kumikit-desktop", "version": "0.1.0" } } }
+  "params": { "protocol": "0.4", "client": { "name": "kumikit-desktop", "version": "0.1.0" } } }
 
 // ← core
 { "jsonrpc": "2.0", "id": 1, "result": {
-    "protocol": "0.3",
+    "protocol": "0.4",
     "core": { "version": "0.1.0", "name": "devbox", "os": "linux" },
     "plugins": [
       { "id": "kumikit.provider-acp", "version": "0.1.0",
@@ -72,9 +124,11 @@ The first call after authentication is `core.hello`:
 - `protocol` is `MAJOR.MINOR`. A client refuses a core with a different major version and
   treats unknown minor features as absent. Before 1.0 (while the protocol is `0.x`) a
   minor bump may break, so both sides require the same `0.MINOR`.
-- On a local transport `core.hello` is the first call. Any other method before it fails
-  with `handshake_required`. A version the core cannot serve fails `core.hello` with
+- On a local transport `core.hello` is the first call; on a remote one it is the first call
+  after authentication. Any other method before it fails with `handshake_required`. A version the core cannot serve fails `core.hello` with
   `protocol_mismatch`.
+- `capabilities` lists what this core serves: `threads`, `approvals`, `plugins`,
+  `providers`, `workspace_events`, and `devices` while remote access is on.
 - The client builds its UI from `plugins` and `capabilities`. A tab on a core without a
   feature shows no UI for it; it does not show a disabled stub.
 - `plugins` lists the enabled plugins. Their `contributes` lists only what is available:
@@ -90,7 +144,7 @@ Methods are namespaced. Kernel namespaces are fixed; plugins get their own.
 
 | Namespace | Examples | Notes |
 |---|---|---|
-| `auth.*` | `pair`, `token`, `devices.list`, `devices.revoke` | Before `core.hello` |
+| `auth.*` | `pair`, `token`, `devices.list`, `devices.revoke`, `pairing.create` | `pair` and `token` authenticate a remote connection (its first message); the others come after `core.hello` |
 | `core.*` | `hello`, `status`, `shutdown` | |
 | `workspace.*` | `list`, `open`, `close`, `files.list`, `files.read` | Reads are scoped to the workspace root |
 | `thread.*` | `list`, `create`, `get`, `send`, `cancel`, `respondApproval`, `archive` | |
@@ -110,6 +164,11 @@ and both sides ignore fields they do not know.
 
 | Method | Params | Result |
 |---|---|---|
+| `auth.pair` | `code`, `deviceName` (1–64 characters, no control characters) | `token`, `device`. Remote connections only, as the first message; `unsupported` on local ones. |
+| `auth.token` | `token` | `device`. Remote connections only, as the first message; `unsupported` on local ones. |
+| `auth.pairing.create` | — | `code`, `expires`, `fingerprint`, `url`. Local connections only (`permission_denied` on remote ones); `unsupported` when remote access is off. |
+| `auth.devices.list` | — | `devices`: `{ id, name, created, lastSeen?, current? }` (`current` marks the caller's own device) |
+| `auth.devices.revoke` | `device` | `{}`. Deletes the device and closes its connections, including the caller's if it revokes itself. |
 | `core.hello` | `protocol`, `client { name, version }` | `protocol`, `core { version, name, os }`, `plugins`, `capabilities` |
 | `workspace.list` | — | `workspaces` (open ones only) |
 | `workspace.open` | `path` | `workspace`. The path is canonicalized; opening the same root again returns the same workspace, and reopens it if it was closed. |
@@ -127,7 +186,7 @@ and both sides ignore fields they do not know.
 | `core.shutdown` | — | `{}`, sent before the core stops. Running turns end as on any stop: the next start ends them as `core_restarted`. |
 | `provider.list` | — | `providers`: `{ id (qualified), name, plugin }` for every available provider, read from manifests without activating anything |
 | `provider.models` | `provider` (qualified id) | `models`: `{ id, label, capabilities }`. Activates the provider's plugin; an unknown provider gives `not_found`. |
-| `plugin.install` | `path` on the core's machine: a `.kkp` file, or a directory holding a `plugin.toml` (packed as `kumikit plugin pack` would, and the packed archive's SHA-256 recorded) | `plugin`, in state `installed`. Invalid packages and manifests fail with `invalid_params`, listing the problems; an id that is already installed fails with `conflict`. |
+| `plugin.install` | Exactly one of `path` on the core's machine (a `.kkp` file, or a directory holding a `plugin.toml`, packed as `kumikit plugin pack` would, and the packed archive's SHA-256 recorded) and `package`, the bytes of a `.kkp` in base64 (so a client can install on a core on another machine; limited by the 8 MiB message) | `plugin`, in state `installed`. Invalid packages and manifests fail with `invalid_params`, listing the problems; an id that is already installed fails with `conflict`. |
 | `plugin.enable` | `plugin`, `grant` | `plugin`. `grant` must equal the plugin's requested permissions (they are granted as a whole), otherwise `conflict`. Compiles the component. |
 | `plugin.disable` | `plugin` | `plugin`. Cancels the plugin's running turns and unloads it. |
 | `plugin.uninstall` | `plugin`, `deleteData?` | `{}`. Disables it first; deletes its kv and data directory only if `deleteData` is true. |
@@ -163,6 +222,7 @@ without parsing messages:
 | -32000 | `unsupported` | Known but not available on this core (for example a reserved topic) |
 | -32000 | `conflict` | The request contradicts current state (approval already resolved, archived thread) |
 | -32000 | `handshake_required` | A method was called before `core.hello` |
+| -32000 | `unauthenticated` | A remote connection did not authenticate, or its code or token was refused |
 | -32000 | `protocol_mismatch` | The client's protocol version cannot be served |
 | -32000 | `plugin_failed` | A plugin or provider failed while handling the request |
 | -32000 | `internal` | A bug or an I/O failure in the core |

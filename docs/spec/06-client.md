@@ -27,21 +27,49 @@ The shell's jobs, and its only commands ([ADR 0013](../decisions/0013-desktop-sh
   closes it. Incoming messages arrive in order on the channel, followed by a `closed`
   notice with a reason. The shell does not parse messages; it enforces the 8 MiB limit.
   Profiles are names, not addresses: the webview cannot open arbitrary sockets. Remote TLS,
-  certificate pinning and SSH tunnels live here, not in JavaScript (M3).
+  certificate pinning, token authentication and SSH live here, not in JavaScript. For a TLS
+  profile the shell sends `auth.token` itself and attaches the connection only after it
+  succeeds, so the webview's first message is always `core.hello`. `bridge_connect` fails
+  with a code the UI acts on: `unauthorized` (the token was refused: the device was revoked
+  or the core forgot it), `certificate_changed`, or `unreachable`. The shell pings TLS
+  connections every 20 s and closes one that is silent for 45 s.
+- **Profiles** ([ADR 0017](../decisions/0017-shell-remote-profiles-and-ssh.md)), kept by the
+  shell in `<client data>/profiles.json` (0600). `local` is built in. A profile's name
+  (`[a-z0-9-]{1,32}`) is its connection id in addresses. Kinds:
+  - `tls`: address, pinned fingerprint, device id; the token is in the client secrets.
+  - `ssh`: a destination as `ssh` understands it (a `~/.ssh/config` host, `user@host`)
+    and the remote command (default `kumikit bridge`). The shell runs the system `ssh`
+    (`KUMIKIT_SSH` overrides it) as `ssh -T -o BatchMode=yes -o ServerAliveInterval=15
+    -o ServerAliveCountMax=3 -- <destination> <command>`, with no shell between. A
+    destination that starts with `-` or holds whitespace or control characters is refused.
+    `BatchMode` means ssh never prompts: an unknown host key or a locked key fails with
+    ssh's message, shown to the user.
+
+  Commands: `profiles_list` (names, labels and kinds only), `profile_probe(address)` (a TLS
+  handshake that returns the certificate's fingerprint and sends nothing),
+  `profile_pair({ name, label, address, fingerprint, code, deviceName? })` (pinned to
+  `fingerprint`; sends `auth.pair`, keeps the token, saves the profile; the device name
+  defaults to this computer's host name), `profile_add_ssh({ name, label, destination,
+  command? })` (connects once to check it), and `profile_remove(name)` (revokes its own
+  device on the core if it can reach it within 2 s, then forgets the token and profile).
+  After a profile is added the webview never sees its address again.
 - **Client plugin store:** `client_plugins_list`, `client_plugins_install(path)` and
   `client_plugins_remove(id)`. Installs UI plugin and theme packages into
   `<client data>/ui-plugins/<id>/<version>/`, checks the structure of their manifest
   ([07](07-ui-plugins.md#manifest)), refuses core plugin packages, and lists the plugins
   bundled with the app (read-only) next to the installed ones.
-- **Client secrets:** device tokens for paired cores, stored in the OS keychain or a 0600
-  file. They never reach the webview; the shell attaches them when connecting (M3).
+- **Client secrets:** device tokens for paired cores. On macOS the Keychain and on Windows
+  the Credential Manager (service `dev.kumikit.client`, account the profile name); on
+  Linux, and wherever `KUMIKIT_CLIENT_SECRETS=file` is set, `<client data>/secrets.json`
+  with mode 0600. No command returns a token; the shell attaches it when connecting.
 - **File picker:** the native open dialog, used to pick packages and workspace folders.
 - No other native commands. Features belong in the core or in plugins.
 
 The shell holds the client data directory ([01](01-architecture.md#data-directories)) and
 puts the webview's storage inside it. For tests and development, environment variables
 override the defaults: `KUMIKIT_SOCKET` (the local address), `KUMIKIT_CORE_DATA_DIR`,
-`KUMIKIT_CLIENT_DATA_DIR`, `KUMIKIT_CORE_BIN` (the core binary to start), and the app's
+`KUMIKIT_CLIENT_DATA_DIR`, `KUMIKIT_CORE_BIN` (the core binary to start), `KUMIKIT_SSH`
+(the `ssh` program), `KUMIKIT_CLIENT_SECRETS=file`, and the app's
 resource directories `KUMIKIT_UI_DIR`, `KUMIKIT_BUNDLED_UI_PLUGINS` and
 `KUMIKIT_BUNDLED_CORE_PLUGINS`.
 
@@ -59,7 +87,7 @@ Svelte 5 with runes, TypeScript strict, Vite
 
 | Part | Does |
 |---|---|
-| Connection manager | Profiles (local, paired remotes), connect/reconnect with backoff (0.5 s doubling to 30 s), per-connection status; after a reconnect it repeats `core.hello` and resubscribes every topic with its last `seq` |
+| Connection manager | One connection per profile (local, paired remotes, SSH), each connecting on its own; reconnect with backoff (0.5 s doubling to 30 s) and a "Reconnect now" action; per-connection status (`connecting`, `ready`, `reconnecting`, `mismatch`, and `unauthorized` and `certificate_changed`, which stop retrying); after a reconnect it repeats `core.hello` and resubscribes every topic with its last `seq` |
 | Tabs | Each tab is `(connection, workspace)`; tabs from different cores sit side by side |
 | Thread store | Owns every wire subscription (one per topic per connection), folds thread events into view state, and shares it with plugins (`ctx.threads`) |
 | Slot registry | Places where UI plugins contribute ([07](07-ui-plugins.md)) |
@@ -67,14 +95,18 @@ Svelte 5 with runes, TypeScript strict, Vite
 | Declarative renderer | Renders core plugins' declarative UI: settings forms, status items, views |
 | Theme engine | Applies the active theme's tokens as CSS custom properties ([08](08-themes.md)) |
 | Plugin manager | Lists, installs and configures plugins on the client and on each core |
-| Sidebar | Workspaces and their threads with status, kept current by the `workspace:<id>` topic |
+| Sidebar | One group per connection (label and status), with its workspaces and their threads, kept current by the `workspace:<id>` topic |
+| Cores view | Lists connections; adds a core by address and pairing code (the fingerprint shown for the user to confirm before the code is sent) or by SSH destination; removes one |
 
 The plugin manager is part of the UI kernel, not a plugin, so the user can always remove
 a plugin that broke the UI. **Safe mode** (`kumikit-desktop --safe`) loads no UI plugins; themes
 still load.
 
-- **Core plugins:** installed from a `.kkp` or a folder with a `plugin.toml`, picked with
-  the file picker and passed to `plugin.install`. The requested permissions are shown in
+- **Core plugins:** installed on a chosen core (the active tab's by default). On the local
+  core, from a `.kkp` or a folder with a `plugin.toml`, picked with the file picker and
+  passed to `plugin.install { path }`. On a core on another machine (and in the browser
+  client), from a `.kkp` chosen with a standard file input; the webview reads it and sends
+  `plugin.install { package }`. The requested permissions are shown in
   plain words (the same wording as `kumikit plugin add`), with the warning that the
   package is unsigned, and granted as a whole.
 - **Client plugins:** installed through the shell's client plugin store. A third-party UI
@@ -95,8 +127,10 @@ Nothing secret is stored there.
 ### State per connection
 
 Each connection has its own store: handshake result, workspaces, threads, subscriptions
-and last-seen `seq` per thread. A failure on one connection affects only its tabs, which
-show a reconnecting state; other tabs keep working.
+and last-seen `seq` per thread. A failure on one connection affects only its tabs and its
+sidebar group, which show its state (reconnecting, needs pairing, certificate changed);
+other tabs keep working. A protocol mismatch is shown per connection too; "Restart the
+core" is offered only for the local core.
 
 ### Addressing
 
@@ -106,25 +140,45 @@ one tab opens in the right place.
 
 ## Multiple cores
 
-- The user adds a core with its address and a pairing code (or an SSH host). The profile
-  stores the address, certificate fingerprint and a display name; the token goes to the
-  shell's secret store.
-- UI plugins that need a core-side plugin declare it (`requires.core`); they activate only
-  in tabs whose core has it.
+- The user adds a core with its address and a pairing code (or an SSH destination). The
+  profile stores the address, certificate fingerprint and a display name; the token goes to
+  the shell's client secrets.
+- UI plugins that need a core-side plugin declare it (`requires.core`,
+  [07](07-ui-plugins.md#manifest)); their contributions show only in tabs whose core has it.
 - Installing a core plugin is always done on a chosen core: the plugin manager asks which
   one.
+- A tab or link naming a removed profile shows that the core was removed and opens
+  nothing.
 
 ## Browser client
 
-The same `web/kernel` bundle runs in a plain browser when a core serves it (M3). Without the
-shell, the bundle uses a browser transport (WebSocket from the page, token in an HttpOnly
-cookie set at pairing) and loads UI plugins over HTTPS from that core. Only one connection
-is available in this mode.
+The same `web/kernel` bundle, built with `--mode browser`, runs in a plain browser when a
+core serves it: `kumikit serve --listen <addr> --web <dir>`, where `<dir>` is the browser
+bundle (`target/bundle/ui-browser` from `scripts/bundle.mjs`: the kernel, `bundled.json`
+and the bundled UI plugins). The core serves it on its remote port with the same CSP as
+the shell (plus `frame-ancestors 'none'`), and UI plugins from `/ui-plugins/<id>/`.
 
-The UI kernel reaches the shell or the browser through a platform adapter (connect, the
-file pickers, plugin URLs). Tests use a test-only adapter that speaks the bridge's line
-protocol over a WebSocket to a relay in front of a real core; it is never part of the
-desktop bundle.
+- **Pairing.** When `/auth/status` says the browser is not paired, or the WebSocket upgrade
+  gets 401, the page shows a pairing screen (code and device name, default "Browser"). It
+  posts to `/auth/pair`; the core sets the token as an HttpOnly cookie that page scripts
+  cannot read ([02](02-protocol.md#remote-transport)). "Sign out" posts to `/auth/logout`,
+  which revokes the device.
+- **One connection**, to the serving core (connection id `core`). There are no profiles to
+  add or remove.
+- **Plugins.** UI plugins are the ones served with the bundle, read-only; installing UI
+  plugins needs the desktop app. Core plugins install by upload (`plugin.install
+  { package }`). Workspace folders are typed as paths on the core's machine.
+- **Certificates.** With the core's self-signed certificate the browser warns once; the
+  fingerprint in the browser's certificate viewer should match `kumikit pair`'s.
+- **Dev mode** (development only, never in a build): `npm run dev:browser -- --core
+  https://<host:port> --fingerprint <SHA256:…>` runs Vite's dev server with hot reload on
+  loopback and proxies `/rpc`, `/auth` and `/ui-plugins` to that core, after checking its
+  certificate's fingerprint, rewriting `Origin` to the core's own.
+
+The UI kernel reaches the shell or the browser through a platform adapter (connect,
+profiles, the file pickers, plugin URLs). Tests use a test-only adapter that speaks the
+bridge's line protocol over a WebSocket to a relay in front of real cores; it is never part
+of the desktop or browser bundle.
 
 ## UI rules
 

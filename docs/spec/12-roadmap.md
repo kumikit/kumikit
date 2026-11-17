@@ -58,6 +58,7 @@ build (`web/e2e`, Playwright WebKit). A live run against real Claude Code passed
 - WebSocket/TLS transport, pairing, device tokens, revocation, SSH tunnels.
 - Tabs bound to different connections; merged sidebar; per-connection reconnect.
 - `requires.core` gating for UI plugins.
+- The browser client: a core serves the UI over HTTPS, with pairing from the page.
 
 **Exit:** one window shows tabs from a local core and a remote core; killing the remote's
 network shows "reconnecting" only in its tabs, and the local tabs keep streaming.

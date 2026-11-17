@@ -52,7 +52,7 @@ Approval  { id, thread, turn, kind, summary, detail, status }
 | `tool.finished` | `turn`, `call`, `ok`, `result?` | provider |
 | `file.changed` | `turn`, `path`, `diff?` | provider |
 | `approval.requested` | `approval` | provider |
-| `approval.resolved` | `approval`, `decision` (`allow`, `allow_always`, `deny`, `cancelled`), `by?` (device id; absent for local connections) | kernel |
+| `approval.resolved` | `approval`, `decision` (`allow`, `allow_always`, `deny`, `cancelled`), `by?` (the paired device that answered; absent for local and SSH connections and for cancellations) | kernel |
 | `usage` | `turn`, `inputTokens`, `outputTokens`, `cost?` | provider |
 | `turn.ended` | `turn`, `outcome` (`done`, `cancelled`, `failed`), `error?` | kernel |
 | `plugin.event` | `plugin`, `kind`, `data` | any plugin, namespaced |
@@ -89,6 +89,10 @@ that do not understand one skip it; a UI plugin can register a renderer for it.
   disagree with the log.
 - Core tables (workspaces, threads, events, approvals, devices, plugins) belong to the
   kernel. Plugins never get SQL access to them.
+- The `devices` table records paired devices ([02](02-protocol.md#pairing)): id (ULID),
+  name, the SHA-256 of the device token, created and last-seen times (last seen is
+  written at most once a minute per device). The token itself is never stored. Revoking
+  a device deletes its row and tells the core, which closes the device's connections.
 - Each plugin gets a namespaced key-value store (`kv.get/set/delete/list` with prefix
   scans, keys up to 1 KB, values up to 1 MB), kept in the core database, and a private
   data directory `plugin-data/<id>/`. A plugin's data is deleted when it is uninstalled,
@@ -103,7 +107,8 @@ that do not understand one skip it; a UI plugin can register a renderer for it.
 
 ## Secrets
 
-- The secret store holds provider keys, bot tokens and device tokens of paired clients.
+- The secret store holds provider keys and bot tokens: values the core must read back.
+  Device tokens are not secrets the core keeps; only their hashes are stored (Storage).
 - Backend: the OS keychain where it works non-interactively, otherwise a 0600 file
   (`secrets.json`) in the core data directory. The choice is a setting, not a code path in
   plugins. Only the file backend exists so far; setting secrets over the protocol
