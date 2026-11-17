@@ -11,7 +11,9 @@ import { join } from 'node:path';
 const OUT = 'target/bundle';
 const UI_PLUGINS = ['plugins/ui-chat', 'plugins/ui-settings', 'plugins/theme-default'];
 const FALLBACK_THEME = 'kumikit.theme-default';
-const run = (cmd, args, opts = {}) => execFileSync(cmd, args, { stdio: 'inherit', ...opts });
+// npm and npx are .cmd files on Windows, which only a shell can start.
+const run = (cmd, args, opts = {}) =>
+  execFileSync(cmd, args, { stdio: 'inherit', shell: process.platform === 'win32' && ['npm', 'npx'].includes(cmd), ...opts });
 const tomlString = (text, key) => new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, 'm').exec(text)?.[1];
 
 rmSync(OUT, { recursive: true, force: true });

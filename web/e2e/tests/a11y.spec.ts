@@ -3,7 +3,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 
-import { command, expect, open, test } from './fixtures';
+import { command, expect, mod, open, test } from './fixtures';
 
 async function axe(page: Page, where: string) {
   // AxeBuilder's types come from a newer playwright-core than the test runner's.
@@ -69,7 +69,7 @@ test('the main flow works with the keyboard alone', async ({ page, kk }) => {
   await page.keyboard.press('Enter');
   await expect(page.getByRole('log', { name: 'Transcript' })).toContainText('hello from kumikit');
   // Escape closes the palette and gives focus back.
-  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k');
+  await mod(page, 'k');
   await expect(page.getByLabel('Command', { exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(page.getByLabel('Message')).toBeFocused();

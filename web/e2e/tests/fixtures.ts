@@ -95,11 +95,16 @@ export async function open(page: Page, kk: Kumikit, query = ''): Promise<void> {
   await expect(page.getByRole('status').filter({ hasText: 'Connected' })).toBeVisible();
 }
 
+/** `Mod+<key>` as the UI kernel reads it: Cmd when the browser says it is on macOS
+ * (Playwright's Safari device does, on any host), Ctrl otherwise. */
+export async function mod(page: Page, key: string): Promise<void> {
+  const mac = await page.evaluate(() => navigator.platform.startsWith('Mac') || navigator.userAgent.includes('Mac OS'));
+  await page.keyboard.press(`${mac ? 'Meta' : 'Control'}+${key}`);
+}
+
 /** Runs a command from the palette, as a keyboard user would. */
 export async function command(page: Page, title: string): Promise<void> {
-  // The UI kernel binds Mod to Cmd when the browser says it is on macOS.
-  const mac = await page.evaluate(() => navigator.platform.startsWith('Mac') || navigator.userAgent.includes('Mac OS'));
-  await page.keyboard.press(mac ? 'Meta+k' : 'Control+k');
+  await mod(page, 'k');
   const input = page.getByRole('combobox').or(page.getByLabel('Command', { exact: true }));
   await input.fill(title);
   await input.press('Enter');
