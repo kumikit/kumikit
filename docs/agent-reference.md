@@ -96,6 +96,10 @@ is about the code.
 - **Shell tests find `kumikit`** by walking up from the test executable (cargo puts test
   binaries under `build/` in 1.100). `cargo test --workspace` builds it; `-p
   kumikit-shell` alone does not, and the tests say so.
+- **Installer config is separate.** `tauri.bundle.conf.json` (resources and the bundled
+  core) is merged only by the installer build (`tauri build --config …`), so plain cargo
+  builds need neither `target/bundle` nor the core binary. Before it: `node
+  scripts/bundle.mjs`, and the release core copied to `binaries/kumikit-<target triple>`.
 - **Window tests run in a container** (`sh scripts/desktop/run.sh <cmd>`): Ubuntu, Xvfb,
   WebKitGTK and its WebDriver. Builds there use `target/desktop-container`.
 
