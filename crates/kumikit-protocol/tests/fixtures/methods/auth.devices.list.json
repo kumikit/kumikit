@@ -1,0 +1,28 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 5,
+    "method": "auth.devices.list",
+    "params": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 5,
+    "result": {
+      "devices": [
+        {
+          "id": "01JCDV00000000000000000001",
+          "name": "Work laptop",
+          "created": "2026-11-15T10:00:00.000Z",
+          "lastSeen": "2026-11-15T10:05:00.000Z",
+          "current": true
+        },
+        {
+          "id": "01JCDV00000000000000000002",
+          "name": "Browser",
+          "created": "2026-11-15T10:01:00.000Z"
+        }
+      ]
+    }
+  }
+]

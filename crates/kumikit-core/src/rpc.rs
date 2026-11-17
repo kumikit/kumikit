@@ -210,6 +210,17 @@ fn kernel_err(e: KernelError) -> RpcError {
     RpcError::new(e.code(), e.to_string())
 }
 
+/// A kernel device record as the protocol shows it; `current` marks the caller's own.
+fn device_info(d: kumikit_kernel::devices::DeviceRecord, current: Option<&str>) -> m::Device {
+    m::Device {
+        current: (current == Some(d.id.as_str())).then_some(true),
+        id: d.id,
+        name: d.name,
+        created: d.created,
+        last_seen: d.last_seen,
+    }
+}
+
 fn parse<M: Method>(params: Option<Value>) -> Result<M::Params, RpcError> {
     let value = params.unwrap_or_else(|| Value::Object(Default::default()));
     serde_json::from_value(value)
@@ -434,7 +445,18 @@ impl Conn {
             }
             m::PluginInstall::NAME => {
                 let p = parse::<m::PluginInstall>(params)?;
-                let plugin = crate::plugins::install(&self.host, &p.path).await?;
+                let plugin = match (&p.path, &p.package) {
+                    (Some(path), None) => crate::plugins::install(&self.host, path).await?,
+                    (None, Some(package)) => {
+                        crate::plugins::install_package(&self.host, package).await?
+                    }
+                    _ => {
+                        return Err(RpcError::new(
+                            ErrorCode::InvalidParams,
+                            "give exactly one of path and package",
+                        ));
+                    }
+                };
                 reply::<m::PluginInstall>(PluginResult { plugin })
             }
             m::PluginEnable::NAME => {
@@ -454,6 +476,33 @@ impl Conn {
                     .await
                     .map_err(crate::plugins::host_err)?;
                 reply::<m::PluginUninstall>(Empty {})
+            }
+            m::AuthPair::NAME | m::AuthToken::NAME => Err(RpcError::new(
+                ErrorCode::Unsupported,
+                "local connections need no authentication",
+            )),
+            m::AuthPairingCreate::NAME => {
+                parse::<m::AuthPairingCreate>(params)?;
+                Err(RpcError::new(
+                    ErrorCode::Unsupported,
+                    "remote access is off; start the core with --listen",
+                ))
+            }
+            m::AuthDevicesList::NAME => {
+                parse::<m::AuthDevicesList>(params)?;
+                let devices = k
+                    .device_list()
+                    .await
+                    .map_err(kernel_err)?
+                    .into_iter()
+                    .map(|d| device_info(d, None))
+                    .collect();
+                reply::<m::AuthDevicesList>(m::DeviceListResult { devices })
+            }
+            m::AuthDevicesRevoke::NAME => {
+                let p = parse::<m::AuthDevicesRevoke>(params)?;
+                k.device_revoke(&p.device).await.map_err(kernel_err)?;
+                reply::<m::AuthDevicesRevoke>(Empty {})
             }
             other => Err(RpcError::new(
                 ErrorCode::MethodNotFound,

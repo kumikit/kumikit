@@ -6,6 +6,12 @@
 export type PluginInstallParams = { 
 /**
  * Absolute path on the core's machine of a `.kkp` file, or of a directory holding a
- * `plugin.toml`, which is packed as `kumikit plugin pack` would.
+ * `plugin.toml`, which is packed as `kumikit plugin pack` would. Exactly one of `path`
+ * and `package` is given.
  */
-path: string, };
+path?: string, 
+/**
+ * The bytes of a `.kkp` file, base64 (standard alphabet, padded), for a core on
+ * another machine.
+ */
+package?: string, };

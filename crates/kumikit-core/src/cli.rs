@@ -172,7 +172,8 @@ impl Backend {
         match self {
             Backend::Remote(rpc) => Ok(rpc
                 .call::<PluginInstall>(&kumikit_protocol::methods::PluginInstallParams {
-                    path: path.to_owned(),
+                    path: Some(path.to_owned()),
+                    package: None,
                 })
                 .await?
                 .plugin),

@@ -543,7 +543,7 @@ code first needs macOS and Windows; the next after step 13; the last after step 
 - [x] **3. Kernel: devices and `by`.** Migration 0004, the devices API with the revocation
   broadcast, `respond_approval(…, by)`, tests. Commit: `feat: store paired devices in the
   kernel`.
-- [ ] **4. Protocol 0.4.** `auth.*` types and methods, `unauthenticated`, `Device`,
+- [x] **4. Protocol 0.4.** `auth.*` types and methods, `unauthenticated`, `Device`,
   `plugin.install { package }`, `kumikit_protocol::remote` (fingerprint format, code
   format), fixtures, TypeScript regenerated (`tsc` check of `web/protocol`). Routing stubs
   in the core return `unsupported` so `every_method_is_routed` passes. Commit: `feat: add
@@ -688,3 +688,8 @@ Q11 take the recommendation unless you say otherwise.
 - Step 3: the kernel already wrote `by` on `approval.resolved` (with a test) since M0, so
   only the core has to pass the device id. Revocation listeners that lag check
   `device_exists` instead of trusting the broadcast.
+- Step 4: `auth.*` on local connections is final already (pair and token `unsupported`,
+  devices list and revoke through the kernel, `auth.pairing.create` `unsupported` until
+  `--listen` exists), so they are implemented rather than stubbed. `plugin.install
+  { package }` is implemented too (written to a private temporary file, then the same
+  install as a path). Tests that hard-coded `"0.3"` now say `"0.4"`.

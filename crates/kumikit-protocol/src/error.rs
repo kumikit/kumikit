@@ -33,6 +33,8 @@ pub enum ErrorCode {
     HandshakeRequired,
     /// The client's protocol version cannot be served.
     ProtocolMismatch,
+    /// A remote connection did not authenticate, or its code or token was refused.
+    Unauthenticated,
     /// A plugin or provider failed while handling the request.
     PluginFailed,
     /// A bug or an I/O failure in the core.
@@ -41,7 +43,7 @@ pub enum ErrorCode {
 
 impl ErrorCode {
     /// Every code, in table order.
-    pub const ALL: [ErrorCode; 12] = [
+    pub const ALL: [ErrorCode; 13] = [
         ErrorCode::ParseError,
         ErrorCode::InvalidRequest,
         ErrorCode::MethodNotFound,
@@ -52,6 +54,7 @@ impl ErrorCode {
         ErrorCode::Conflict,
         ErrorCode::HandshakeRequired,
         ErrorCode::ProtocolMismatch,
+        ErrorCode::Unauthenticated,
         ErrorCode::PluginFailed,
         ErrorCode::Internal,
     ];
@@ -69,6 +72,7 @@ impl ErrorCode {
             ErrorCode::Conflict => "conflict",
             ErrorCode::HandshakeRequired => "handshake_required",
             ErrorCode::ProtocolMismatch => "protocol_mismatch",
+            ErrorCode::Unauthenticated => "unauthenticated",
             ErrorCode::PluginFailed => "plugin_failed",
             ErrorCode::Internal => "internal",
         }

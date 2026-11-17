@@ -1,0 +1,35 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "auth.pairing.create",
+    "params": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "result": {
+      "code": "ABCD-2345",
+      "expires": "2026-11-15T10:05:00.000Z",
+      "fingerprint": "SHA256:3f2a 9c01 77be 0d4e 5a61 c2f8 19ab 04de 8e3c 61f0 aa92 7b15 c4d8 e016 2f9b 53a7",
+      "url": "wss://devbox:7463/rpc"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 4,
+    "method": "auth.pairing.create",
+    "params": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 4,
+    "error": {
+      "code": -32000,
+      "message": "remote access is off; start the core with --listen",
+      "data": {
+        "code": "unsupported"
+      }
+    }
+  }
+]

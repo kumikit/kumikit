@@ -7,4 +7,4 @@
  * Deserializing an unknown code yields [`ErrorCode::Internal`], as the spec asks clients
  * to treat unknown codes.
  */
-export type ErrorCode = "parse_error" | "invalid_request" | "method_not_found" | "invalid_params" | "not_found" | "permission_denied" | "unsupported" | "conflict" | "handshake_required" | "protocol_mismatch" | "plugin_failed" | "internal";
+export type ErrorCode = "parse_error" | "invalid_request" | "method_not_found" | "invalid_params" | "not_found" | "permission_denied" | "unsupported" | "conflict" | "handshake_required" | "protocol_mismatch" | "unauthenticated" | "plugin_failed" | "internal";

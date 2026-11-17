@@ -219,7 +219,7 @@ async fn bundled_plugins_are_seeded_once() {
         let hello = c
             .call(
                 "core.hello",
-                json!({"protocol": "0.3", "client": {"name": "t", "version": "0"}}),
+                json!({"protocol": "0.4", "client": {"name": "t", "version": "0"}}),
             )
             .await;
         if hello["plugins"].as_array().unwrap().is_empty() {

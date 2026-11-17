@@ -185,6 +185,33 @@ pub async fn install(host: &PluginHost, path: &str) -> Result<InstalledPlugin, R
     Ok(installed(host, &view))
 }
 
+/// Installs a `.kkp` sent as bytes (base64) by a client on another machine. It is
+/// written to a private temporary file and installed like a file on this machine.
+pub async fn install_package(host: &PluginHost, base64: &str) -> Result<InstalledPlugin, RpcError> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64.trim())
+        .map_err(|e| {
+            RpcError::new(
+                ErrorCode::InvalidParams,
+                format!("package is not base64: {e}"),
+            )
+        })?;
+    let dir = tokio::task::spawn_blocking(move || -> std::io::Result<tempfile::TempDir> {
+        let dir = tempfile::tempdir()?;
+        std::fs::write(dir.path().join("plugin.kkp"), &bytes)?;
+        Ok(dir)
+    })
+    .await
+    .map_err(|e| RpcError::new(ErrorCode::Internal, e.to_string()))?
+    .map_err(|e| RpcError::new(ErrorCode::Internal, e.to_string()))?;
+    let view = host
+        .install(&dir.path().join("plugin.kkp"))
+        .await
+        .map_err(host_err)?;
+    Ok(installed(host, &view))
+}
+
 /// Packs a plugin directory into `plugin.kkp` in a new temporary directory.
 async fn pack_dir(dir: std::path::PathBuf) -> Result<tempfile::TempDir, RpcError> {
     tokio::task::spawn_blocking(move || {

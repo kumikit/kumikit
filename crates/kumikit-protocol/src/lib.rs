@@ -8,6 +8,7 @@ pub mod jsonrpc;
 pub mod local;
 pub mod methods;
 pub mod model;
+pub mod remote;
 pub mod topic;
 pub mod version;
 
