@@ -1,0 +1,274 @@
+{
+  "$comment": "Thread status after each event. Shared by the kernel's fold (tests/status_fixture.rs) and the UI kernel's fold (web/kernel), so both derive the same status.",
+  "thread": "01JCTH00000000000000000001",
+  "cases": [
+    {
+      "name": "a plain turn",
+      "events": [
+        {
+          "kind": "turn.started",
+          "data": {
+            "turn": "u1",
+            "input": {
+              "text": "hi"
+            }
+          }
+        },
+        {
+          "kind": "text.delta",
+          "data": {
+            "turn": "u1",
+            "text": "Hel"
+          }
+        },
+        {
+          "kind": "text.delta",
+          "data": {
+            "turn": "u1",
+            "text": "lo"
+          }
+        },
+        {
+          "kind": "text.done",
+          "data": {
+            "turn": "u1",
+            "text": "Hello"
+          }
+        },
+        {
+          "kind": "turn.ended",
+          "data": {
+            "turn": "u1",
+            "outcome": "done"
+          }
+        }
+      ],
+      "statuses": [
+        "running",
+        "running",
+        "running",
+        "running",
+        "idle"
+      ]
+    },
+    {
+      "name": "an approval allowed",
+      "events": [
+        {
+          "kind": "turn.started",
+          "data": {
+            "turn": "u1",
+            "input": {
+              "text": "hi"
+            }
+          }
+        },
+        {
+          "kind": "tool.started",
+          "data": {
+            "turn": "u1",
+            "call": "c1",
+            "name": "Edit",
+            "input": {
+              "path": "a.txt"
+            }
+          }
+        },
+        {
+          "kind": "approval.requested",
+          "data": {
+            "approval": {
+              "id": "a1",
+              "thread": "01JCTH00000000000000000001",
+              "turn": "u1",
+              "kind": "tool",
+              "summary": "Edit a file",
+              "status": "pending"
+            }
+          }
+        },
+        {
+          "kind": "approval.resolved",
+          "data": {
+            "approval": "a1",
+            "decision": "allow"
+          }
+        },
+        {
+          "kind": "turn.ended",
+          "data": {
+            "turn": "u1",
+            "outcome": "done"
+          }
+        }
+      ],
+      "statuses": [
+        "running",
+        "running",
+        "awaiting_approval",
+        "running",
+        "idle"
+      ]
+    },
+    {
+      "name": "two approvals answered one at a time",
+      "events": [
+        {
+          "kind": "turn.started",
+          "data": {
+            "turn": "u1",
+            "input": {
+              "text": "hi"
+            }
+          }
+        },
+        {
+          "kind": "approval.requested",
+          "data": {
+            "approval": {
+              "id": "a1",
+              "thread": "01JCTH00000000000000000001",
+              "turn": "u1",
+              "kind": "tool",
+              "summary": "Edit a file",
+              "status": "pending"
+            }
+          }
+        },
+        {
+          "kind": "approval.requested",
+          "data": {
+            "approval": {
+              "id": "a2",
+              "thread": "01JCTH00000000000000000001",
+              "turn": "u1",
+              "kind": "tool",
+              "summary": "Edit a file",
+              "status": "pending"
+            }
+          }
+        },
+        {
+          "kind": "approval.resolved",
+          "data": {
+            "approval": "a1",
+            "decision": "allow"
+          }
+        },
+        {
+          "kind": "approval.resolved",
+          "data": {
+            "approval": "a2",
+            "decision": "deny"
+          }
+        },
+        {
+          "kind": "turn.ended",
+          "data": {
+            "turn": "u1",
+            "outcome": "done"
+          }
+        }
+      ],
+      "statuses": [
+        "running",
+        "awaiting_approval",
+        "awaiting_approval",
+        "awaiting_approval",
+        "running",
+        "idle"
+      ]
+    },
+    {
+      "name": "cancelled while waiting",
+      "events": [
+        {
+          "kind": "turn.started",
+          "data": {
+            "turn": "u1",
+            "input": {
+              "text": "hi"
+            }
+          }
+        },
+        {
+          "kind": "approval.requested",
+          "data": {
+            "approval": {
+              "id": "a1",
+              "thread": "01JCTH00000000000000000001",
+              "turn": "u1",
+              "kind": "tool",
+              "summary": "Edit a file",
+              "status": "pending"
+            }
+          }
+        },
+        {
+          "kind": "approval.resolved",
+          "data": {
+            "approval": "a1",
+            "decision": "cancelled"
+          }
+        },
+        {
+          "kind": "turn.ended",
+          "data": {
+            "turn": "u1",
+            "outcome": "cancelled"
+          }
+        }
+      ],
+      "statuses": [
+        "running",
+        "awaiting_approval",
+        "running",
+        "idle"
+      ]
+    },
+    {
+      "name": "a failed turn, then another",
+      "events": [
+        {
+          "kind": "turn.started",
+          "data": {
+            "turn": "u1",
+            "input": {
+              "text": "hi"
+            }
+          }
+        },
+        {
+          "kind": "turn.ended",
+          "data": {
+            "turn": "u1",
+            "outcome": "failed",
+            "error": "core_restarted"
+          }
+        },
+        {
+          "kind": "turn.started",
+          "data": {
+            "turn": "u2",
+            "input": {
+              "text": "hi"
+            }
+          }
+        },
+        {
+          "kind": "turn.ended",
+          "data": {
+            "turn": "u2",
+            "outcome": "done"
+          }
+        }
+      ],
+      "statuses": [
+        "running",
+        "failed",
+        "running",
+        "idle"
+      ]
+    }
+  ]
+}

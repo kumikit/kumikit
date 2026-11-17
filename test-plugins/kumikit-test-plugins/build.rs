@@ -44,7 +44,13 @@ fn main() {
         .nth(2)
         .expect("test-plugins/<crate> is two levels below the workspace root")
         .to_path_buf();
-    let target_dir = root.join("target").join("kumikit-test");
+    // Next to the outer build's target directory, so builds with another
+    // CARGO_TARGET_DIR (the desktop test container) do not share binaries.
+    println!("cargo:rerun-if-env-changed=CARGO_TARGET_DIR");
+    let target_dir = env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("target"))
+        .join("kumikit-test");
 
     for dir in ["wit", "sdk/rust", "test-plugins", "plugins", "Cargo.lock"] {
         let path = root.join(dir);

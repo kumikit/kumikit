@@ -1,7 +1,8 @@
 #!/bin/sh
 # The kernel knows no plugin by name (AGENTS.md, architecture rules; ADR 0006): fails if
-# the code in crates/*/src names a plugin id, a qualified provider id or a provider
-# backend key from any plugin.toml under plugins/ or test-plugins/.
+# the code in crates/*/src, web/kernel/src or web/sdk/src names a plugin id, a qualified
+# provider id or a provider backend key from any plugin.toml under plugins/ or
+# test-plugins/.
 # Tests (crates/*/tests, and unit-test modules in tests.rs files) may name plugins;
 # they are not kernel code.
 # Usage: sh scripts/check-plugin-names.sh   (run from the repository root)
@@ -26,8 +27,8 @@ done
 
 status=0
 while read -r term; do
-    if hits=$(grep -rnF --exclude=tests.rs -- "$term" crates/*/src); then
-        echo "crates/ names a plugin ($term):" >&2
+    if hits=$(grep -rnF --exclude=tests.rs -- "$term" crates/*/src web/kernel/src web/sdk/src); then
+        echo "kernel code names a plugin ($term):" >&2
         echo "$hits" >&2
         status=1
     fi

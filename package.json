@@ -1,0 +1,31 @@
+{
+  "name": "kumikit-web",
+  "private": true,
+  "license": "MIT",
+  "description": "npm workspace for the Kumikit client: UI kernel, UI SDK and first-party UI plugins.",
+  "type": "module",
+  "workspaces": [
+    "web/*",
+    "plugins/ui-*",
+    "plugins/theme-*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "check": "npm run check --workspaces --if-present",
+    "test": "vitest run && npm run test:extra --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "licenses": "node scripts/check-npm-licenses.mjs"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@types/node": "24.19.2",
+    "jsdom": "31.0.1",
+    "svelte": "5.57.3",
+    "svelte-check": "4.7.8",
+    "typescript": "6.0.3",
+    "vite": "8.3.8",
+    "vitest": "5.1.0"
+  }
+}

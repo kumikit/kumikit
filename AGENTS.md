@@ -12,10 +12,12 @@ spec, not here.
 
 ## Status
 
-M0 (protocol and kernel) and M1 (plugin host) are built: `kumikit serve`, the kernel,
-WASM plugins with permissions and a lifecycle, provider-acp, and `kumikit plugin`
-([M0 plan](docs/plans/2026-11-15-m0-protocol-and-kernel.md),
-[M1 plan](docs/plans/2026-11-15-m1-plugin-host.md)). M2 (client) is next. Build
+M0 (protocol and kernel), M1 (plugin host) and M2 (client) are built: `kumikit serve`,
+the kernel, WASM plugins with permissions and a lifecycle, provider-acp, `kumikit plugin`,
+and the desktop app (Tauri shell, Svelte UI kernel, UI SDK 0.1, ui-chat, ui-settings,
+theme-default) ([M0 plan](docs/plans/2026-11-15-m0-protocol-and-kernel.md),
+[M1 plan](docs/plans/2026-11-15-m1-plugin-host.md),
+[M2 plan](docs/plans/2026-11-16-m2-client.md)). M3 (multiple cores) is next. Build
 in milestone order
 ([roadmap](docs/spec/12-roadmap.md)); do not start a later milestone's code before the
 earlier one's exit criteria pass.
@@ -54,9 +56,14 @@ Now:
 - `sh scripts/footprint.sh`: core cold start and idle memory against the budgets
   (release build; CI runs it on Linux).
 
-From M2:
-- `npm run check` (svelte-check + tsc) and `npm test` (Vitest) in `web/`
-- `npx playwright test` in `web/` against the browser build
+From M2 (npm commands run at the repository root, an npm workspace):
+- `npm ci`, then `npm run check` (svelte-check + tsc) and `npm test` (Vitest)
+- `node scripts/check-npm-licenses.mjs` when npm dependencies change
+- Browser end-to-end: `node scripts/bundle.mjs && cargo build -p kumikit-core -p
+  kumikit-web-relay`, then `npx playwright test` in `web/e2e`
+- Desktop exit test (Linux, in the container): `sh scripts/desktop/run.sh sh
+  scripts/desktop/e2e.sh` after `node scripts/bundle.mjs`; Windows runs in CI
+- Desktop shell memory: `sh scripts/desktop/run.sh sh scripts/desktop/footprint.sh`
 
 ## Architecture rules (do not break these)
 
@@ -68,7 +75,8 @@ From M2:
 - **The protocol is the only client–core contract.** `kumikit-shell` and `web/` never
   depend on `kumikit-kernel`. Respect the dependency rules in
   [01-architecture](docs/spec/01-architecture.md#dependency-rules).
-- **The shell has no feature commands.** Features go in the core or in plugins.
+- **The shell has no feature commands.** Features go in the core or in plugins. Its
+  commands are the connection bridge and the client plugin store ([ADR 0013](docs/decisions/0013-desktop-shell.md)).
 - **Core plugins contribute declarative UI only**; UI code comes from client-installed UI
   plugins. ([ADR 0007](docs/decisions/0007-core-plugins-declarative-ui.md))
 - **Default deny.** Every host import checks the plugin's granted permissions. Never add
@@ -86,8 +94,9 @@ From M2:
   changing anything is major and needs an ADR. Update the recorded fixtures with the change.
 - WIT packages in `wit/` are versioned. Never change a published version in place: add a
   new version.
-- The manifest format, the token set (`tokens@N`) and the slot list are public APIs
-  under the same rules.
+- The manifest format, the token set and the slot list are public APIs under the same
+  rules: published UI SDK versions live in `web/sdk/api/<version>/`, recorded in
+  `web/sdk/api/PUBLISHED` ([ADR 0014](docs/decisions/0014-ui-sdk-versioning.md)).
 
 ## Rust
 
@@ -95,7 +104,8 @@ From M2:
 - No `unwrap`/`expect` outside tests and provably infallible spots (comment why). Errors:
   `thiserror` in libraries, `anyhow` only in binaries.
 - No blocking calls on async tasks; use `spawn_blocking` for SQLite and file I/O.
-- External programs run only through the kernel's process supervisor.
+- External programs run only through the kernel's process supervisor. One exception: the
+  desktop shell starts its own bundled core binary ([ADR 0013](docs/decisions/0013-desktop-shell.md)).
 - Every public item in `kumikit-protocol` and `sdk/rust` has a doc comment.
 
 ## TypeScript and Svelte
@@ -113,7 +123,7 @@ From M2:
 
 - Kumikit is MIT-licensed ([LICENSE](LICENSE)); every crate and package declares
   `license = "MIT"`. Add a dependency only if its license is compatible (MIT, MIT-0, Apache-2.0,
-  BSD, ISC, Zlib, MPL-2.0); ask before adding anything else.
+  BSD, 0BSD, ISC, BlueOak-1.0.0, Zlib, MPL-2.0); ask before adding anything else.
 
 - No telemetry, no accounts, no network traffic the user did not start or opt into. Any
   new automatic request goes into the README privacy section in the same change.

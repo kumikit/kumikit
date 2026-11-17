@@ -17,6 +17,9 @@ is about the code.
 
 ## Protocol (`crates/kumikit-protocol`)
 
+- **The local address lives here** (`local.rs`), so the core and the desktop shell compute
+  the same socket or pipe. It stays pure: the environment and user id are passed in.
+
 - **The method table is a macro** (`methods!` in `methods.rs`). Dispatch in
   `kumikit-core/src/rpc.rs`, TypeScript generation and the fixture coverage test all walk
   it. A new method goes there first; `rpc::tests::every_method_is_routed` fails until the
@@ -60,6 +63,9 @@ is about the code.
 
 ## Plugin host (`crates/kumikit-plugin-host`)
 
+- **`.kkp` code is in `kumikit-package`**, re-exported as `kumikit_plugin_host::package`,
+  because the shell unpacks UI plugins and may not depend on the plugin host.
+
 - **The call-time limit and the call hook.** The limit is measured from the last time the
   guest entered wasm or returned from a host import (`engine::apply_limits`). wasmtime
   runs the epoch deadline callback as a host call, so the call hook sees
@@ -80,6 +86,46 @@ is about the code.
   to discard it.
 - **Test components in WAT**: an imported instance with no exports is satisfied
   without a definition; give it a function to test a missing import.
+
+## Shell (`crates/kumikit-shell`)
+
+- **Logic in the library, wiring in `main.rs`.** Asset serving, the CSP, finding and
+  starting the core and the bridge are plain modules with tests that need no window.
+- **Commands need a capability.** `build.rs` declares the app's commands, so Tauri refuses
+  any that `capabilities/*.json` does not grant to the window. A new command goes in both.
+- **Shell tests find `kumikit`** by walking up from the test executable (cargo puts test
+  binaries under `build/` in 1.100). `cargo test --workspace` builds it; `-p
+  kumikit-shell` alone does not, and the tests say so.
+- **Installer config is separate.** `tauri.bundle.conf.json` (resources and the bundled
+  core) is merged only by the installer build (`tauri build --config …`), so plain cargo
+  builds need neither `target/bundle` nor the core binary. Before it: `node
+  scripts/bundle.mjs`, and the release core copied to `binaries/kumikit-<target triple>`.
+- **The AppImage is repacked** (`scripts/repack-appimage.mjs`) after Tauri builds it: the
+  bundled Wayland libraries are dropped (with Mesa 25+ hosts they leave WebKit unable to
+  create an EGL display, so the window stays blank) and the GTK hook's `GDK_BACKEND=x11`
+  becomes a default. If Tauri changes the hook, the script fails instead of guessing.
+  `scripts/smoke-appimage.sh` proves the result starts: the shell starts the core only
+  when the UI kernel's JavaScript connects.
+- **Window tests run in a container** (`sh scripts/desktop/run.sh <cmd>`): Ubuntu, Xvfb,
+  WebKitGTK and its WebDriver. Builds there use `target/desktop-container`.
+
+## UI kernel (`web/kernel`)
+
+- **State is `.svelte.ts` classes; logic is plain functions** (`threads/fold.ts`,
+  `commands/registry`, `theme/validate`) tested in Vitest without a DOM. Tests use
+  `tests/fake-core.ts` (an in-memory core) and injected timers and frame schedulers, so
+  nothing waits on real time.
+- **One wire subscription per topic** (`CoreConnection.subscribe`): listeners keep their
+  own cursor, a late listener replays the topic and the others skip what they have.
+- **The status fold must match the kernel's.** `crates/kumikit-kernel/tests/fixtures/
+  status.json` is checked by both `status_fixture.rs` and `web/kernel/tests/fold.test.ts`.
+- **The platform is a build-time constant** (`__KK_PLATFORM__`): `vite build` gives the
+  desktop bundle, `--mode browser-test` the one with the test relay adapter.
+- **No inline styles or `<style>` elements**: the CSP forbids them. The theme engine
+  writes a constructed stylesheet (`adoptedStyleSheets`). `scripts/check-ui-rules.mjs`
+  catches literal colors, radii, font sizes, shadows and IME-unsafe Enter/Escape.
+- **`props` is a reserved name in components**: `$props` would read as a store
+  subscription of a variable called `props`.
 
 ## Core (`crates/kumikit-core`)
 
@@ -105,6 +151,14 @@ is about the code.
 - **`unsafe` lives only in `transport/windows.rs`** (Win32 security descriptor for the
   pipe DACL) and `kumikit-kernel/src/process/windows.rs` (job objects). The workspace
   lint is `deny`, allowed on those modules alone. Each block has a `SAFETY:` comment.
+- **Workspace topics** (`pump_workspace` in `rpc.rs`) read a kernel broadcast of thread
+  changes, taken before the workspace check so nothing after the result is lost. Only
+  status-changing kinds (`turn.started`, `approval.*`, `turn.ended`) announce
+  `thread.updated`. A lagging listener resends every thread rather than dropping changes.
+- **`core.shutdown`** sets a flag; the connection closes after its reply is written and
+  only then notifies the serve loop, so the client always gets the answer.
+- **Bundled plugins** (`bundled.rs`) seed after `ready`, in file-name order; ids are
+  remembered in `seeded_plugins` (migration 3) so removals stick.
 - **Subscription result before events.** `rpc.rs` queues the `events.subscribe` result,
   then starts the pump (`Conn::deferred`). Starting the pump inside the handler would
   let an event overtake the result.

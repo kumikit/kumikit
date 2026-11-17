@@ -5,6 +5,7 @@
  */
 export type PluginInstallParams = { 
 /**
- * Absolute path of a `.kkp` file on the core's machine.
+ * Absolute path on the core's machine of a `.kkp` file, or of a directory holding a
+ * `plugin.toml`, which is packed as `kumikit plugin pack` would.
  */
 path: string, };

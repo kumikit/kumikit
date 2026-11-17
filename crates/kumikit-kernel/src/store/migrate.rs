@@ -9,6 +9,7 @@ use super::{StoreError, StoreResult};
 pub const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0001_init.sql"),
     include_str!("../../migrations/0002_plugins.sql"),
+    include_str!("../../migrations/0003_seeded_plugins.sql"),
 ];
 
 /// Applies the migrations `conn` has not seen yet, each in its own transaction. Fails
@@ -41,22 +42,22 @@ mod tests {
     #[test]
     fn fresh_database_reaches_latest() {
         let mut conn = Connection::open_in_memory().unwrap();
-        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 2);
-        assert_eq!(version(&conn), 2);
+        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 3);
+        assert_eq!(version(&conn), 3);
         let tables: i64 = conn
             .query_row(
                 "SELECT count(*) FROM sqlite_master WHERE type = 'table'
                  AND name IN ('workspaces','threads','events','turns','approvals',
-                              'plugins','plugin_kv')",
+                              'plugins','plugin_kv','seeded_plugins')",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(tables, 7);
+        assert_eq!(tables, 8);
     }
 
     #[test]
-    fn schema_1_upgrades_to_2_and_keeps_its_rows() {
+    fn schema_1_upgrades_to_the_latest_and_keeps_its_rows() {
         let mut conn = Connection::open_in_memory().unwrap();
         migrate(&mut conn, &MIGRATIONS[..1]).unwrap();
         conn.execute(
@@ -64,7 +65,7 @@ mod tests {
             [],
         )
         .unwrap();
-        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 2);
+        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 3);
         let n: i64 = conn
             .query_row("SELECT count(*) FROM workspaces", [], |r| r.get(0))
             .unwrap();
@@ -109,7 +110,7 @@ mod tests {
         let err = migrate(&mut conn, MIGRATIONS).unwrap_err();
         assert!(matches!(
             err,
-            StoreError::NewerSchema { found: 7, known: 2 }
+            StoreError::NewerSchema { found: 7, known: 3 }
         ));
     }
 }

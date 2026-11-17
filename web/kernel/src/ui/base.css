@@ -1,0 +1,137 @@
+/*
+ * Base styles of the UI kernel. Only theme tokens (`--kk-*`, 08-themes); each fallback is
+ * a CSS system color or keyword, so the UI stays usable with no theme at all.
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--kk-surface-frame, Canvas);
+  color: var(--kk-text-primary, CanvasText);
+  font-family: var(--kk-font-ui, system-ui, sans-serif);
+  font-size: var(--kk-font-size-base, medium);
+  line-height: var(--kk-line-height-base, normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  height: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--kk-focus, Highlight);
+  outline-offset: 2px;
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--kk-font-mono, ui-monospace, monospace);
+  font-size: var(--kk-font-size-small, small);
+}
+
+.kk-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.kk-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--kk-border-subtle, ButtonBorder);
+  border-radius: var(--kk-radius-small, 0);
+  background: var(--kk-surface-raised, ButtonFace);
+  color: var(--kk-text-primary, ButtonText);
+  cursor: pointer;
+  transition: background var(--kk-motion-duration-short, 0ms) var(--kk-motion-ease-out, ease-out);
+}
+
+.kk-button:hover {
+  background: var(--kk-surface-hover, ButtonFace);
+}
+
+.kk-button.primary {
+  background: var(--kk-accent, Highlight);
+  border-color: var(--kk-accent, Highlight);
+  color: var(--kk-text-on-accent, HighlightText);
+}
+
+.kk-button.primary:hover {
+  background: var(--kk-accent-hover, Highlight);
+}
+
+.kk-button.danger {
+  color: var(--kk-state-danger, CanvasText);
+}
+
+.kk-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.kk-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--kk-border-subtle, FieldText);
+  border-radius: var(--kk-radius-small, 0);
+  background: var(--kk-surface-input, Field);
+  color: var(--kk-text-primary, FieldText);
+}
+
+.kk-muted {
+  color: var(--kk-text-muted, GrayText);
+}
+
+.kk-empty {
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  height: 100%;
+  padding: 24px;
+  text-align: center;
+  color: var(--kk-text-secondary, CanvasText);
+}
+
+.kk-status {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--kk-radius-large, 0);
+  background: var(--kk-text-muted, GrayText);
+  flex: none;
+}
+
+.kk-status.running {
+  background: var(--kk-state-info, Highlight);
+}
+
+.kk-status.awaiting_approval {
+  background: var(--kk-state-warning, Mark);
+}
+
+.kk-status.failed {
+  background: var(--kk-state-danger, CanvasText);
+}

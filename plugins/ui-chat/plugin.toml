@@ -1,0 +1,18 @@
+id = "kumikit.ui-chat"
+name = "Chat"
+version = "0.1.0"
+description = "The transcript and composer of a thread, approvals, and renderers for every kernel event."
+license = "MIT"
+repository = "https://github.com/kumikit/kumikit"
+kind = ["ui"]
+api = "^0.1"
+
+[ui]
+entry = "dist/index.js"
+isolation = "inline"
+
+[contributes]
+slots = [
+  { slot = "thread.view", id = "chat", title = "Chat" },
+  { slot = "transcript.renderer", id = "renderers", title = "Transcript renderers" },
+]

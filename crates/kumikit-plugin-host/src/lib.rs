@@ -5,5 +5,6 @@ pub mod engine;
 pub mod lifecycle;
 pub mod manager;
 pub mod manifest;
-pub mod package;
+/// `.kkp` packages, from the shared `kumikit-package` crate.
+pub use kumikit_package as package;
 pub mod runtime;

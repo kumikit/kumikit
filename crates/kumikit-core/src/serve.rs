@@ -23,13 +23,16 @@ pub struct ServeOptions {
     pub data_dir: PathBuf,
     /// Socket path (Unix) or pipe name (Windows).
     pub address: String,
+    /// A directory of bundled `.kkp` files to preinstall once
+    /// (`docs/spec/10-distribution.md#bundled-core-plugins`).
+    pub bundled_plugins: Option<PathBuf>,
 }
 
 /// Database file name inside the data directory.
 pub const DATABASE: &str = "core.sqlite";
 
 /// Runs the core. Calls `on_ready` once connections are accepted, and returns after
-/// `shutdown` resolves and the kernel has closed.
+/// `shutdown` resolves (or a client calls `core.shutdown`) and the kernel has closed.
 pub async fn serve(
     options: ServeOptions,
     on_ready: impl FnOnce(&str),
@@ -55,6 +58,12 @@ pub async fn serve(
     let kernel = host.manager().kernel().clone();
     let info = Arc::new(ServerInfo::current());
     on_ready(&options.address);
+    // Seeding compiles components, so it runs after the core accepts connections;
+    // clients learn about the new plugins through `core.pluginsChanged`.
+    let seeding = options
+        .bundled_plugins
+        .clone()
+        .map(|dir| tokio::spawn(crate::bundled::seed(host.clone(), dir)));
 
     tokio::pin!(shutdown);
     loop {
@@ -66,7 +75,11 @@ pub async fn serve(
                 Err(e) => tracing::warn!(error = %e, "accept failed"),
             },
             () = &mut shutdown => break,
+            () = info.shutdown.notified() => break,
         }
+    }
+    if let Some(task) = seeding {
+        task.abort();
     }
     listener.remove();
     kernel.close().await;

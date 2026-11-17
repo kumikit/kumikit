@@ -1,0 +1,44 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 32,
+    "method": "provider.models",
+    "params": {
+      "provider": "community.provider-gemini/gemini"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 32,
+    "result": {
+      "models": [
+        {
+          "id": "default",
+          "label": "Gemini CLI",
+          "capabilities": [
+            "approvals"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 33,
+    "method": "provider.models",
+    "params": {
+      "provider": "community.nope/x"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 33,
+    "error": {
+      "code": -32000,
+      "message": "no provider community.nope/x",
+      "data": {
+        "code": "not_found"
+      }
+    }
+  }
+]

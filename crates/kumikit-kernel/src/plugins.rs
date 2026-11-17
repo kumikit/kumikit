@@ -121,6 +121,39 @@ impl Kernel {
             .await
     }
 
+    /// Whether a bundled plugin with this id was ever seeded (installed from
+    /// `--bundled-plugins`), even if it was removed since.
+    pub async fn plugin_was_seeded(&self, id: &str) -> KernelResult<bool> {
+        let id = id.to_owned();
+        self.inner
+            .store
+            .read(move |c| {
+                let n: i64 = c.query_row(
+                    "SELECT count(*) FROM seeded_plugins WHERE id = ?1",
+                    [&id],
+                    |r| r.get(0),
+                )?;
+                Ok(n > 0)
+            })
+            .await
+    }
+
+    /// Records that a bundled plugin was seeded.
+    pub async fn plugin_mark_seeded(&self, id: &str, version: &str) -> KernelResult<()> {
+        let (id, version, now) = (id.to_owned(), version.to_owned(), self.now().0);
+        self.inner
+            .store
+            .write(move |c| {
+                c.execute(
+                    "INSERT INTO seeded_plugins (id, version, seeded) VALUES (?1, ?2, ?3)
+                     ON CONFLICT (id) DO UPDATE SET version = excluded.version",
+                    [&id, &version, &now],
+                )?;
+                Ok(())
+            })
+            .await
+    }
+
     /// One installed plugin.
     pub async fn plugin_get(&self, id: &str) -> KernelResult<Option<PluginRecord>> {
         let id = id.to_owned();

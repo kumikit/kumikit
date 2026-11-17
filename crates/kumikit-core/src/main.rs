@@ -26,6 +26,10 @@ enum Command {
         /// Data directory. Default: per platform.
         #[arg(long)]
         data_dir: Option<PathBuf>,
+        /// Preinstall the .kkp files in this directory once: each id is seeded only the
+        /// first time; plugins that request no permissions are also enabled.
+        #[arg(long)]
+        bundled_plugins: Option<PathBuf>,
     },
     /// Manage core plugins (local .kkp files).
     Plugin {
@@ -81,7 +85,11 @@ fn main() -> Result<()> {
         .build()
         .context("starting the async runtime")?;
     match cli.command {
-        Command::Serve { socket, data_dir } => runtime.block_on(run_serve(socket, data_dir)),
+        Command::Serve {
+            socket,
+            data_dir,
+            bundled_plugins,
+        } => runtime.block_on(run_serve(socket, data_dir, bundled_plugins)),
         Command::Plugin {
             socket,
             data_dir,
@@ -121,7 +129,11 @@ async fn run_plugin(
     }
 }
 
-async fn run_serve(socket: Option<String>, data_dir: Option<PathBuf>) -> Result<()> {
+async fn run_serve(
+    socket: Option<String>,
+    data_dir: Option<PathBuf>,
+    bundled_plugins: Option<PathBuf>,
+) -> Result<()> {
     let platform = Platform::current();
     let data_dir = match data_dir {
         Some(d) => d,
@@ -131,7 +143,11 @@ async fn run_serve(socket: Option<String>, data_dir: Option<PathBuf>) -> Result<
     let address = socket.unwrap_or_else(|| {
         paths::default_address(platform, &paths::process_env, transport::current_uid())
     });
-    let options = ServeOptions { data_dir, address };
+    let options = ServeOptions {
+        data_dir,
+        address,
+        bundled_plugins,
+    };
     serve(options, announce_ready, shutdown_signal())
         .await
         .context("kumikit serve")
@@ -145,26 +161,47 @@ fn announce_ready(address: &str) {
     let _ = std::io::stdout().flush();
 }
 
-async fn shutdown_signal() {
+/// Registers for SIGTERM and SIGINT (Ctrl+C on Windows) now, before `serve` prints
+/// `ready`, and returns a future that completes on the first. Registering lazily, when
+/// the future is first polled, left a window after `ready` in which a SIGTERM killed the
+/// core without a clean shutdown.
+fn shutdown_signal() -> impl std::future::Future<Output = ()> {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal};
-        match signal(SignalKind::terminate()) {
-            Ok(mut term) => {
-                tokio::select! {
-                    _ = tokio::signal::ctrl_c() => {}
-                    _ = term.recv() => {}
+        let term = signal(SignalKind::terminate());
+        let int = signal(SignalKind::interrupt());
+        async move {
+            match (term, int) {
+                (Ok(mut term), Ok(mut int)) => {
+                    tokio::select! {
+                        _ = term.recv() => {}
+                        _ = int.recv() => {}
+                    }
                 }
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "cannot listen for SIGTERM");
-                let _ = tokio::signal::ctrl_c().await;
+                (term, int) => {
+                    for e in [term.err(), int.err()].into_iter().flatten() {
+                        tracing::warn!(error = %e, "cannot listen for a shutdown signal");
+                    }
+                    std::future::pending::<()>().await;
+                }
             }
         }
     }
     #[cfg(not(unix))]
     {
-        let _ = tokio::signal::ctrl_c().await;
+        let ctrl_c = tokio::signal::windows::ctrl_c();
+        async move {
+            match ctrl_c {
+                Ok(mut c) => {
+                    c.recv().await;
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "cannot listen for Ctrl+C");
+                    std::future::pending::<()>().await;
+                }
+            }
+        }
     }
 }
 

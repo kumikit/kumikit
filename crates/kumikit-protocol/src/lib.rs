@@ -5,13 +5,14 @@
 pub mod error;
 pub mod event;
 pub mod jsonrpc;
+pub mod local;
 pub mod methods;
 pub mod model;
 pub mod topic;
 pub mod version;
 
 pub use error::{ErrorCode, RpcError};
-pub use event::{EventNotification, ThreadEvent};
+pub use event::{EventNotification, ThreadEvent, TopicEvent, WorkspaceEvent};
 pub use methods::{Method, NotificationMethod};
 pub use topic::Topic;
 pub use version::{PROTOCOL_VERSION, ProtocolVersion};

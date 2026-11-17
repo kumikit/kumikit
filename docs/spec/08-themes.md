@@ -10,7 +10,7 @@ id = "community.tokyo-night"
 name = "Tokyo Night"
 version = "1.0.0"
 kind = ["theme"]
-api = "^1.0"
+api = "^0.1"
 [theme]
 variants = [
   { id = "dark", appearance = "dark", tokens = "dark.json" },
@@ -21,8 +21,10 @@ fonts = ["fonts/Inter.woff2"]   # optional, referenced from tokens
 
 ## Tokens
 
-Tokens are grouped and versioned with the UI SDK (`tokens@1`). A theme supplies values; the
-UI kernel and plugins use only the token names, as CSS custom properties.
+Tokens are grouped and versioned with the UI SDK: the token set of UI SDK 0.1 is
+`web/sdk/api/0.1.0/tokens.json`, with each token's name, group and type
+([ADR 0014](../decisions/0014-ui-sdk-versioning.md)). A theme supplies values; the UI kernel
+and plugins use only the token names, as CSS custom properties.
 
 | Group | Examples |
 |---|---|
@@ -40,7 +42,7 @@ UI kernel and plugins use only the token names, as CSS custom properties.
 
 ```json
 {
-  "$schema": "https://kumikit.dev/schema/tokens-1.json",
+  "$schema": "https://kumikit.dev/schema/tokens-0.1.json",
   "surface.panel": "#1a1b26",
   "text.primary": "#c0caf5",
   "accent": "#7aa2f7",
@@ -48,15 +50,21 @@ UI kernel and plugins use only the token names, as CSS custom properties.
 }
 ```
 
-- Missing tokens fall back to the default theme's values for the same appearance, so a
-  theme can be as small as an accent color.
+- Missing tokens fall back to the fallback theme's values for the same appearance, so a
+  theme can be as small as an accent color. The fallback theme is named in the app's
+  `bundled.json`, not in code; without it, the base styles use system colors.
+- The theme engine writes tokens through the CSSOM (one constructed stylesheet), which
+  the CSP allows without inline styles. The appearance follows the system unless the user
+  picks a variant.
 - Tokens map to CSS custom properties: `surface.panel` → `--kk-surface-panel`.
 - Values are validated by type (color, length, font list, duration, shadow). Anything that
   is not a valid value of its type is rejected, which also rules out CSS injection.
 
 ## Validation
 
-At install and in the theme author's tooling (`kumikit theme check`):
+At install and in the theme author's tooling (`kumikit theme check`, M4). Until then the
+UI kernel checks values by type when it loads a theme, and first-party themes have a
+contrast test:
 - Contrast: text tokens against the surfaces they are used on must meet WCAG AA (4.5:1 for
   body text, 3:1 for large text and UI components). Failures are reported; installing
   anyway is allowed with a warning.

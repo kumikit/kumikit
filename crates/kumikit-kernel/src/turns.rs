@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use kumikit_protocol::ThreadEvent;
 use kumikit_protocol::event::{ApprovalResolved, TurnEnded, TurnStarted};
-use kumikit_protocol::methods::ThreadSendResult;
+use kumikit_protocol::methods::{ProviderInfo, ThreadSendResult};
 use kumikit_protocol::model::{
     ApprovalId, Decision, Resolution, Thread, ThreadId, TurnId, TurnOutcome, UserInput, WorkspaceId,
 };
@@ -14,7 +14,7 @@ use tokio::sync::oneshot;
 
 use crate::error::{KernelError, KernelResult};
 use crate::kernel::{Kernel, Session};
-use crate::provider::{EventSink, Provider, SessionConfig};
+use crate::provider::{EventSink, Model, Provider, SessionConfig};
 use crate::repo;
 
 /// In-memory state of a thread with a running turn.
@@ -84,6 +84,33 @@ impl Kernel {
 
     fn provider(&self, id: &str) -> Option<Arc<dyn Provider>> {
         self.lock_providers().iter().find(|p| p.id() == id).cloned()
+    }
+
+    /// Registered providers, sorted by id.
+    pub fn provider_list(&self) -> Vec<ProviderInfo> {
+        let mut list: Vec<ProviderInfo> = self
+            .lock_providers()
+            .iter()
+            .map(|p| ProviderInfo {
+                id: p.id().to_owned(),
+                name: p.name().to_owned(),
+                plugin: p.contributor().to_owned(),
+            })
+            .collect();
+        list.sort_by(|a, b| a.id.cmp(&b.id));
+        list
+    }
+
+    /// A provider's models; the first is the default. Fails with `not_found` for an
+    /// unknown provider and `plugin_failed` if the provider fails.
+    pub async fn provider_models(&self, id: &str) -> KernelResult<Vec<Model>> {
+        let provider = self
+            .provider(id)
+            .ok_or_else(|| KernelError::NotFound(format!("no provider {id}")))?;
+        provider
+            .list_models()
+            .await
+            .map_err(|e| KernelError::PluginFailed(e.message))
     }
 
     /// Creates a thread. `provider` defaults to the only registered provider, `model` to

@@ -1,15 +1,17 @@
-//! Event topics: `thread:<id>` is defined; `workspace:<id>`, `core` and `approvals` are
-//! reserved (`docs/spec/02-protocol.md#events`).
+//! Event topics: `thread:<id>` and `workspace:<id>` are defined; `core` and `approvals`
+//! are reserved (`docs/spec/02-protocol.md#events`).
 
 use std::fmt;
 
-use crate::model::ThreadId;
+use crate::model::{ThreadId, WorkspaceId};
 
 /// A parsed topic string.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Topic {
     /// `thread:<id>`: a thread's event log.
     Thread(ThreadId),
+    /// `workspace:<id>`: live changes to a workspace's threads.
+    Workspace(WorkspaceId),
     /// A topic the spec reserves but does not define yet.
     Reserved(String),
 }
@@ -21,11 +23,10 @@ impl Topic {
         if let Some(id) = value.strip_prefix("thread:") {
             return (!id.is_empty()).then(|| Topic::Thread(ThreadId(id.to_owned())));
         }
-        let reserved = value == "core"
-            || value == "approvals"
-            || value
-                .strip_prefix("workspace:")
-                .is_some_and(|id| !id.is_empty());
+        if let Some(id) = value.strip_prefix("workspace:") {
+            return (!id.is_empty()).then(|| Topic::Workspace(WorkspaceId(id.to_owned())));
+        }
+        let reserved = value == "core" || value == "approvals";
         reserved.then(|| Topic::Reserved(value.to_owned()))
     }
 
@@ -39,6 +40,7 @@ impl fmt::Display for Topic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Topic::Thread(id) => write!(f, "thread:{id}"),
+            Topic::Workspace(id) => write!(f, "workspace:{id}"),
             Topic::Reserved(s) => f.write_str(s),
         }
     }
@@ -57,7 +59,7 @@ mod tests {
         assert_eq!(Topic::parse("core"), Some(Topic::Reserved("core".into())));
         assert_eq!(
             Topic::parse("workspace:w"),
-            Some(Topic::Reserved("workspace:w".into()))
+            Some(Topic::Workspace(WorkspaceId("w".into())))
         );
         assert_eq!(Topic::parse("thread:"), None);
         assert_eq!(Topic::parse("nope"), None);

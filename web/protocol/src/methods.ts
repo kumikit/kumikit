@@ -11,6 +11,9 @@ import type { PluginRef } from "./PluginRef";
 import type { PluginResult } from "./PluginResult";
 import type { PluginUninstallParams } from "./PluginUninstallParams";
 import type { PluginsChanged } from "./PluginsChanged";
+import type { ProviderListResult } from "./ProviderListResult";
+import type { ProviderModelsParams } from "./ProviderModelsParams";
+import type { ProviderModelsResult } from "./ProviderModelsResult";
 import type { RespondApprovalParams } from "./RespondApprovalParams";
 import type { SubscribeParams } from "./SubscribeParams";
 import type { SubscribeResult } from "./SubscribeResult";
@@ -29,11 +32,14 @@ import type { WorkspaceOpenResult } from "./WorkspaceOpenResult";
 import type { WorkspaceRef } from "./WorkspaceRef";
 
 /** Protocol version spoken by this package, `MAJOR.MINOR`. */
-export const PROTOCOL_VERSION = "0.2";
+export const PROTOCOL_VERSION = "0.3";
 
 /** Every request method with its params and result types. */
 export type Methods = {
   "core.hello": { params: HelloParams; result: HelloResult };
+  "core.shutdown": { params: Empty; result: Empty };
+  "provider.list": { params: Empty; result: ProviderListResult };
+  "provider.models": { params: ProviderModelsParams; result: ProviderModelsResult };
   "workspace.list": { params: Empty; result: WorkspaceListResult };
   "workspace.open": { params: WorkspaceOpenParams; result: WorkspaceOpenResult };
   "workspace.close": { params: WorkspaceRef; result: Empty };

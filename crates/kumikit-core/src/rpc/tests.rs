@@ -103,6 +103,7 @@ async fn client() -> Client {
         version: "0.0.0".into(),
         name: "test".into(),
         os: "test".into(),
+        shutdown: Arc::new(tokio::sync::Notify::new()),
     });
     tokio::spawn(serve_connection(host, info, theirs));
     let (read, write) = tokio::io::split(ours);
@@ -142,10 +143,10 @@ impl Client {
         let r = self
             .call(
                 "core.hello",
-                json!({"protocol":"0.2","client":{"name":"t","version":"1"}}),
+                json!({"protocol":"0.3","client":{"name":"t","version":"1"}}),
             )
             .await;
-        assert_eq!(r["result"]["protocol"], "0.2", "{r}");
+        assert_eq!(r["result"]["protocol"], "0.3", "{r}");
     }
 
     fn dir(&self) -> String {
@@ -216,13 +217,13 @@ async fn hello_describes_the_core() {
     let r = c
         .call(
             "core.hello",
-            json!({"protocol":"0.2","client":{"name":"t","version":"1"}}),
+            json!({"protocol":"0.3","client":{"name":"t","version":"1"}}),
         )
         .await;
     assert_eq!(
         r["result"],
-        json!({"protocol":"0.2","core":{"version":"0.0.0","name":"test","os":"test"},
-               "plugins":[],"capabilities":["threads","approvals","plugins"]})
+        json!({"protocol":"0.3","core":{"version":"0.0.0","name":"test","os":"test"},
+               "plugins":[],"capabilities":["threads","approvals","plugins","providers","workspace_events"]})
     );
 }
 
@@ -230,7 +231,8 @@ async fn hello_describes_the_core() {
 async fn every_method_is_routed() {
     let mut c = client().await;
     c.hello().await;
-    for method in METHOD_NAMES {
+    // `core.shutdown` closes the connection; it has its own test.
+    for method in METHOD_NAMES.iter().filter(|m| **m != "core.shutdown") {
         let r = c.call(method, json!({})).await;
         assert_ne!(code(&r), "method_not_found", "{method} is not dispatched");
     }

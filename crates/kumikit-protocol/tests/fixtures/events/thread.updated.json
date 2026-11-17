@@ -1,0 +1,24 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "workspace:01JCWS00000000000000000001",
+      "seq": 2,
+      "time": "2026-11-15T10:00:05.000Z",
+      "kind": "thread.updated",
+      "data": {
+        "thread": {
+          "id": "01JCTH00000000000000000001",
+          "workspace": "01JCWS00000000000000000001",
+          "provider": "community.provider-gemini/gemini",
+          "model": "default",
+          "status": "awaiting_approval",
+          "created": "2026-11-15T10:00:00.000Z",
+          "updated": "2026-11-15T10:00:05.000Z",
+          "title": "Fix the build"
+        }
+      }
+    }
+  }
+]

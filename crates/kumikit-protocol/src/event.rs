@@ -1,11 +1,14 @@
-//! Thread events (`docs/spec/03-kernel.md#thread-events`) and the `events.event`
-//! notification that carries them.
+//! Thread events (`docs/spec/03-kernel.md#thread-events`), workspace events
+//! (`docs/spec/02-protocol.md#workspace-topic`) and the `events.event` notification that
+//! carries them.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
-use crate::model::{Approval, ApprovalId, Resolution, Timestamp, TurnId, TurnOutcome, UserInput};
+use crate::model::{
+    Approval, ApprovalId, Resolution, Thread, Timestamp, TurnId, TurnOutcome, UserInput,
+};
 
 /// `turn.started`: the kernel started a turn for a user message.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -248,19 +251,89 @@ impl ThreadEvent {
     }
 }
 
+/// Data of a workspace event: the thread as it is now.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadChange {
+    /// The thread after the change.
+    pub thread: Thread,
+}
+
+/// An event on a `workspace:<id>` topic: `kind` plus `data`. Not logged; only live
+/// changes are delivered.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", content = "data")]
+pub enum WorkspaceEvent {
+    /// `thread.created`
+    #[serde(rename = "thread.created")]
+    ThreadCreated(ThreadChange),
+    /// `thread.updated`: the thread's status or title changed.
+    #[serde(rename = "thread.updated")]
+    ThreadUpdated(ThreadChange),
+    /// `thread.archived`
+    #[serde(rename = "thread.archived")]
+    ThreadArchived(ThreadChange),
+}
+
+impl WorkspaceEvent {
+    /// Every kind string, in spec table order.
+    pub const KINDS: [&'static str; 3] = ["thread.created", "thread.updated", "thread.archived"];
+
+    /// This event's kind string.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            WorkspaceEvent::ThreadCreated(_) => "thread.created",
+            WorkspaceEvent::ThreadUpdated(_) => "thread.updated",
+            WorkspaceEvent::ThreadArchived(_) => "thread.archived",
+        }
+    }
+
+    /// The thread it is about.
+    pub fn thread(&self) -> &Thread {
+        match self {
+            WorkspaceEvent::ThreadCreated(c)
+            | WorkspaceEvent::ThreadUpdated(c)
+            | WorkspaceEvent::ThreadArchived(c) => &c.thread,
+        }
+    }
+}
+
+/// An event on any topic. Kinds never overlap, so the `kind` string says which.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(untagged)]
+pub enum TopicEvent {
+    /// An event of a thread's log.
+    Thread(ThreadEvent),
+    /// A change in a workspace's threads.
+    Workspace(WorkspaceEvent),
+}
+
+impl From<ThreadEvent> for TopicEvent {
+    fn from(e: ThreadEvent) -> Self {
+        TopicEvent::Thread(e)
+    }
+}
+
+impl From<WorkspaceEvent> for TopicEvent {
+    fn from(e: WorkspaceEvent) -> Self {
+        TopicEvent::Workspace(e)
+    }
+}
+
 /// Params of the `events.event` notification: one event on a topic.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct EventNotification {
     /// The topic, for example `thread:01J…`.
     pub topic: String,
-    /// Sequence number within the topic, starting at 1.
+    /// Sequence number, starting at 1: within the thread for thread topics (a cursor),
+    /// within the subscription for workspace topics (not a cursor).
     pub seq: u64,
-    /// When the kernel appended it.
+    /// When the kernel appended it, or when the change happened.
     pub time: Timestamp,
     /// Kind and data.
     #[serde(flatten)]
-    pub event: ThreadEvent,
+    pub event: TopicEvent,
 }
 
 #[cfg(test)]
@@ -291,7 +364,8 @@ mod tests {
                 input_tokens: 10,
                 output_tokens: 2,
                 cost: None,
-            }),
+            })
+            .into(),
         };
         let v = serde_json::to_value(&n).unwrap();
         assert_eq!(
