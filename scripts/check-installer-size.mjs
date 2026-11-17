@@ -12,6 +12,8 @@ const walk = (d) => {
     const p = join(d, f);
     if (statSync(p).isDirectory()) walk(p);
     else if (/\.(deb|rpm|dmg)$|-setup\.exe$/.test(f)) found.push([p, statSync(p).size]);
+    // Reported, not gated: it bundles WebKitGTK and GTK (00-overview).
+    else if (f.endsWith('.AppImage')) console.log(`${p}: ${(statSync(p).size / 1e6).toFixed(1)} MB (AppImage, not budgeted)`);
   }
 };
 walk(dir);

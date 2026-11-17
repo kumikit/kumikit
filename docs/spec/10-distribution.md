@@ -25,6 +25,19 @@ without the flag (for example from the CLI) preinstalls nothing.
 On first run (from M4, with the registry), a "starter pack" screen offers common plugins (agent providers, git, a bot)
 to install. Nothing is installed without the user choosing it.
 
+## Desktop installers
+
+| Platform | Installers |
+|---|---|
+| Linux | `.deb`, `.rpm`, and an AppImage that runs on glibc 2.35 or newer (built on Ubuntu 22.04) |
+| macOS | `.dmg` |
+| Windows | NSIS `.exe`, with the WebView2 bootstrapper |
+
+The AppImage carries WebKitGTK and GTK, so it is larger than the other installers and
+outside the installer budget ([00](00-overview.md#footprint-budgets)). It uses the host's
+Wayland and EGL libraries rather than bundled ones, which do not work with current Mesa. It
+starts on X11 (or Xwayland) by default; `GDK_BACKEND=wayland` selects GTK's Wayland backend.
+
 ## Package format
 
 `<id>-<version>.kkp`: a tar.zst archive with `plugin.toml`, the component or UI bundle,

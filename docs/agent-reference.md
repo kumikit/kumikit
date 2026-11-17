@@ -100,6 +100,12 @@ is about the code.
   core) is merged only by the installer build (`tauri build --config …`), so plain cargo
   builds need neither `target/bundle` nor the core binary. Before it: `node
   scripts/bundle.mjs`, and the release core copied to `binaries/kumikit-<target triple>`.
+- **The AppImage is repacked** (`scripts/repack-appimage.mjs`) after Tauri builds it: the
+  bundled Wayland libraries are dropped (with Mesa 25+ hosts they leave WebKit unable to
+  create an EGL display, so the window stays blank) and the GTK hook's `GDK_BACKEND=x11`
+  becomes a default. If Tauri changes the hook, the script fails instead of guessing.
+  `scripts/smoke-appimage.sh` proves the result starts: the shell starts the core only
+  when the UI kernel's JavaScript connects.
 - **Window tests run in a container** (`sh scripts/desktop/run.sh <cmd>`): Ubuntu, Xvfb,
   WebKitGTK and its WebDriver. Builds there use `target/desktop-container`.
 

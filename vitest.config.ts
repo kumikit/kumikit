@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [svelte()],
   resolve: { conditions: ['browser'] },
   test: {
-    include: ['web/*/src/**/*.test.ts', 'web/*/tests/**/*.test.ts', 'plugins/*/src/**/*.test.ts', 'plugins/*/tests/**/*.test.ts'],
+    include: ['web/*/src/**/*.test.ts', 'web/*/tests/**/*.test.ts', 'plugins/*/src/**/*.test.ts', 'plugins/*/tests/**/*.test.ts', 'scripts/*.test.mjs'],
     environment: 'node',
   },
 });

@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential ca-certificates curl pkg-config git \
       libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev \
       webkit2gtk-driver xvfb xauth dbus-x11 fonts-dejavu-core x11-apps imagemagick \
+      squashfs-tools file patchelf \
     && rm -rf /var/lib/apt/lists/*
 ARG RUST_VERSION=1.100.0
 ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo PATH=/opt/cargo/bin:$PATH
