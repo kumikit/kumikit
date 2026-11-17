@@ -233,9 +233,23 @@ fn main() {
             .title("Kumikit")
             .inner_size(1100.0, 760.0);
             // The webview's storage lives in the client data directory, unless WebView2 was
-            // told where to keep it: msedgedriver does that and then waits for a file in
-            // that folder.
-            if env("WEBVIEW2_USER_DATA_FOLDER").is_none() {
+            // told where to keep it: msedgedriver does that (through these variables) and
+            // then waits for a file in that folder.
+            let driven = env("WEBVIEW2_USER_DATA_FOLDER").is_some()
+                || env("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS")
+                    .is_some_and(|a| a.contains("--user-data-dir") || a.contains("--remote-debugging"));
+            #[cfg(feature = "test-hooks")]
+            {
+                #[allow(clippy::print_stderr)]
+                {
+                    eprintln!(
+                        "kumikit test-hooks: WEBVIEW2_USER_DATA_FOLDER={:?} WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS={:?}",
+                        env("WEBVIEW2_USER_DATA_FOLDER"),
+                        env("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS")
+                    );
+                }
+            }
+            if !driven {
                 window = window.data_directory(client.join("webview"));
             }
             window.build()?;
