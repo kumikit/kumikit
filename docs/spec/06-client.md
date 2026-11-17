@@ -48,6 +48,9 @@ resource directories `KUMIKIT_UI_DIR`, `KUMIKIT_BUNDLED_UI_PLUGINS` and
 Builds with the `test-hooks` cargo feature (never released) add what end-to-end tests
 need: the open dialog answers from a queue file (`KUMIKIT_TEST_PICKS`, one path per line),
 and the shell prints `ui-connected` once the UI kernel's first connection is up.
+When a WebDriver starts the app on Windows (msedgedriver sets `WEBVIEW2_USER_DATA_FOLDER`
+or `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`), the shell leaves the webview's folder and
+arguments to the driver, so the driver can attach.
 
 ## UI kernel (Svelte, `web/kernel`)
 
