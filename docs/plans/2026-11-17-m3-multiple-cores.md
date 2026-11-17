@@ -551,7 +551,7 @@ code first needs macOS and Windows; the next after step 13; the last after step 
 - [x] **5. Core: one message loop for every transport.** The message trait; lines
   implementation; no behaviour change; all existing tests pass. Commit: `refactor: serve
   connections over a message stream`.
-- [ ] **6. Core: remote transport, pairing, revocation.** `--listen`, `--tls-cert/key`,
+- [x] **6. Core: remote transport, pairing, revocation.** `--listen`, `--tls-cert/key`,
   certificate generation, TLS, WebSocket, limits, the gate, pairing codes, tokens,
   revocation, keepalive, `by`, logging rules, `remote` line, busy port, `plugin.install {
   package }`. Tests above. *(CI: Windows and macOS loopback TLS.)* Commit: `feat: serve
@@ -693,3 +693,12 @@ Q11 take the recommendation unless you say otherwise.
   `--listen` exists), so they are implemented rather than stubbed. `plugin.install
   { package }` is implemented too (written to a private temporary file, then the same
   install as a path). Tests that hard-coded `"0.3"` now say `"0.4"`.
+- Step 6 (Linux): the release core is **28.0 MiB** (25.4 before; budget 32). With remote
+  access off: cold start 3 ms, idle 11.1 MB (10.5 before), 12.1 MB with plugins,
+  activation 4.3 ms / +7.9 MB. The gate is not a state of the JSON-RPC server: the remote
+  module reads and answers the first message itself and builds the server only after it
+  authenticates. Revocation is a `stop` future passed to `serve_messages`, subscribed
+  before the token is checked. `tests/remote.rs` (16 tests, about 1 s) uses hidden
+  `serve` flags to shorten the deadlines and waits on the core closing; stable over 6
+  runs. The TLS 1.2 refusal test needs rustls's `tls12` feature as a dev-dependency
+  only. Windows and macOS run these only in CI.

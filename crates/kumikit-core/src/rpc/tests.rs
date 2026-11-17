@@ -18,8 +18,11 @@ use super::*;
 
 /// A provider for these tests: echoes the input word by word. Lives in the test module;
 /// nothing provider-shaped is compiled into the core.
-#[derive(Debug)]
-struct Echo;
+/// The input `ask` requests an approval and waits for its answer.
+#[derive(Debug, Default)]
+struct Echo {
+    answered: Arc<tokio::sync::Notify>,
+}
 
 impl Provider for Echo {
     fn id(&self) -> &str {
@@ -45,6 +48,12 @@ impl Provider for Echo {
     ) -> BoxFuture<'_, ProviderResult<()>> {
         Box::pin(async move {
             let err = |e: KernelError| kumikit_kernel::provider::ProviderError::new(e.to_string());
+            if input.text == "ask" {
+                sink.request_approval("tool", "run it?", None)
+                    .await
+                    .map_err(err)?;
+                self.answered.notified().await;
+            }
             for word in input.text.split_inclusive(' ') {
                 sink.emit(ProviderEvent::TextDelta { text: word.into() })
                     .await
@@ -71,6 +80,7 @@ impl Provider for Echo {
         _a: ApprovalId,
         _d: Decision,
     ) -> BoxFuture<'_, ProviderResult<()>> {
+        self.answered.notify_one();
         Box::pin(async { Ok(()) })
     }
     fn cancel(&self, _s: String) -> BoxFuture<'_, ()> {
@@ -89,11 +99,15 @@ struct Client {
 }
 
 async fn client() -> Client {
+    client_as(Peer::Local).await
+}
+
+async fn client_as(peer: Peer) -> Client {
     let dir = tempfile::tempdir().unwrap();
     let kernel = Kernel::open(KernelConfig::new(dir.path().join("db")))
         .await
         .unwrap();
-    kernel.register_provider(Arc::new(Echo)).unwrap();
+    kernel.register_provider(Arc::new(Echo::default())).unwrap();
     let dirs = Dirs::new(dir.path());
     let runtime = Arc::new(Runtime::new(EngineConfig::default(), dirs.cache.clone()));
     let manager = Manager::open(kernel, dirs, runtime).await.unwrap();
@@ -104,8 +118,17 @@ async fn client() -> Client {
         name: "test".into(),
         os: "test".into(),
         shutdown: Arc::new(tokio::sync::Notify::new()),
+        remote: None,
     });
-    tokio::spawn(serve_connection(host, info, theirs));
+    let (read, write) = tokio::io::split(theirs);
+    tokio::spawn(serve_messages(
+        host,
+        info,
+        LineReader::new(read),
+        LineWriter::new(write),
+        peer,
+        std::future::pending(),
+    ));
     let (read, write) = tokio::io::split(ours);
     Client {
         _dir: dir,
@@ -357,4 +380,60 @@ async fn auth_on_a_local_connection() {
         .call("auth.devices.revoke", json!({"device": "nope"}))
         .await;
     assert_eq!(code(&r), "not_found");
+}
+
+#[tokio::test]
+async fn approvals_record_the_answering_device() {
+    for (peer, by) in [
+        (
+            Peer::Device("01JCDV00000000000000000001".into()),
+            Some("01JCDV00000000000000000001"),
+        ),
+        (Peer::Local, None),
+    ] {
+        let mut c = client_as(peer).await;
+        c.hello().await;
+        let dir = tempfile::tempdir().unwrap();
+        let ws = c
+            .call(
+                "workspace.open",
+                json!({"path": dir.path().to_str().unwrap()}),
+            )
+            .await;
+        let t = c
+            .call(
+                "thread.create",
+                json!({"workspace": ws["result"]["workspace"]["id"]}),
+            )
+            .await;
+        let thread = t["result"]["thread"]["id"].clone();
+        c.call(
+            "events.subscribe",
+            json!({"topic": format!("thread:{}", thread.as_str().unwrap()), "after": 0}),
+        )
+        .await;
+        c.call(
+            "thread.send",
+            json!({"thread": thread, "input": {"text": "ask"}}),
+        )
+        .await;
+        let approval = loop {
+            let m = c.recv().await.unwrap();
+            if m["params"]["kind"] == "approval.requested" {
+                break m["params"]["data"]["approval"]["id"].clone();
+            }
+        };
+        c.call(
+            "thread.respondApproval",
+            json!({"approval": approval, "decision": "allow"}),
+        )
+        .await;
+        let resolved = loop {
+            let m = c.recv().await.unwrap();
+            if m["params"]["kind"] == "approval.resolved" {
+                break m["params"]["data"].clone();
+            }
+        };
+        assert_eq!(resolved["by"].as_str(), by, "{resolved}");
+    }
 }

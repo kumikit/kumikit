@@ -9,7 +9,7 @@ use std::io;
 use tokio::io::{
     AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, BufWriter,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::rpc::MAX_MESSAGE;
 
@@ -32,11 +32,25 @@ pub trait MessageReader: Send + 'static {
     fn recv(&mut self) -> impl Future<Output = io::Result<Received>> + Send;
 }
 
+/// Why the server closes a connection, for transports that can say so (a WebSocket
+/// close frame).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Close {
+    /// WebSocket close code.
+    pub code: u16,
+    /// Reason, in plain words.
+    pub reason: String,
+}
+
 /// Writes messages to a client, in order, until the channel closes.
 pub trait MessageWriter: Send + 'static {
     /// Sends every message from `rx`; returns when it closes or the transport fails, after
-    /// closing the transport.
-    fn run(self, rx: mpsc::Receiver<String>) -> impl Future<Output = ()> + Send;
+    /// closing the transport. If `close` holds a reason by then, the transport says it.
+    fn run(
+        self,
+        rx: mpsc::Receiver<String>,
+        close: oneshot::Receiver<Close>,
+    ) -> impl Future<Output = ()> + Send;
 }
 
 /// Newline-delimited JSON on a byte stream.
@@ -82,7 +96,7 @@ impl<W: AsyncWrite + Send + 'static> LineWriter<W> {
 }
 
 impl<W: AsyncWrite + Send + 'static> MessageWriter for LineWriter<W> {
-    async fn run(self, rx: mpsc::Receiver<String>) {
+    async fn run(self, rx: mpsc::Receiver<String>, _close: oneshot::Receiver<Close>) {
         write_loop(self.write, rx).await;
     }
 }
@@ -205,7 +219,8 @@ mod tests {
     async fn the_writer_ends_each_message_with_a_newline() {
         let (ours, theirs) = tokio::io::duplex(1024);
         let (tx, rx) = mpsc::channel(4);
-        let task = tokio::spawn(LineWriter::new(ours).run(rx));
+        let (_close, closed) = oneshot::channel();
+        let task = tokio::spawn(LineWriter::new(ours).run(rx, closed));
         tx.send("{}".into()).await.unwrap();
         tx.send("[]".into()).await.unwrap();
         drop(tx);

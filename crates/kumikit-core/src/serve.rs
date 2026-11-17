@@ -26,6 +26,28 @@ pub struct ServeOptions {
     /// A directory of bundled `.kkp` files to preinstall once
     /// (`docs/spec/10-distribution.md#bundled-core-plugins`).
     pub bundled_plugins: Option<PathBuf>,
+    /// Remote access (`--listen`); off when `None`.
+    pub remote: Option<RemoteOptions>,
+}
+
+/// Remote access settings for one run (`docs/spec/02-protocol.md#remote-transport`).
+#[derive(Debug, Clone)]
+pub struct RemoteOptions {
+    /// `--listen`: `host[:port]`.
+    pub listen: String,
+    /// `--tls-cert` and `--tls-key`; a generated certificate when `None`.
+    pub certificate: Option<(PathBuf, PathBuf)>,
+    /// Time limits.
+    pub limits: crate::remote::Limits,
+}
+
+/// What `serve` tells its caller once it accepts connections.
+#[derive(Debug, Clone)]
+pub struct Ready {
+    /// The local socket or pipe.
+    pub address: String,
+    /// With remote access: the URL and the certificate fingerprint.
+    pub remote: Option<(String, String)>,
 }
 
 /// Database file name inside the data directory.
@@ -35,7 +57,7 @@ pub const DATABASE: &str = "core.sqlite";
 /// `shutdown` resolves (or a client calls `core.shutdown`) and the kernel has closed.
 pub async fn serve(
     options: ServeOptions,
-    on_ready: impl FnOnce(&str),
+    on_ready: impl FnOnce(&Ready),
     shutdown: impl Future<Output = ()>,
 ) -> io::Result<()> {
     prepare_data_dir(&options.data_dir)?;
@@ -48,6 +70,15 @@ pub async fn serve(
     #[cfg(windows)]
     let mut listener = Listener::bind(&options.address).await?;
 
+    // Then the remote port and certificate, so a busy port or a bad certificate fails
+    // before the core opens anything else.
+    let remote = match prepare_remote(&options).await {
+        Ok(r) => r,
+        Err(e) => {
+            listener.remove();
+            return Err(e);
+        }
+    };
     let host = match open_core(&options.data_dir).await {
         Ok(h) => h,
         Err(e) => {
@@ -56,8 +87,31 @@ pub async fn serve(
         }
     };
     let kernel = host.manager().kernel().clone();
-    let info = Arc::new(ServerInfo::current());
-    on_ready(&options.address);
+    let mut info = ServerInfo::current();
+    let remote_task = remote.map(|(tcp, tls, state)| {
+        let state = Arc::new(state);
+        info.remote = Some(Arc::clone(&state));
+        (tcp, tls, state)
+    });
+    let info = Arc::new(info);
+    let remote_task = remote_task.map(|(tcp, tls, state)| {
+        tokio::spawn(crate::remote::run(
+            tcp,
+            tls,
+            host.clone(),
+            Arc::clone(&info),
+            state,
+        ))
+    });
+    on_ready(&Ready {
+        address: options.address.clone(),
+        remote: info.remote.as_ref().map(|r| {
+            (
+                format!("wss://{}{}", r.bound, kumikit_protocol::remote::RPC_PATH),
+                r.fingerprint.clone(),
+            )
+        }),
+    });
     // Seeding compiles components, so it runs after the core accepts connections;
     // clients learn about the new plugins through `core.pluginsChanged`.
     let seeding = options
@@ -81,9 +135,40 @@ pub async fn serve(
     if let Some(task) = seeding {
         task.abort();
     }
+    if let Some(task) = remote_task {
+        task.abort();
+    }
     listener.remove();
     kernel.close().await;
     Ok(())
+}
+
+/// Binds the remote port and loads the certificate, if remote access is on.
+async fn prepare_remote(
+    options: &ServeOptions,
+) -> io::Result<
+    Option<(
+        tokio::net::TcpListener,
+        Arc<rustls::ServerConfig>,
+        crate::remote::Remote,
+    )>,
+> {
+    let Some(r) = &options.remote else {
+        return Ok(None);
+    };
+    let tcp = crate::remote::bind(&r.listen).await?;
+    let bound = tcp.local_addr()?;
+    let source = match &r.certificate {
+        Some((cert, key)) => crate::remote::tls::CertSource::Given {
+            cert: cert.clone(),
+            key: key.clone(),
+        },
+        None => crate::remote::tls::CertSource::Generated(options.data_dir.clone()),
+    };
+    let host_name = crate::paths::host_name();
+    let tls = crate::remote::tls::load(&source, &host_name)?;
+    let state = crate::remote::Remote::new(bound, tls.fingerprint, &host_name, r.limits);
+    Ok(Some((tcp, tls.config, state)))
 }
 
 /// Opens the kernel, the installed plugins and the plugin host on a data directory.

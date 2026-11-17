@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use kumikit_core::paths::{self, Platform};
-use kumikit_core::serve::{ServeOptions, serve};
+use kumikit_core::serve::{Ready, RemoteOptions, ServeOptions, serve};
 use kumikit_core::{cli, transport};
 
 /// Kumikit core: a headless server for working with coding agents.
@@ -30,6 +30,25 @@ enum Command {
         /// first time; plugins that request no permissions are also enabled.
         #[arg(long)]
         bundled_plugins: Option<PathBuf>,
+        /// Turn on remote access for this run: listen for paired clients on
+        /// host[:port] (default port 7463), for example 0.0.0.0 for every interface.
+        #[arg(long, value_name = "HOST[:PORT]")]
+        listen: Option<String>,
+        /// PEM certificate to use instead of the generated one (needs --tls-key).
+        #[arg(long, requires_all = ["tls_key", "listen"])]
+        tls_cert: Option<PathBuf>,
+        /// PEM private key of --tls-cert.
+        #[arg(long, requires_all = ["tls_cert", "listen"])]
+        tls_key: Option<PathBuf>,
+        /// Test only: milliseconds to authenticate a remote connection.
+        #[arg(long, hide = true)]
+        pre_auth_ms: Option<u64>,
+        /// Test only: milliseconds between keepalive pings.
+        #[arg(long, hide = true)]
+        keepalive_ping_ms: Option<u64>,
+        /// Test only: milliseconds of silence before a remote client is dropped.
+        #[arg(long, hide = true)]
+        keepalive_idle_ms: Option<u64>,
     },
     /// Manage core plugins (local .kkp files).
     Plugin {
@@ -89,7 +108,33 @@ fn main() -> Result<()> {
             socket,
             data_dir,
             bundled_plugins,
-        } => runtime.block_on(run_serve(socket, data_dir, bundled_plugins)),
+            listen,
+            tls_cert,
+            tls_key,
+            pre_auth_ms,
+            keepalive_ping_ms,
+            keepalive_idle_ms,
+        } => {
+            let remote = listen.map(|listen| {
+                let mut limits = kumikit_core::remote::Limits::default();
+                let ms = std::time::Duration::from_millis;
+                if let Some(v) = pre_auth_ms {
+                    limits.pre_auth = ms(v);
+                }
+                if let Some(v) = keepalive_ping_ms {
+                    limits.ping = ms(v);
+                }
+                if let Some(v) = keepalive_idle_ms {
+                    limits.idle = ms(v);
+                }
+                RemoteOptions {
+                    listen,
+                    certificate: tls_cert.zip(tls_key),
+                    limits,
+                }
+            });
+            runtime.block_on(run_serve(socket, data_dir, bundled_plugins, remote))
+        }
         Command::Plugin {
             socket,
             data_dir,
@@ -133,6 +178,7 @@ async fn run_serve(
     socket: Option<String>,
     data_dir: Option<PathBuf>,
     bundled_plugins: Option<PathBuf>,
+    remote: Option<RemoteOptions>,
 ) -> Result<()> {
     let platform = Platform::current();
     let data_dir = match data_dir {
@@ -147,17 +193,22 @@ async fn run_serve(
         data_dir,
         address,
         bundled_plugins,
+        remote,
     };
     serve(options, announce_ready, shutdown_signal())
         .await
         .context("kumikit serve")
 }
 
-/// Prints the one stdout line scripts wait for (`docs/spec/02-protocol.md`).
+/// Prints the startup lines scripts wait for (`docs/spec/02-protocol.md`): `remote <url>
+/// <fingerprint>` with remote access, then `ready <address>` last.
 #[allow(clippy::print_stdout)]
-fn announce_ready(address: &str) {
+fn announce_ready(ready: &Ready) {
     use std::io::Write;
-    println!("ready {address}");
+    if let Some((url, fingerprint)) = &ready.remote {
+        println!("remote {url} {fingerprint}");
+    }
+    println!("ready {}", ready.address);
     let _ = std::io::stdout().flush();
 }
 

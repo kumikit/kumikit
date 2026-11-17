@@ -20,7 +20,7 @@ use kumikit_protocol::{ErrorCode, PROTOCOL_VERSION, ProtocolVersion, RpcError, T
 use serde_json::Value;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::messages::{LineReader, LineWriter, MessageReader, MessageWriter, Received};
+use crate::messages::{Close, LineReader, LineWriter, MessageReader, MessageWriter, Received};
 use tokio::sync::{Notify, broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 
@@ -51,6 +51,17 @@ pub struct ServerInfo {
     /// Notified when a client asks the core to stop (`core.shutdown`), after the reply
     /// has been written.
     pub shutdown: Arc<Notify>,
+    /// Remote access, when the core runs with `--listen`.
+    pub remote: Option<Arc<crate::remote::Remote>>,
+}
+
+/// Who is on the other end of a connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Peer {
+    /// A local transport (socket, pipe, or SSH arriving on them): the core's own user.
+    Local,
+    /// A paired device on the remote transport, by device id.
+    Device(String),
 }
 
 impl ServerInfo {
@@ -61,6 +72,7 @@ impl ServerInfo {
             name: crate::paths::host_name(),
             os: std::env::consts::OS.to_owned(),
             shutdown: Arc::new(Notify::new()),
+            remote: None,
         }
     }
 }
@@ -72,24 +84,48 @@ where
     S: AsyncRead + AsyncWrite + Send + 'static,
 {
     let (read, write) = tokio::io::split(stream);
-    serve_messages(host, info, LineReader::new(read), LineWriter::new(write)).await;
+    serve_messages(
+        host,
+        info,
+        LineReader::new(read),
+        LineWriter::new(write),
+        Peer::Local,
+        std::future::pending(),
+    )
+    .await;
 }
 
 /// Serves one connection over any message transport, until the client disconnects, the
-/// transport fails, or a message is too long or not text.
-pub async fn serve_messages<R, W>(host: PluginHost, info: Arc<ServerInfo>, mut reader: R, writer: W)
-where
+/// transport fails, a message is too long or not text, or `stop` resolves (the device was
+/// revoked); then the transport closes with `stop`'s reason. `stop` is polled next to
+/// `reader.recv()`, so a reader whose `recv` is not cancel-safe must get a `stop` that
+/// never resolves.
+pub async fn serve_messages<R, W>(
+    host: PluginHost,
+    info: Arc<ServerInfo>,
+    mut reader: R,
+    writer: W,
+    peer: Peer,
+    stop: impl Future<Output = Close> + Send,
+) where
     R: MessageReader,
     W: MessageWriter,
 {
     let (tx, rx) = mpsc::channel::<String>(OUTBOUND);
-    let writer = tokio::spawn(writer.run(rx));
+    let (close_tx, close_rx) = tokio::sync::oneshot::channel();
+    let writer = tokio::spawn(writer.run(rx, close_rx));
+    tokio::pin!(stop);
+    let mut close_tx = Some(close_tx);
     let mut conn = Conn {
         kernel: host.manager().kernel().clone(),
         host,
         info,
         tx,
         hello: false,
+        device: match peer {
+            Peer::Local => None,
+            Peer::Device(id) => Some(id),
+        },
         stop: false,
         subs: HashMap::new(),
         deferred: None,
@@ -97,7 +133,17 @@ where
         plugin_changes: None,
     };
     loop {
-        let message = match reader.recv().await {
+        let received = tokio::select! {
+            biased;
+            close = &mut stop => {
+                if let Some(tx) = close_tx.take() {
+                    let _ = tx.send(close);
+                }
+                break;
+            }
+            r = reader.recv() => r,
+        };
+        let message = match received {
             Ok(Received::Message(m)) => m,
             Ok(Received::Eof) => break,
             Ok(Received::Refused(why)) => {
@@ -163,6 +209,8 @@ struct Conn {
     info: Arc<ServerInfo>,
     tx: mpsc::Sender<String>,
     hello: bool,
+    /// The paired device on a remote connection; `None` on local ones.
+    device: Option<String>,
     /// Set by `core.shutdown`: close this connection, then stop the core.
     stop: bool,
     subs: HashMap<String, JoinHandle<()>>,
@@ -305,7 +353,12 @@ impl Conn {
                         os: self.info.os.clone(),
                     },
                     plugins: crate::plugins::infos(&self.host),
-                    capabilities: CAPABILITIES.iter().map(|s| (*s).to_owned()).collect(),
+                    capabilities: CAPABILITIES
+                        .iter()
+                        .copied()
+                        .chain(self.info.remote.is_some().then_some("devices"))
+                        .map(str::to_owned)
+                        .collect(),
                 })
             }
             m::CoreShutdown::NAME => {
@@ -386,7 +439,7 @@ impl Conn {
             m::ThreadRespondApproval::NAME => {
                 let p = parse::<m::ThreadRespondApproval>(params)?;
                 // Local connections have no device id.
-                k.respond_approval(&p.approval, p.decision, None)
+                k.respond_approval(&p.approval, p.decision, self.device.clone())
                     .await
                     .map_err(kernel_err)?;
                 reply::<m::ThreadRespondApproval>(Empty {})
@@ -483,16 +536,31 @@ impl Conn {
                     .map_err(crate::plugins::host_err)?;
                 reply::<m::PluginUninstall>(Empty {})
             }
-            m::AuthPair::NAME | m::AuthToken::NAME => Err(RpcError::new(
-                ErrorCode::Unsupported,
-                "local connections need no authentication",
-            )),
+            m::AuthPair::NAME | m::AuthToken::NAME => Err(match self.device {
+                None => RpcError::new(
+                    ErrorCode::Unsupported,
+                    "local connections need no authentication",
+                ),
+                Some(_) => RpcError::new(ErrorCode::Conflict, "already authenticated"),
+            }),
             m::AuthPairingCreate::NAME => {
                 parse::<m::AuthPairingCreate>(params)?;
-                Err(RpcError::new(
-                    ErrorCode::Unsupported,
-                    "remote access is off; start the core with --listen",
-                ))
+                if self.device.is_some() {
+                    return Err(RpcError::new(
+                        ErrorCode::PermissionDenied,
+                        "pairing codes are made on the core's machine (kumikit pair)",
+                    ));
+                }
+                let Some(remote) = &self.info.remote else {
+                    return Err(RpcError::new(
+                        ErrorCode::Unsupported,
+                        "remote access is off; start the core with --listen",
+                    ));
+                };
+                let code = remote
+                    .create_code()
+                    .map_err(|e| RpcError::new(ErrorCode::Internal, e.to_string()))?;
+                reply::<m::AuthPairingCreate>(code)
             }
             m::AuthDevicesList::NAME => {
                 parse::<m::AuthDevicesList>(params)?;
@@ -501,7 +569,7 @@ impl Conn {
                     .await
                     .map_err(kernel_err)?
                     .into_iter()
-                    .map(|d| device_info(d, None))
+                    .map(|d| device_info(d, self.device.as_deref()))
                     .collect();
                 reply::<m::AuthDevicesList>(m::DeviceListResult { devices })
             }
