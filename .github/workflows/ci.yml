@@ -68,6 +68,7 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      - run: node scripts/check-npm-licenses.mjs
 
   e2e-browser:
     # The browser-test build against a real core through the test relay (M2 plan, Tests).

@@ -4,7 +4,8 @@
 import { readFileSync } from 'node:fs';
 
 const ALLOWED = new Set([
-  'MIT', 'MIT-0', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Zlib', 'MPL-2.0',
+  'MIT', 'MIT-0', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', '0BSD', 'ISC', 'BlueOak-1.0.0', 'Zlib',
+  'MPL-2.0',
   // Accepted in the M0 plan for Rust (deny.toml); the same reasoning applies here.
   'Unicode-3.0',
 ]);
