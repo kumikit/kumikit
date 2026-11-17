@@ -161,26 +161,47 @@ fn announce_ready(address: &str) {
     let _ = std::io::stdout().flush();
 }
 
-async fn shutdown_signal() {
+/// Registers for SIGTERM and SIGINT (Ctrl+C on Windows) now, before `serve` prints
+/// `ready`, and returns a future that completes on the first. Registering lazily, when
+/// the future is first polled, left a window after `ready` in which a SIGTERM killed the
+/// core without a clean shutdown.
+fn shutdown_signal() -> impl std::future::Future<Output = ()> {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal};
-        match signal(SignalKind::terminate()) {
-            Ok(mut term) => {
-                tokio::select! {
-                    _ = tokio::signal::ctrl_c() => {}
-                    _ = term.recv() => {}
+        let term = signal(SignalKind::terminate());
+        let int = signal(SignalKind::interrupt());
+        async move {
+            match (term, int) {
+                (Ok(mut term), Ok(mut int)) => {
+                    tokio::select! {
+                        _ = term.recv() => {}
+                        _ = int.recv() => {}
+                    }
                 }
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "cannot listen for SIGTERM");
-                let _ = tokio::signal::ctrl_c().await;
+                (term, int) => {
+                    for e in [term.err(), int.err()].into_iter().flatten() {
+                        tracing::warn!(error = %e, "cannot listen for a shutdown signal");
+                    }
+                    std::future::pending::<()>().await;
+                }
             }
         }
     }
     #[cfg(not(unix))]
     {
-        let _ = tokio::signal::ctrl_c().await;
+        let ctrl_c = tokio::signal::windows::ctrl_c();
+        async move {
+            match ctrl_c {
+                Ok(mut c) => {
+                    c.recv().await;
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "cannot listen for Ctrl+C");
+                    std::future::pending::<()>().await;
+                }
+            }
+        }
     }
 }
 
