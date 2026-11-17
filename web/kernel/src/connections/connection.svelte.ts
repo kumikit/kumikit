@@ -15,10 +15,17 @@ import {
   type Workspace,
 } from '@kumikit/protocol';
 
-import type { LineConnection, Platform } from '../platform/index';
+import { ConnectError, type LineConnection, type Platform, type ProfileInfo } from '../platform/index';
 import { type NotificationMessage, RpcClient, RpcError } from '../rpc/client';
 
-export type ConnectionStatus = 'connecting' | 'ready' | 'reconnecting' | 'mismatch';
+/**
+ * `unauthorized` (this device was revoked, or the core forgot it) and
+ * `certificate_changed` stop retrying: only the user can fix them.
+ */
+export type ConnectionStatus = 'connecting' | 'ready' | 'reconnecting' | 'mismatch' | 'unauthorized' | 'certificate_changed';
+
+/** Statuses after which the connection does not retry by itself. */
+const STOPPED: ConnectionStatus[] = ['mismatch', 'unauthorized', 'certificate_changed'];
 
 /** Timers, injected so tests control time. */
 export interface Timers {
@@ -47,10 +54,15 @@ interface Subscription {
 export interface ConnectionOptions {
   timers?: Timers;
   client?: { name: string; version: string };
+  /** The profile's label and kind; `local` by default. */
+  profile?: Omit<ProfileInfo, 'name'>;
 }
 
 export class CoreConnection {
   readonly id: string;
+  /** What the user calls this core. */
+  readonly label: string;
+  readonly kind: ProfileInfo['kind'];
   status = $state<ConnectionStatus>('connecting');
   /** Why the last attempt failed, in plain words. */
   error = $state<string | undefined>();
@@ -72,11 +84,15 @@ export class CoreConnection {
   #attempt = 0;
   #retry: unknown;
   #stopped = false;
+  /** A connect attempt is in flight. */
+  #connecting = false;
   #models = new Map<string, Promise<ModelInfo[]>>();
   #watched = new Set<string>();
 
   constructor(id: string, platform: Platform, options: ConnectionOptions = {}) {
     this.id = id;
+    this.label = options.profile?.label ?? 'This computer';
+    this.kind = options.profile?.kind ?? 'local';
     this.#platform = platform;
     this.#timers = options.timers ?? realTimers;
     this.#client = options.client ?? { name: 'kumikit-desktop', version: '0.1.0' };
@@ -90,6 +106,14 @@ export class CoreConnection {
   async start(): Promise<void> {
     this.#stopped = false;
     await this.#connect();
+  }
+
+  /** Tries again now instead of waiting out the backoff (after the network is back). */
+  reconnectNow(): void {
+    if (this.#stopped || this.status === 'ready' || this.#rpc || this.#connecting) return;
+    this.#timers.clear(this.#retry);
+    this.#attempt = 0;
+    void this.#connect();
   }
 
   stop(): void {
@@ -190,6 +214,15 @@ export class CoreConnection {
   // ---- internals ----
 
   async #connect(): Promise<void> {
+    this.#connecting = true;
+    try {
+      await this.#attemptConnect();
+    } finally {
+      this.#connecting = false;
+    }
+  }
+
+  async #attemptConnect(): Promise<void> {
     let line: LineConnection;
     let rpc: RpcClient | undefined;
     try {
@@ -198,6 +231,11 @@ export class CoreConnection {
         else this.#lost(m.reason, rpc);
       });
     } catch (e) {
+      if (e instanceof ConnectError && (e.code === 'unauthorized' || e.code === 'certificate_changed')) {
+        this.error = e.message;
+        this.status = e.code;
+        return;
+      }
       this.#scheduleRetry(String(e instanceof Error ? e.message : e));
       return;
     }
@@ -240,7 +278,7 @@ export class CoreConnection {
     if (this.#rpc !== rpc) return;
     this.#rpc = undefined;
     this.#line = undefined;
-    if (this.#stopped || this.status === 'mismatch') return;
+    if (this.#stopped || STOPPED.includes(this.status)) return;
     this.#scheduleRetry(reason);
   }
 

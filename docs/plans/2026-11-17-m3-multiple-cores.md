@@ -565,7 +565,7 @@ code first needs macOS and Windows; the next after step 13; the last after step 
 - [x] **9. Test tooling.** `test-plugins/net-cut` (library, binary, its own tests); the
   relay's `--remote`, profile endpoints and test endpoints. Commit: `test: add a cuttable
   network and a second core to the relay`.
-- [ ] **10. UI kernel: several cores.** Connections map, per-connection stores, statuses,
+- [x] **10. UI kernel: several cores.** Connections map, per-connection stores, statuses,
   Reconnect now, routing, tabs, grouped sidebar, Cores view, plugin manager core choice and
   upload, `requires.core` gating; `npm run check`, `npm test`, size budget. Commit:
   `feat: show tabs from several cores in one window`.
@@ -721,4 +721,14 @@ Q11 take the recommendation unless you say otherwise.
   accepting, so new connections wait in the kernel's backlog, as on a dead network. The
   relay's bridge WebSocket now starts with `{"type":"open"}` or `{"type":"error","code",
   "message"}`, so the test adapter can report `bridge_connect`'s typed errors.
+- Step 10: the UI kernel bundle is **57.3 KB** gzip -9 (51.7 before; budget 150 KB). The
+  `Kernel` keeps a list of `CoreConnection`s (home first, then the shell's profiles, each
+  connecting on its own); `kernel.connection` is now the active tab's connection, so the
+  single-core code paths (new thread, palette `when`, plugin context) follow the tab.
+  The thread store is keyed by the whole address. `requires.core` is checked by a small
+  semver matcher (`plugins/requires.ts`; `^`, `~`, `>=`, exact, prefix, `*`), applied to
+  slot contributions, renderers and plugin commands per active tab. Accessible names the
+  M2 tests (and the desktop test) rely on are kept: the sidebar is still the
+  "Workspaces" navigation, each core a labelled section in it, and the plugin manager's
+  region is still "On this core", now with a core picker.
 

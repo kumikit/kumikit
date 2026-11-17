@@ -3,8 +3,22 @@
  * `test-plugins/web-relay`, which sits in front of a real core. Only the browser-test
  * bundle contains it.
  */
-import type { ClientPluginEntry, Incoming, Platform } from './index';
-import { ConnectError, safeModeFromUrl } from './index';
+import type { ClientPluginEntry, Incoming, Platform, ProfileInfo, Removed } from './index';
+import { ConnectError, asConnectError, pickWithInput, safeModeFromUrl } from './index';
+
+/** A profile endpoint: failures carry the shell's `{ code, message }`. */
+async function profileCall<T>(path: string, init?: RequestInit): Promise<T> {
+  const r = await fetch(path, init);
+  const body: unknown = await r.json().catch(() => ({ code: 'internal', message: r.statusText }));
+  if (!r.ok) throw asConnectError(body);
+  return body as T;
+}
+
+const post = (body: unknown): RequestInit => ({
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(body),
+});
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(path, init);
@@ -15,6 +29,16 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
 export function relayPlatform(): Platform {
   return {
     kind: 'relay',
+    home: 'local',
+    profiles: {
+      editable: true,
+      list: () => profileCall<ProfileInfo[]>('/profiles'),
+      probe: (address) => profileCall<string>('/profiles/probe', post({ address })),
+      pair: (request) => profileCall<ProfileInfo>('/profiles/pair', post(request)),
+      addSsh: (request) => profileCall<ProfileInfo>('/profiles/ssh', post(request)),
+      remove: (name) => profileCall<Removed>(`/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+    },
+    pickBytes: (accept) => pickWithInput(accept),
     connect(profile, on) {
       return new Promise((resolve, reject) => {
         const url = new URL(`/bridge?profile=${encodeURIComponent(profile)}`, location.href);

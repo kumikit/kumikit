@@ -32,10 +32,10 @@ export class SlotRegistry {
     return this.entries.filter((e) => e.slot === slot) as Entry<S>[];
   }
 
-  /** The `transcript.renderer` for an item kind: an exact match first, then the
-   * `plugin.event` fallback for plugin kinds. */
-  renderer(kind: string): Entry<'transcript.renderer'> | undefined {
-    const all = this.in('transcript.renderer');
+  /** The `transcript.renderer` for an item kind, among the plugins `allow` lets through:
+   * an exact match first, then the `plugin.event` fallback for plugin kinds. */
+  renderer(kind: string, allow: (plugin: string) => boolean = () => true): Entry<'transcript.renderer'> | undefined {
+    const all = this.in('transcript.renderer').filter((e) => allow(e.plugin));
     return (
       all.find((e) => e.contribution.kind === kind) ??
       (kind.startsWith('plugin.event:') ? all.find((e) => e.contribution.kind === 'plugin.event') : undefined)

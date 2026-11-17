@@ -13,7 +13,7 @@ async function setup() {
   await c.start();
   await settle();
   const frames: (() => void)[] = [];
-  const store = new ThreadStore(c, (fn) => frames.push(fn));
+  const store = new ThreadStore(() => c, (fn) => frames.push(fn));
   const runFrame = () => frames.splice(0).forEach((f) => f());
   return { core, c, store, runFrame };
 }

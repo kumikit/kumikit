@@ -1,6 +1,6 @@
 <!--
-  Manage plugins (06-client, Plugin manager): core plugins on this core, and UI plugins
-  and themes on this client. Part of the UI kernel, so a plugin that broke the UI can
+  Manage plugins (06-client, Plugin manager): core plugins on a chosen core, and UI
+  plugins and themes on this client. Part of the UI kernel, so a plugin that broke the UI can
   always be removed here.
 -->
 <script lang="ts">
@@ -20,15 +20,25 @@
   let removing = $state.raw<InstalledPlugin | undefined>();
   let trusting = $state.raw<ClientPlugin | undefined>();
 
+  const target = $derived(core.target);
+
   $effect(() => {
-    // Refresh when the connection comes up and whenever the core's plugins change.
-    if (kernel.connection.ready) {
-      void kernel.connection.plugins;
+    // Refresh when the chosen core comes up and whenever its plugins change.
+    if (target.ready) {
+      void target.plugins;
       void core.refresh();
     }
   });
 
   async function installCore(kind: 'file' | 'folder') {
+    if (core.uploads) {
+      // The core is on another machine: send the package's bytes.
+      const file = await kernel.platform.pickBytes('.kkp');
+      if (!file) return;
+      const p = await core.upload(file.bytes);
+      if (p) granting = p;
+      return;
+    }
     const path =
       kind === 'file'
         ? await kernel.platform.pickFile('Install a core plugin', ['kkp'])
@@ -64,10 +74,24 @@
 
   <section aria-labelledby="kk-core-plugins">
     <div class="head">
-      <h2 id="kk-core-plugins">On this core <span class="kk-muted">({kernel.connection.hello?.core.name ?? 'local'})</span></h2>
-      <button type="button" class="kk-button" disabled={!kernel.connection.ready} onclick={() => installCore('file')}>Install from file…</button>
-      <button type="button" class="kk-button" disabled={!kernel.connection.ready} onclick={() => installCore('folder')}>Install from folder…</button>
+      <h2 id="kk-core-plugins">On this core</h2>
+      {#if kernel.connections.length > 1}
+        <label class="choose">Core
+          <select class="kk-input" value={target.id} onchange={(e) => core.choose(e.currentTarget.value)}>
+            {#each kernel.connections as c (c.id)}<option value={c.id}>{c.label}</option>{/each}
+          </select>
+        </label>
+      {:else}
+        <span class="kk-muted">({target.hello?.core.name ?? target.label})</span>
+      {/if}
+      <button type="button" class="kk-button" disabled={!target.ready} onclick={() => installCore('file')}>Install from file…</button>
+      {#if !core.uploads}
+        <button type="button" class="kk-button" disabled={!target.ready} onclick={() => installCore('folder')}>Install from folder…</button>
+      {/if}
     </div>
+    {#if core.uploads}
+      <p class="kk-muted">{target.label} is on another machine: a package file is sent to it. To install from a folder there, pack it first with <code>kumikit plugin pack</code>.</p>
+    {/if}
     {#if core.plugins.length === 0}
       <p class="kk-muted">{core.loading ? 'Loading…' : 'No core plugins are installed.'}</p>
     {/if}
@@ -138,7 +162,7 @@
   {@const p = granting}
   <div class="scrim" role="presentation"></div>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="kk-grant-title" tabindex="-1" use:trapFocus onkeydown={(e) => onKey(e, () => (granting = undefined))}>
-    <h2 id="kk-grant-title">Enable {p.name}?</h2>
+    <h2 id="kk-grant-title">Enable {p.name} on {target.label}?</h2>
     <p class="kk-muted">{p.id} {p.version} from <strong>{publisher(p.id)}</strong>{#if p.repository} · {p.repository}{/if}</p>
     {#if !p.signed}<p class="warning">This package is not signed, so Kumikit cannot check who made it.</p>{/if}
     {#if startsPrograms(p.requested)}
@@ -195,6 +219,11 @@
   h2 {
     margin: 0;
     font-size: var(--kk-font-size-large, large);
+  }
+  .choose {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
   .head {
     display: flex;

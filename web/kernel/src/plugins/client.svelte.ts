@@ -24,6 +24,8 @@ export interface ClientManifest {
   ui?: { entry: string; isolation?: string };
   theme?: { variants: { id: string; name?: string; appearance: 'light' | 'dark'; tokens: string }[] };
   contributes?: { settings?: string };
+  /** Core plugins this UI plugin needs, `<id>@<range>` (07-ui-plugins). */
+  requires?: { core?: string[] };
 }
 
 export interface ClientPlugin {
@@ -48,6 +50,12 @@ export class ClientPlugins {
   #active = new Map<string, { plugin: Plugin; dispose: (() => void)[] }>();
 
   constructor(private readonly kernel: Kernel) {}
+
+  /** A plugin's `requires.core` entries, if it has any. */
+  requiresOf(id: string): string[] | undefined {
+    const core = this.plugins.find((p) => p.entry.id === id)?.manifest.requires?.core;
+    return Array.isArray(core) ? core.filter((x): x is string => typeof x === 'string') : undefined;
+  }
 
   /** Reads the list, loads the themes and activates the enabled UI plugins. */
   async load(): Promise<void> {

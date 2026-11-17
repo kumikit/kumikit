@@ -7,7 +7,7 @@
   let { kernel }: { kernel: Kernel } = $props();
   let query = $state('');
   let index = $state(0);
-  const results = $derived(kernel.commands.search(query, kernel.when));
+  const results = $derived(kernel.commands.search(query, kernel.when, kernel.commandAllowed));
 
   function close() {
     kernel.dialog = undefined;

@@ -4,6 +4,8 @@
   import NewThread from './NewThread.svelte';
   import Palette from './Palette.svelte';
   import PluginsView from './PluginsView.svelte';
+  import CoresView from './CoresView.svelte';
+  import OpenFolder from './OpenFolder.svelte';
   import SettingsView from './SettingsView.svelte';
   import Sidebar from './Sidebar.svelte';
   import SlotHost from './SlotHost.svelte';
@@ -13,7 +15,6 @@
   import Toasts from './Toasts.svelte';
 
   let { kernel }: { kernel: Kernel } = $props();
-  const conn = $derived(kernel.connection);
   const mainView = $derived(kernel.main);
   const pluginView = $derived(
     mainView.kind === 'view' ? kernel.slots.in('view').find((v) => v.contribution.id === mainView.id) : undefined,
@@ -21,7 +22,7 @@
 
   function onKey(e: KeyboardEvent) {
     if (e.isComposing || e.keyCode === 229 || kernel.dialog) return;
-    const cmd = kernel.commands.forKey(e, kernel.when, kernel.mac);
+    const cmd = kernel.commands.forKey(e, kernel.when, kernel.mac, kernel.commandAllowed);
     if (!cmd) return;
     e.preventDefault();
     void kernel.attempt('The command failed', () => Promise.resolve(cmd.run()));
@@ -33,14 +34,6 @@
 <div class="frame">
   <aside><Sidebar {kernel} /></aside>
   <main>
-    {#if conn.status === 'mismatch'}
-      <div class="banner" role="alert">
-        <span>{conn.error}. This window and the running core are different versions.</span>
-        <button type="button" class="kk-button" onclick={() => kernel.commands.run('core.restart')}>Restart the core</button>
-      </div>
-    {:else if conn.status === 'reconnecting'}
-      <div class="banner" role="status">Reconnecting to the core… {conn.error ?? ''}</div>
-    {/if}
     {#if kernel.platform.safeMode}
       <div class="banner" role="status">Safe mode: no UI plugins are loaded. Remove a broken plugin in Manage plugins, then restart.</div>
     {/if}
@@ -50,10 +43,12 @@
         <SettingsView {kernel} page={mainView.page} />
       {:else if mainView.kind === 'plugins'}
         <PluginsView {kernel} />
+      {:else if mainView.kind === 'cores'}
+        <CoresView {kernel} />
       {:else if mainView.kind === 'view' && pluginView}
         <SlotHost plugin={pluginView.plugin} contribution={pluginView.contribution} props={{ args: mainView.args }} slots={kernel.slots} label={pluginView.contribution.title} />
       {:else}
-        <ThreadPane {kernel} />
+        <div class="pane"><ThreadPane {kernel} /></div>
       {/if}
     </div>
   </main>
@@ -64,6 +59,8 @@
   <Palette {kernel} />
 {:else if kernel.dialog?.kind === 'new-thread'}
   <NewThread {kernel} />
+{:else if kernel.dialog?.kind === 'open-folder'}
+  <OpenFolder {kernel} connection={kernel.dialog.connection} />
 {/if}
 <Toasts {kernel} />
 
@@ -89,6 +86,12 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
+  }
+  .pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
   }
   .frame > :global(footer) {
     grid-column: 1 / -1;
