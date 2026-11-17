@@ -168,6 +168,10 @@ async function exitFlow(b) {
   b = await session();
   current = b;
   await connected(b);
+  // Find the running thread from the sidebar. (Open tabs are client settings, kept in
+  // the webview's storage; msedgedriver gives each session a fresh one.)
+  await b.click(await b.wait('nav[aria-label="Workspaces"] button', 'proj'));
+  await b.click(await b.wait('nav[aria-label="Workspaces"] li button', 'waiting for approval'));
   await b.wait(APPROVAL, 'Needs your approval');
   await b.click(await button(b, APPROVAL, 'Allow'));
   await b.wait(APPROVAL, 'Allowed');
