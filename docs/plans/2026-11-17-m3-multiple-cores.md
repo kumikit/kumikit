@@ -533,7 +533,7 @@ code first needs macOS and Windows; the next after step 13; the last after step 
   secrets text, `by`), 06 (profiles, commands, statuses, Cores view, plugin manager,
   client secrets, the browser client and its dev mode), 07 (`requires.core` semantics), 10 (CLI:
   `pair`, `devices`, `bridge`), 11 (threat rows), 12 (M3 bullets gain the browser client). Verify: check-docs. Commit: `docs: settle M3 multiple-cores design`.
-- [ ] **2. Spike: dependencies and sizes.** Add rustls (ring), tokio-rustls,
+- [x] **2. Spike: dependencies and sizes.** Add rustls (ring), tokio-rustls,
   tokio-tungstenite, rcgen to the core and rustls, tokio-rustls, tokio-tungstenite,
   keyring to the shell, behind a minimal loopback handshake test. `cargo deny`; any licence
   outside the list stops the step and I ask. Measure the core binary and the `.deb` (in
@@ -673,3 +673,15 @@ Q11 take the recommendation unless you say otherwise.
   are not. `/usr/bin/ssh` is present. The UI SDK already has `ctx.connection` as the
   active tab's connection and passes `connection` in `thread.view` props, so M3 needs no
   SDK change.
+- Step 2 (2026-11-17): rustls 0.23 (ring, TLS 1.3), tokio-rustls 0.26, hyper 1 with
+  hyper-util, tokio-tungstenite 0.29 (the version axum already uses, so no duplicate),
+  rcgen 0.14 (ring, pem) and futures-util in the core; rustls, tokio-rustls and
+  tokio-tungstenite in the shell. `keyring` 4's default features add a Linux Secret
+  Service backend, so the shell uses `keyring-core` 1 with `apple-native-keyring-store`
+  (keychain) on macOS and `windows-native-keyring-store` (no default features) on Windows
+  only: all MIT OR Apache-2.0. `cargo deny check licenses bans sources` passes over every
+  target. A loopback test (`tests/tls_spike.rs`) proves a TLS 1.3 WebSocket round trip with
+  a pinned rcgen certificate and a refused wrong pin. Port 7463 is unassigned (IANA lists
+  7444–7470 as unassigned). The binary size is measured in step 6, once the code is linked:
+  unused dependencies add nothing to the binary. Whether the WebDrivers can fill a file
+  input is checked with the upload test in step 11/13.
