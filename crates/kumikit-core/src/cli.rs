@@ -174,6 +174,7 @@ impl Backend {
                 .call::<PluginInstall>(&kumikit_protocol::methods::PluginInstallParams {
                     path: Some(path.to_owned()),
                     package: None,
+                    registry: None,
                 })
                 .await?
                 .plugin),

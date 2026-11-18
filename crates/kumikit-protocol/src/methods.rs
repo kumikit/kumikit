@@ -133,6 +133,20 @@ methods! {
         PluginDisable = "plugin.disable" (PluginRef) -> PluginResult;
         /// `plugin.uninstall`: remove a plugin, and its data if asked.
         PluginUninstall = "plugin.uninstall" (PluginUninstallParams) -> Empty;
+        /// `plugin.updates`: the updates the registries offer; applies nothing.
+        PluginUpdates = "plugin.updates" (PluginUpdatesParams) -> PluginUpdatesResult;
+        /// `plugin.update`: replace an installed plugin with another version.
+        PluginUpdate = "plugin.update" (PluginUpdateParams) -> PluginResult;
+        /// `plugin.lock`: the text of the core's `plugins.lock`.
+        PluginLock = "plugin.lock" (Empty) -> PluginLockResult;
+        /// `registry.list`: the core's registries, in resolution order.
+        RegistryList = "registry.list" (Empty) -> RegistryListResult;
+        /// `registry.add`: append a registry.
+        RegistryAdd = "registry.add" (RegistryUrl) -> Empty;
+        /// `registry.remove`: remove a registry.
+        RegistryRemove = "registry.remove" (RegistryUrl) -> Empty;
+        /// `registry.search`: core plugins the registries offer.
+        RegistrySearch = "registry.search" (RegistrySearchParams) -> RegistrySearchResult;
     }
     notifications {
         /// `events.event`: one event on a subscribed topic.
@@ -414,8 +428,14 @@ pub struct InstalledPlugin {
     pub granted: Option<Permissions>,
     /// What it contributes and is available now.
     pub contributes: Contributions,
-    /// Whether the package was signed and verified (always false before signing exists).
+    /// Whether the package was signed and its signature verified.
     pub signed: bool,
+    /// Who signed it, and the registry it came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<PublisherInfo>,
+    /// Where it came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<PluginSource>,
     /// The last failure, while it matters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure: Option<PluginFailure>,
@@ -446,6 +466,194 @@ pub struct PluginInstallParams {
     /// another machine.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package: Option<String>,
+    /// A plugin from the core's registries, which the core downloads and checks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry: Option<RegistryRef>,
+}
+
+/// A plugin in a registry, for `plugin.install { registry }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct RegistryRef {
+    /// Plugin id.
+    pub id: String,
+    /// A version; default: the latest this core can run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// The SHA-256 the package must have (from a lockfile).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+}
+
+/// Who signed a package.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct PublisherInfo {
+    /// The signing key's id (`ed25519:…`).
+    pub key: String,
+    /// The registry (index URL) the plugin was installed from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry: Option<String>,
+}
+
+/// Where an installed plugin came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginSource {
+    /// A registry.
+    Registry,
+    /// A package file or folder.
+    File,
+    /// Preinstalled with the app.
+    Bundled,
+}
+
+/// Params of `plugin.updates`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct PluginUpdatesParams {
+    /// Revalidate the registries' indexes now instead of using a recent copy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh: Option<bool>,
+}
+
+/// An update a registry offers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AvailableUpdate {
+    /// Plugin id.
+    pub plugin: String,
+    /// The installed version.
+    pub from: String,
+    /// The version offered.
+    pub to: String,
+    /// The registry offering it.
+    pub registry: String,
+    /// What the new version asks for.
+    pub requested: Permissions,
+    /// Whether it asks for more than is granted now; such an update needs a new grant.
+    pub widens: bool,
+}
+
+/// Result of `plugin.updates`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginUpdatesResult {
+    /// Available updates, by plugin id.
+    pub updates: Vec<AvailableUpdate>,
+}
+
+/// Params of `plugin.update`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct PluginUpdateParams {
+    /// Plugin id.
+    pub plugin: String,
+    /// The version to install.
+    pub version: String,
+    /// The new requested permissions, granted as a whole; needed when they widen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant: Option<Permissions>,
+}
+
+/// Result of `plugin.lock`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginLockResult {
+    /// The lockfile's text (TOML).
+    pub lock: String,
+}
+
+/// A registry by URL.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistryUrl {
+    /// The index URL: `https://…`, `http://` on loopback, or `file:`.
+    pub url: String,
+}
+
+/// A configured registry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct RegistryInfo {
+    /// The index URL.
+    pub url: String,
+    /// Its name, once its index was read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// Result of `registry.list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistryListResult {
+    /// In resolution order.
+    pub registries: Vec<RegistryInfo>,
+}
+
+/// Params of `registry.search`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct RegistrySearchParams {
+    /// Words to match in ids, names and descriptions; everything when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    /// Revalidate the indexes now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh: Option<bool>,
+}
+
+/// A core plugin a registry offers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct RegistryResult {
+    /// Plugin id.
+    pub id: String,
+    /// Display name.
+    pub name: String,
+    /// One line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The manifest's `kind`.
+    pub kind: Vec<String>,
+    /// The publisher's display name.
+    pub publisher: String,
+    /// The publisher's key id.
+    pub key: String,
+    /// The registry's index URL.
+    pub registry: String,
+    /// The registry's name.
+    pub registry_name: String,
+    /// Source repository.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+    /// The latest version this core can run.
+    pub version: String,
+    /// What that version asks for.
+    pub requested: Permissions,
+    /// Whether it is in the registry's starter pack.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub starter: bool,
+}
+
+/// Result of `registry.search`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct RegistrySearchResult {
+    /// Matches, ordered by registry then id.
+    pub results: Vec<RegistryResult>,
+    /// When the oldest index used was fetched (RFC 3339); absent when no registry could
+    /// be read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fetched: Option<String>,
 }
 
 /// A result naming one plugin.

@@ -126,5 +126,91 @@
         "code": "invalid_params"
       }
     }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 52,
+    "method": "plugin.install",
+    "params": {
+      "registry": {
+        "id": "acme.probe"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 52,
+    "result": {
+      "plugin": {
+        "id": "acme.probe",
+        "name": "Probe",
+        "version": "0.1.0",
+        "state": "installed",
+        "requested": {
+          "spawn": [
+            "fake-acp-agent"
+          ],
+          "network": [],
+          "files": "none",
+          "secrets": [],
+          "tools": false
+        },
+        "contributes": {
+          "providers": [],
+          "commands": [],
+          "settings": false
+        },
+        "signed": true,
+        "publisher": {
+          "key": "ed25519:3l2Jc0bFq9cXlYbhQ6vB1t0hZ8Qw4Kc7Wz5Rr2Yp9Ns",
+          "registry": "https://kumikit.github.io/registry/index.json"
+        },
+        "source": "registry"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 53,
+    "method": "plugin.install",
+    "params": {
+      "registry": {
+        "id": "acme.probe",
+        "version": "0.1.0",
+        "sha256": "9f1c0e5b7a2d4c3e8f6a1b0d2c4e6f8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 53,
+    "error": {
+      "code": -32000,
+      "message": "the package's SHA-256 differs from the lockfile's (9f1c0e5b7a2d4c3e8f6a1b0d2c4e6f8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e)",
+      "data": {
+        "code": "untrusted"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 54,
+    "method": "plugin.install",
+    "params": {
+      "registry": {
+        "id": "acme.nothing"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 54,
+    "error": {
+      "code": -32000,
+      "message": "no registry lists acme.nothing",
+      "data": {
+        "code": "not_found"
+      }
+    }
   }
 ]

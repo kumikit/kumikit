@@ -259,7 +259,7 @@ impl Client {
         let mut c = Client::connect(address).await;
         c.call(
             "core.hello",
-            json!({"protocol": "0.4", "client": {"name": "kumikit-test", "version": "0.0.0"}}),
+            json!({"protocol": "0.5", "client": {"name": "kumikit-test", "version": "0.0.0"}}),
         )
         .await;
         c

@@ -14,13 +14,21 @@ import type { PairingCode } from "./PairingCode";
 import type { PluginEnableParams } from "./PluginEnableParams";
 import type { PluginInstallParams } from "./PluginInstallParams";
 import type { PluginListResult } from "./PluginListResult";
+import type { PluginLockResult } from "./PluginLockResult";
 import type { PluginRef } from "./PluginRef";
 import type { PluginResult } from "./PluginResult";
 import type { PluginUninstallParams } from "./PluginUninstallParams";
+import type { PluginUpdateParams } from "./PluginUpdateParams";
+import type { PluginUpdatesParams } from "./PluginUpdatesParams";
+import type { PluginUpdatesResult } from "./PluginUpdatesResult";
 import type { PluginsChanged } from "./PluginsChanged";
 import type { ProviderListResult } from "./ProviderListResult";
 import type { ProviderModelsParams } from "./ProviderModelsParams";
 import type { ProviderModelsResult } from "./ProviderModelsResult";
+import type { RegistryListResult } from "./RegistryListResult";
+import type { RegistrySearchParams } from "./RegistrySearchParams";
+import type { RegistrySearchResult } from "./RegistrySearchResult";
+import type { RegistryUrl } from "./RegistryUrl";
 import type { RespondApprovalParams } from "./RespondApprovalParams";
 import type { SubscribeParams } from "./SubscribeParams";
 import type { SubscribeResult } from "./SubscribeResult";
@@ -39,7 +47,7 @@ import type { WorkspaceOpenResult } from "./WorkspaceOpenResult";
 import type { WorkspaceRef } from "./WorkspaceRef";
 
 /** Protocol version spoken by this package, `MAJOR.MINOR`. */
-export const PROTOCOL_VERSION = "0.4";
+export const PROTOCOL_VERSION = "0.5";
 
 /** Every request method with its params and result types. */
 export type Methods = {
@@ -69,6 +77,13 @@ export type Methods = {
   "plugin.enable": { params: PluginEnableParams; result: PluginResult };
   "plugin.disable": { params: PluginRef; result: PluginResult };
   "plugin.uninstall": { params: PluginUninstallParams; result: Empty };
+  "plugin.updates": { params: PluginUpdatesParams; result: PluginUpdatesResult };
+  "plugin.update": { params: PluginUpdateParams; result: PluginResult };
+  "plugin.lock": { params: Empty; result: PluginLockResult };
+  "registry.list": { params: Empty; result: RegistryListResult };
+  "registry.add": { params: RegistryUrl; result: Empty };
+  "registry.remove": { params: RegistryUrl; result: Empty };
+  "registry.search": { params: RegistrySearchParams; result: RegistrySearchResult };
 };
 
 /** Every notification the core sends, with its params type. */

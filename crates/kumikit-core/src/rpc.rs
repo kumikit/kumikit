@@ -518,15 +518,21 @@ impl Conn {
             }
             m::PluginInstall::NAME => {
                 let p = parse::<m::PluginInstall>(params)?;
-                let plugin = match (&p.path, &p.package) {
-                    (Some(path), None) => crate::plugins::install(&self.host, path).await?,
-                    (None, Some(package)) => {
+                let plugin = match (&p.path, &p.package, &p.registry) {
+                    (Some(path), None, None) => crate::plugins::install(&self.host, path).await?,
+                    (None, Some(package), None) => {
                         crate::plugins::install_package(&self.host, package).await?
+                    }
+                    (None, None, Some(_)) => {
+                        return Err(RpcError::new(
+                            ErrorCode::Unsupported,
+                            "installing from a registry is not available yet",
+                        ));
                     }
                     _ => {
                         return Err(RpcError::new(
                             ErrorCode::InvalidParams,
-                            "give exactly one of path and package",
+                            "give exactly one of path, package and registry",
                         ));
                     }
                 };
@@ -550,6 +556,16 @@ impl Conn {
                     .map_err(crate::plugins::host_err)?;
                 reply::<m::PluginUninstall>(Empty {})
             }
+            m::PluginUpdates::NAME
+            | m::PluginUpdate::NAME
+            | m::PluginLock::NAME
+            | m::RegistryList::NAME
+            | m::RegistryAdd::NAME
+            | m::RegistryRemove::NAME
+            | m::RegistrySearch::NAME => Err(RpcError::new(
+                ErrorCode::Unsupported,
+                format!("{method} is not available yet"),
+            )),
             m::AuthPair::NAME | m::AuthToken::NAME => Err(match self.device {
                 None => RpcError::new(
                     ErrorCode::Unsupported,

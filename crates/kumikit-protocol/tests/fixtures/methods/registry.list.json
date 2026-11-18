@@ -1,0 +1,23 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 46,
+    "method": "registry.list",
+    "params": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 46,
+    "result": {
+      "registries": [
+        {
+          "url": "https://kumikit.github.io/registry/index.json",
+          "name": "Kumikit"
+        },
+        {
+          "url": "https://plugins.example.org/index.json"
+        }
+      ]
+    }
+  }
+]

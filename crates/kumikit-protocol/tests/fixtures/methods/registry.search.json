@@ -1,0 +1,60 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 50,
+    "method": "registry.search",
+    "params": {
+      "query": "probe"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 50,
+    "result": {
+      "results": [
+        {
+          "id": "acme.probe",
+          "name": "Probe",
+          "description": "A provider for tests.",
+          "kind": [
+            "provider"
+          ],
+          "publisher": "Acme",
+          "key": "ed25519:3l2Jc0bFq9cXlYbhQ6vB1t0hZ8Qw4Kc7Wz5Rr2Yp9Ns",
+          "registry": "https://kumikit.github.io/registry/index.json",
+          "registryName": "Kumikit",
+          "repository": "https://example.com/acme/probe",
+          "version": "0.2.0",
+          "requested": {
+            "spawn": [
+              "fake-acp-agent"
+            ],
+            "network": [],
+            "files": "none",
+            "secrets": [
+              "acme-token"
+            ],
+            "tools": false
+          },
+          "starter": true
+        }
+      ],
+      "fetched": "2026-11-18T10:00:00.000Z"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 51,
+    "method": "registry.search",
+    "params": {
+      "refresh": true
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 51,
+    "result": {
+      "results": []
+    }
+  }
+]

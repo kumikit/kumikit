@@ -786,7 +786,7 @@ Each step ends with the Verify checks that apply and one commit on branch `m4-ec
   resolve, install-time checks, and the `check`/`build-index` binary with confusable ids
   and key continuity. `test-plugins/registry-fixture`. Commit: `feat: read and check plugin
   registries`.
-- [ ] **5. Protocol 0.5.** The types and methods above, error codes, fixtures, TypeScript
+- [x] **5. Protocol 0.5.** The types and methods above, error codes, fixtures, TypeScript
   regenerated, `tsc` check of `web/protocol`; the core routes the new methods (`unsupported`
   stubs where step 6 fills them). Commit: `feat: add registry and update methods to the
   protocol`.
@@ -1026,4 +1026,8 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
   reads a UI plugin's manifest only for the fields it copies; full validation of UI
   manifests comes with the shared check in step 8. `Manifest::requested()` gives a core
   manifest's permissions in protocol form.
+- Step 5: protocol 0.5 as planned. The update record is `AvailableUpdate` (the method
+  markers already use the name `PluginUpdate`). The new methods answer `unsupported`, and
+  `plugin.install { registry }` too, until step 6. Hard-coded `"0.4"` in tests became
+  `"0.5"`; the UI kernel's mismatch test still uses `0.4` as the other version.
 

@@ -1,0 +1,34 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 47,
+    "method": "registry.add",
+    "params": {
+      "url": "https://plugins.example.org/index.json"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 47,
+    "result": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 48,
+    "method": "registry.add",
+    "params": {
+      "url": "http://plugins.example.org/index.json"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 48,
+    "error": {
+      "code": -32602,
+      "message": "http://plugins.example.org/index.json: a registry must be an https:// URL (http:// only on this computer, or file:)",
+      "data": {
+        "code": "invalid_params"
+      }
+    }
+  }
+]

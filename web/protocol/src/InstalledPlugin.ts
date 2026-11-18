@@ -2,7 +2,9 @@
 import type { Contributions } from "./Contributions";
 import type { Permissions } from "./Permissions";
 import type { PluginFailure } from "./PluginFailure";
+import type { PluginSource } from "./PluginSource";
 import type { PluginState } from "./PluginState";
+import type { PublisherInfo } from "./PublisherInfo";
 
 /**
  * An installed core plugin.
@@ -45,9 +47,17 @@ granted?: Permissions,
  */
 contributes: Contributions, 
 /**
- * Whether the package was signed and verified (always false before signing exists).
+ * Whether the package was signed and its signature verified.
  */
 signed: boolean, 
+/**
+ * Who signed it, and the registry it came from.
+ */
+publisher?: PublisherInfo, 
+/**
+ * Where it came from.
+ */
+source?: PluginSource, 
 /**
  * The last failure, while it matters.
  */

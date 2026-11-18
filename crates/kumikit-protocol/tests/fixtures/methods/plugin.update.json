@@ -1,0 +1,109 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 42,
+    "method": "plugin.update",
+    "params": {
+      "plugin": "acme.probe",
+      "version": "0.2.0",
+      "grant": {
+        "spawn": [
+          "fake-acp-agent"
+        ],
+        "network": [],
+        "files": "none",
+        "secrets": [
+          "acme-token"
+        ],
+        "tools": false
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 42,
+    "result": {
+      "plugin": {
+        "id": "acme.probe",
+        "name": "Probe",
+        "version": "0.2.0",
+        "state": "enabled",
+        "requested": {
+          "spawn": [
+            "fake-acp-agent"
+          ],
+          "network": [],
+          "files": "none",
+          "secrets": [
+            "acme-token"
+          ],
+          "tools": false
+        },
+        "granted": {
+          "spawn": [
+            "fake-acp-agent"
+          ],
+          "network": [],
+          "files": "none",
+          "secrets": [
+            "acme-token"
+          ],
+          "tools": false
+        },
+        "contributes": {
+          "providers": [
+            "acme.probe/probe"
+          ],
+          "commands": [],
+          "settings": false
+        },
+        "signed": true,
+        "publisher": {
+          "key": "ed25519:3l2Jc0bFq9cXlYbhQ6vB1t0hZ8Qw4Kc7Wz5Rr2Yp9Ns",
+          "registry": "https://kumikit.github.io/registry/index.json"
+        },
+        "source": "registry"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 43,
+    "method": "plugin.update",
+    "params": {
+      "plugin": "acme.probe",
+      "version": "0.2.0"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 43,
+    "error": {
+      "code": -32000,
+      "message": "acme.probe 0.2.0 asks for more permissions; grant them to update",
+      "data": {
+        "code": "conflict"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 44,
+    "method": "plugin.update",
+    "params": {
+      "plugin": "acme.probe",
+      "version": "0.3.0"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 44,
+    "error": {
+      "code": -32000,
+      "message": "untrusted package: acme.probe 0.3.0 is signed by another key than the installed version",
+      "data": {
+        "code": "untrusted"
+      }
+    }
+  }
+]

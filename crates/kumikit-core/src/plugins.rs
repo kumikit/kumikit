@@ -11,7 +11,7 @@ use kumikit_plugin_host::manifest::{MANIFEST_FILE, Manifest};
 use kumikit_plugin_host::package;
 use kumikit_protocol::methods::{
     Contributions, FilesAccess, InstalledPlugin, Limits, Permissions, PluginFailure, PluginInfo,
-    PluginState,
+    PluginSource as ProtocolSource, PluginState, PublisherInfo,
 };
 use kumikit_protocol::{ErrorCode, RpcError};
 
@@ -117,6 +117,18 @@ pub fn installed(host: &PluginHost, view: &PluginView) -> InstalledPlugin {
             .map(|g| permissions(g, manifest)),
         contributes: contributions(host, &id, manifest),
         signed: view.record.publisher_key.is_some(),
+        publisher: view.record.publisher_key.clone().map(|key| PublisherInfo {
+            key,
+            registry: match &view.record.source {
+                PluginSource::Registry(url) => Some(url.clone()),
+                _ => None,
+            },
+        }),
+        source: Some(match view.record.source {
+            PluginSource::Registry(_) => ProtocolSource::Registry,
+            PluginSource::File => ProtocolSource::File,
+            PluginSource::Bundled => ProtocolSource::Bundled,
+        }),
         failure,
         error: view.error.clone(),
         id,
