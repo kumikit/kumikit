@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use kumikit_kernel::grants::Grants;
-use kumikit_kernel::plugins::{PluginRecord, PluginState};
+use kumikit_kernel::plugins::{PluginRecord, PluginSource, PluginState};
 use kumikit_kernel::{Kernel, KernelError};
 use kumikit_protocol::ErrorCode;
 use tokio::sync::watch;
@@ -44,6 +44,10 @@ pub enum HostError {
     /// File I/O failed.
     #[error("{0}")]
     Io(String),
+    /// A package failed verification: its signature, a pinned key, or (from a registry)
+    /// its hash or its entry.
+    #[error("{0}")]
+    Untrusted(String),
 }
 
 impl HostError {
@@ -56,6 +60,7 @@ impl HostError {
             HostError::PluginFailed(_) => ErrorCode::PluginFailed,
             HostError::Kernel(e) => e.code(),
             HostError::Io(_) => ErrorCode::Internal,
+            HostError::Untrusted(_) => ErrorCode::Untrusted,
         }
     }
 }
@@ -71,6 +76,7 @@ impl From<PackageError> for HostError {
         match e {
             PackageError::Invalid(m) => HostError::Invalid(format!("invalid package: {m}")),
             PackageError::Io(e) => HostError::Io(e.to_string()),
+            PackageError::Untrusted(m) => HostError::Untrusted(format!("untrusted package: {m}")),
         }
     }
 }
@@ -301,13 +307,18 @@ impl Manager {
         self.inner.changed.send_modify(|v| *v += 1);
     }
 
-    /// Installs a `.kkp` file: unpacks, validates, records it as `installed`. Nothing is
-    /// granted or enabled.
-    pub async fn install(&self, package: &Path) -> Result<PluginView, HostError> {
+    /// Installs a `.kkp` file: unpacks, verifies its signature if it has one, validates,
+    /// records it as `installed` with its source and signing key. Nothing is granted or
+    /// enabled.
+    pub async fn install(
+        &self,
+        package: &Path,
+        source: PluginSource,
+    ) -> Result<PluginView, HostError> {
         let _op = self.inner.ops.lock().await;
         let package = package.to_path_buf();
         let plugins_dir = self.inner.dirs.plugins.clone();
-        let (sha256, staging, manifest) = blocking(move || {
+        let (sha256, staging, manifest, verified) = blocking(move || {
             let sha256 = package::sha256_file(&package).map_err(|e| {
                 HostError::Invalid(format!("cannot read {}: {e}", package.display()))
             })?;
@@ -317,13 +328,14 @@ impl Manager {
                 .tempdir_in(&plugins_dir)
                 .map_err(io)?;
             package::unpack(&package, staging.path())?;
+            let verified = package::signature::verify_dir(staging.path())?;
             if !staging.path().join(MANIFEST_FILE).is_file() {
                 return Err(HostError::Invalid(format!(
                     "invalid package: {MANIFEST_FILE} is missing"
                 )));
             }
             let manifest = Manifest::load(staging.path())?;
-            Ok((sha256, staging, manifest))
+            Ok((sha256, staging, manifest, verified))
         })
         .await?;
 
@@ -354,6 +366,8 @@ impl Manager {
             sha256,
             granted: None,
             installed: self.inner.kernel.now(),
+            publisher_key: verified.key().map(|k| k.to_string()),
+            source,
         };
         self.inner.kernel.plugin_insert(record.clone()).await?;
         tracing::info!(plugin = %record.id, version = %record.version, "plugin installed");

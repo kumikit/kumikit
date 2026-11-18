@@ -778,7 +778,7 @@ Each step ends with the Verify checks that apply and one commit on branch `m4-ec
 
   Commit: `chore: add registry fetch dependencies and a panel spike`. **First push, draft
   PR.**
-- [ ] **3. Signing.** `kumikit-package::signature`. CLI `keygen`, `pack --key`, `sign`,
+- [x] **3. Signing.** `kumikit-package::signature`. CLI `keygen`, `pack --key`, `sign`,
   `verify`. Core install verifies a signature when present and pins the key (migration
   0005). `check-no-keys.sh`, `.gitignore`. Tests above. Commit: `feat: sign and verify
   plugin packages`.
@@ -993,4 +993,14 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
 - Checks after step 2: clippy, fmt, `cargo test --workspace`, docs and plugin names pass;
   Playwright Chromium 15 passed (1 live test skipped); both desktop exit tests pass in
   the container.
+- Step 3: `kumikit-package::signature` (format v1), `pack_signed`, `sign_package`,
+  `verify_package`; migration 0005 (`publisher_key`, `source`; plugins already seeded
+  become `bundled`); the host verifies a `SIGNATURE` after unpacking into staging and
+  records the key and source; `kumikit plugin keygen | pack --key/--sign | sign | verify`;
+  `add` says who signed a package (the CLI verifies the file itself to say so until the
+  protocol carries `publisher`, step 5). The error codes `untrusted` and `unavailable`
+  were added here, since the host needed `untrusted`; their fixtures and the 0.5 bump
+  come in step 5. `scripts/check-no-keys.sh` runs in the `docs` job. `cli::pack` reads a
+  core-plugin manifest, so packing a UI plugin or theme with `kumikit plugin pack` fails
+  today; step 8 (shared UI manifest check) fixes that for the templates.
 

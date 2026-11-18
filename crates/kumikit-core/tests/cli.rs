@@ -196,6 +196,98 @@ async fn pack_builds_an_installable_package() {
     .await;
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_signed_package_says_who_signed_it_and_the_key_never_shows() {
+    within(async {
+        let dirs = Dirs::new();
+        let key = dirs.root().join("keys").join("acme.key");
+        let r = kumikit(&dirs, &["keygen", "--out", key.to_str().unwrap()]).await;
+        assert!(r.ok, "{}{}", r.stdout, r.stderr);
+        let public = r
+            .stdout
+            .lines()
+            .find_map(|l| l.strip_prefix("Public key: "))
+            .unwrap()
+            .to_owned();
+        let pem = std::fs::read_to_string(&key).unwrap();
+        let secret = pem.lines().nth(1).unwrap().to_owned();
+
+        let src = dirs.root().join("src");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("plugin.toml"), PROBE_MANIFEST).unwrap();
+        std::fs::copy(kumikit_test_plugins::PROBE_WASM, src.join("plugin.wasm")).unwrap();
+        let out = dirs.root().join("probe.kkp");
+
+        // The key from the environment, with every log on: it never appears.
+        let run = tokio::process::Command::new(env!("CARGO_BIN_EXE_kumikit"))
+            .args([
+                "plugin",
+                "pack",
+                src.to_str().unwrap(),
+                "-o",
+                out.to_str().unwrap(),
+                "--sign",
+            ])
+            .env("KUMIKIT_SIGNING_KEY", &pem)
+            .env("KUMIKIT_LOG", "trace")
+            .stdin(Stdio::null())
+            .output()
+            .await
+            .unwrap();
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&run.stdout),
+            String::from_utf8_lossy(&run.stderr)
+        );
+        assert!(run.status.success(), "{text}");
+        assert!(text.contains(&public), "{text}");
+        assert!(!text.contains(&secret), "the private key was printed");
+
+        let r = kumikit(&dirs, &["verify", out.to_str().unwrap(), "--key", &public]).await;
+        assert!(
+            r.ok && r.stdout.contains("Signed by"),
+            "{}{}",
+            r.stdout,
+            r.stderr
+        );
+
+        let r = kumikit(&dirs, &["add", out.to_str().unwrap(), "--yes"]).await;
+        assert!(r.ok, "{}{}", r.stdout, r.stderr);
+        assert!(r.stdout.contains("Signed by key ed25519:"), "{}", r.stdout);
+        assert!(
+            r.stdout.contains("not checked against a registry"),
+            "{}",
+            r.stdout
+        );
+        assert!(!r.stdout.contains("not signed"), "{}", r.stdout);
+
+        let core = Core::start(&dirs).await;
+        let mut c = Client::hello(&dirs.address).await;
+        let list = c.call("plugin.list", json!({})).await;
+        assert_eq!(list["plugins"][0]["signed"], true, "{list}");
+        core.stop().await;
+
+        // A key file others can read is refused (Unix).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o644)).unwrap();
+            let r = kumikit(
+                &dirs,
+                &[
+                    "sign",
+                    out.to_str().unwrap(),
+                    "--key",
+                    key.to_str().unwrap(),
+                ],
+            )
+            .await;
+            assert!(!r.ok && r.stderr.contains("chmod 600"), "{}", r.stderr);
+        }
+    })
+    .await;
+}
+
 async fn kumikit_raw(args: &[&str]) -> Run {
     let out = tokio::process::Command::new(env!("CARGO_BIN_EXE_kumikit"))
         .args(args)

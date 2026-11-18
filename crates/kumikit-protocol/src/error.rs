@@ -37,13 +37,18 @@ pub enum ErrorCode {
     Unauthenticated,
     /// A plugin or provider failed while handling the request.
     PluginFailed,
+    /// A package failed verification: hash, signature, pinned key, or its manifest differs
+    /// from the registry's entry.
+    Untrusted,
+    /// A registry could not be reached or answered badly.
+    Unavailable,
     /// A bug or an I/O failure in the core.
     Internal,
 }
 
 impl ErrorCode {
     /// Every code, in table order.
-    pub const ALL: [ErrorCode; 13] = [
+    pub const ALL: [ErrorCode; 15] = [
         ErrorCode::ParseError,
         ErrorCode::InvalidRequest,
         ErrorCode::MethodNotFound,
@@ -56,6 +61,8 @@ impl ErrorCode {
         ErrorCode::ProtocolMismatch,
         ErrorCode::Unauthenticated,
         ErrorCode::PluginFailed,
+        ErrorCode::Untrusted,
+        ErrorCode::Unavailable,
         ErrorCode::Internal,
     ];
 
@@ -74,6 +81,8 @@ impl ErrorCode {
             ErrorCode::ProtocolMismatch => "protocol_mismatch",
             ErrorCode::Unauthenticated => "unauthenticated",
             ErrorCode::PluginFailed => "plugin_failed",
+            ErrorCode::Untrusted => "untrusted",
+            ErrorCode::Unavailable => "unavailable",
             ErrorCode::Internal => "internal",
         }
     }

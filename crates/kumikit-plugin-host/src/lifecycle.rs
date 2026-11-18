@@ -214,8 +214,12 @@ impl PluginHost {
     // ---- management, with provider registration ----
 
     /// Installs a package (see [`Manager::install`]).
-    pub async fn install(&self, package: &std::path::Path) -> Result<PluginView, HostError> {
-        self.inner.manager.install(package).await
+    pub async fn install(
+        &self,
+        package: &std::path::Path,
+        source: kumikit_kernel::plugins::PluginSource,
+    ) -> Result<PluginView, HostError> {
+        self.inner.manager.install(package, source).await
     }
 
     /// Grants and enables a plugin, then registers its providers.

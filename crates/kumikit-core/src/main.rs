@@ -128,13 +128,47 @@ enum PluginAction {
         #[arg(long)]
         keep_data: bool,
     },
-    /// Build a .kkp package from a plugin directory.
+    /// Build a .kkp package from a plugin directory, signed with --key.
     Pack {
         /// Directory with plugin.toml and the files it names.
         dir: PathBuf,
         /// Output file. Default: <id>-<version>.kkp.
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Sign with this private key file (or set KUMIKIT_SIGNING_KEY and pass --sign).
+        #[arg(long, value_name = "FILE")]
+        key: Option<PathBuf>,
+        /// Sign with the key in KUMIKIT_SIGNING_KEY.
+        #[arg(long, conflicts_with = "key")]
+        sign: bool,
+    },
+    /// Make a publisher key pair; prints the public key.
+    Keygen {
+        /// Name of the key file in the keys directory.
+        #[arg(long, default_value = "publisher")]
+        name: String,
+        /// Write the private key here instead.
+        #[arg(long, value_name = "FILE")]
+        out: Option<PathBuf>,
+        /// Allow writing inside a git work tree.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Sign a .kkp (replacing any signature) with a private key.
+    Sign {
+        /// The package; it is rewritten in place.
+        file: PathBuf,
+        /// Private key file; without it, KUMIKIT_SIGNING_KEY.
+        #[arg(long, value_name = "FILE")]
+        key: Option<PathBuf>,
+    },
+    /// Check a .kkp's signature and say who signed it.
+    Verify {
+        /// The package.
+        file: PathBuf,
+        /// Fail unless it is signed by this key (ed25519:…).
+        #[arg(long, value_name = "KEY ID")]
+        key: Option<String>,
     },
 }
 
@@ -225,7 +259,41 @@ async fn run_plugin(
 ) -> Result<()> {
     let out = &mut cli::Stdout;
     match action {
-        PluginAction::Pack { dir, output } => cli::pack(&dir, output.as_deref(), out),
+        PluginAction::Pack {
+            dir,
+            output,
+            key,
+            sign,
+        } => {
+            let key = if key.is_some() || sign {
+                Some(kumikit_core::signing::read_key(
+                    key.as_deref(),
+                    &paths::process_env,
+                )?)
+            } else {
+                None
+            };
+            cli::pack(&dir, output.as_deref(), key.as_ref(), out)
+        }
+        PluginAction::Keygen {
+            name,
+            out: file,
+            force,
+        } => kumikit_core::signing::keygen(
+            &name,
+            file.as_deref(),
+            force,
+            Platform::current(),
+            &paths::process_env,
+            out,
+        ),
+        PluginAction::Sign { file, key } => {
+            let key = kumikit_core::signing::read_key(key.as_deref(), &paths::process_env)?;
+            kumikit_core::signing::sign(&file, &key, out)
+        }
+        PluginAction::Verify { file, key } => {
+            kumikit_core::signing::verify(&file, key.as_deref(), out)
+        }
         PluginAction::Add { file, yes } => {
             cli::add(&target(socket, data_dir)?, &file, yes, out).await
         }

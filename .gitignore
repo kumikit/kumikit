@@ -25,3 +25,6 @@ test-results/
 /crates/kumikit-shell/gen/
 # The core binary the installer build bundles (copied in by CI)
 /crates/kumikit-shell/binaries/
+
+# Publisher private keys (kumikit plugin keygen) never go in the repository.
+*.key

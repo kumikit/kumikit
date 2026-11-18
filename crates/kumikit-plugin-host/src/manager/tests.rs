@@ -62,7 +62,7 @@ async fn install_enable_disable_and_reopen() {
     let file = kkp(e.dir.path(), "p", DECLARATIVE, &[]);
     let mut changes = e.manager.changes();
 
-    let view = e.manager.install(&file).await.unwrap();
+    let view = e.manager.install(&file, PluginSource::File).await.unwrap();
     assert_eq!(view.record.state, PluginState::Installed);
     assert_eq!(view.record.granted, None);
     assert_eq!(view.record.sha256, package::sha256_file(&file).unwrap());
@@ -109,8 +109,12 @@ async fn install_enable_disable_and_reopen() {
 async fn installing_twice_is_a_conflict() {
     let e = env().await;
     let file = kkp(e.dir.path(), "p", DECLARATIVE, &[]);
-    e.manager.install(&file).await.unwrap();
-    let err = e.manager.install(&file).await.unwrap_err();
+    e.manager.install(&file, PluginSource::File).await.unwrap();
+    let err = e
+        .manager
+        .install(&file, PluginSource::File)
+        .await
+        .unwrap_err();
     assert!(matches!(err, HostError::Conflict(_)), "{err}");
 }
 
@@ -121,7 +125,11 @@ async fn invalid_manifests_list_every_problem() {
         .replace("version = \"0.1.0\"", "version = \"one\"")
         .replace("spawn = [\"fake-acp-agent\"]", "spawn = [\"/bin/sh\"]");
     let file = kkp(e.dir.path(), "bad", &bad, &[]);
-    let err = e.manager.install(&file).await.unwrap_err();
+    let err = e
+        .manager
+        .install(&file, PluginSource::File)
+        .await
+        .unwrap_err();
     let HostError::Invalid(message) = &err else {
         panic!("{err:?}")
     };
@@ -146,7 +154,11 @@ async fn a_package_without_a_manifest_is_invalid() {
     std::fs::write(src.join("README"), "hi").unwrap();
     let out = e.dir.path().join("empty.kkp");
     package::pack(&src, &out).unwrap();
-    let err = e.manager.install(&out).await.unwrap_err();
+    let err = e
+        .manager
+        .install(&out, PluginSource::File)
+        .await
+        .unwrap_err();
     assert!(err.to_string().contains("plugin.toml is missing"), "{err}");
 }
 
@@ -156,7 +168,7 @@ async fn uninstall_keeps_or_deletes_data() {
     let file = kkp(e.dir.path(), "p", DECLARATIVE, &[]);
     let kernel = e.manager.kernel().clone();
 
-    e.manager.install(&file).await.unwrap();
+    e.manager.install(&file, PluginSource::File).await.unwrap();
     let data = e.manager.dirs().plugin_data("test.declarative");
     std::fs::create_dir_all(&data).unwrap();
     kernel
@@ -177,7 +189,7 @@ async fn uninstall_keeps_or_deletes_data() {
     );
     assert!(!e.manager.dirs().plugins.join("test.declarative").exists());
 
-    e.manager.install(&file).await.unwrap();
+    e.manager.install(&file, PluginSource::File).await.unwrap();
     e.manager.uninstall("test.declarative", true).await.unwrap();
     assert!(!data.exists());
     assert!(
@@ -197,7 +209,7 @@ async fn uninstall_keeps_or_deletes_data() {
 async fn a_damaged_install_is_listed_with_its_error() {
     let e = env().await;
     let file = kkp(e.dir.path(), "p", DECLARATIVE, &[]);
-    e.manager.install(&file).await.unwrap();
+    e.manager.install(&file, PluginSource::File).await.unwrap();
     std::fs::remove_file(
         e.manager
             .dirs()
@@ -244,7 +256,7 @@ async fn enabling_compiles_the_component() {
         &component_manifest(crate::manifest::WORLD_PROVIDER),
         &[("plugin.wasm", &wasm)],
     );
-    e.manager.install(&file).await.unwrap();
+    e.manager.install(&file, PluginSource::File).await.unwrap();
     assert!(
         !e.manager.runtime().is_started(),
         "installing starts no WASM"
@@ -268,7 +280,7 @@ async fn a_component_that_does_not_match_its_world_cannot_be_enabled() {
         &component_manifest(crate::manifest::WORLD_PROVIDER),
         &[("plugin.wasm", &wasm)],
     );
-    e.manager.install(&file).await.unwrap();
+    e.manager.install(&file, PluginSource::File).await.unwrap();
     let err = e
         .manager
         .enable("test.probe", &Grants::default())
@@ -285,11 +297,66 @@ async fn a_component_that_does_not_match_its_world_cannot_be_enabled() {
 async fn opening_starts_no_wasm() {
     let e = env().await;
     let file = kkp(e.dir.path(), "p", DECLARATIVE, &[]);
-    e.manager.install(&file).await.unwrap();
+    e.manager.install(&file, PluginSource::File).await.unwrap();
     e.manager
         .enable("test.declarative", &grant(&["fake-acp-agent"]))
         .await
         .unwrap();
     let reopened = open(&e.dir).await;
     assert!(!reopened.runtime().is_started());
+}
+
+#[tokio::test]
+async fn a_signed_package_records_its_key_and_source() {
+    let e = env().await;
+    let src = e.dir.path().join("signed-src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join(MANIFEST_FILE), DECLARATIVE).unwrap();
+    let (key, _) = package::SigningKey::generate().unwrap();
+    let file = e.dir.path().join("signed.kkp");
+    package::pack_signed(&src, &file, Some(&key)).unwrap();
+    let source = PluginSource::Registry("https://r.example/index.json".into());
+    let view = e.manager.install(&file, source.clone()).await.unwrap();
+    assert_eq!(view.record.publisher_key, Some(key.public().to_string()));
+    assert_eq!(view.record.source, source);
+    // Kept across a restart.
+    drop(e.manager);
+    let again = open(&e.dir).await;
+    let view = again.get("test.declarative").unwrap();
+    assert_eq!(view.record.publisher_key, Some(key.public().to_string()));
+}
+
+#[tokio::test]
+async fn an_unsigned_package_has_no_key() {
+    let e = env().await;
+    let file = kkp(e.dir.path(), "p", DECLARATIVE, &[]);
+    let view = e.manager.install(&file, PluginSource::File).await.unwrap();
+    assert_eq!(view.record.publisher_key, None);
+}
+
+#[tokio::test]
+async fn a_tampered_package_is_untrusted_and_nothing_is_installed() {
+    let e = env().await;
+    let src = e.dir.path().join("t-src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join(MANIFEST_FILE), DECLARATIVE).unwrap();
+    let (key, _) = package::SigningKey::generate().unwrap();
+    // Sign, then add a file the signature does not cover.
+    let signature = package::signature::sign_dir(&src, &key).unwrap();
+    std::fs::write(src.join(package::SIGNATURE_FILE), signature).unwrap();
+    std::fs::write(src.join("extra.txt"), "smuggled").unwrap();
+    let file = e.dir.path().join("t.kkp");
+    package::pack(&src, &file).unwrap();
+    let err = e
+        .manager
+        .install(&file, PluginSource::File)
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), ErrorCode::Untrusted, "{err}");
+    assert!(err.to_string().contains("not covered"), "{err}");
+    assert!(e.manager.list().is_empty());
+    let left: Vec<_> = std::fs::read_dir(&e.manager.dirs().plugins)
+        .unwrap()
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
 }

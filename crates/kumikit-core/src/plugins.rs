@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use kumikit_kernel::grants::{FilesGrant, Grants};
-use kumikit_kernel::plugins::PluginState as KState;
+use kumikit_kernel::plugins::{PluginSource, PluginState as KState};
 use kumikit_plugin_host::lifecycle::PluginHost;
 use kumikit_plugin_host::manager::{HostError, PluginView};
 use kumikit_plugin_host::manifest::{MANIFEST_FILE, Manifest};
@@ -116,7 +116,7 @@ pub fn installed(host: &PluginHost, view: &PluginView) -> InstalledPlugin {
             .as_ref()
             .map(|g| permissions(g, manifest)),
         contributes: contributions(host, &id, manifest),
-        signed: false,
+        signed: view.record.publisher_key.is_some(),
         failure,
         error: view.error.clone(),
         id,
@@ -176,11 +176,13 @@ pub async fn install(host: &PluginHost, path: &str) -> Result<InstalledPlugin, R
     }
     let view = if path.is_dir() {
         let packed = pack_dir(path.to_owned()).await?;
-        host.install(&packed.path().join("plugin.kkp"))
+        host.install(&packed.path().join("plugin.kkp"), PluginSource::File)
             .await
             .map_err(host_err)?
     } else {
-        host.install(path).await.map_err(host_err)?
+        host.install(path, PluginSource::File)
+            .await
+            .map_err(host_err)?
     };
     Ok(installed(host, &view))
 }
@@ -206,7 +208,7 @@ pub async fn install_package(host: &PluginHost, base64: &str) -> Result<Installe
     .map_err(|e| RpcError::new(ErrorCode::Internal, e.to_string()))?
     .map_err(|e| RpcError::new(ErrorCode::Internal, e.to_string()))?;
     let view = host
-        .install(&dir.path().join("plugin.kkp"))
+        .install(&dir.path().join("plugin.kkp"), PluginSource::File)
         .await
         .map_err(host_err)?;
     Ok(installed(host, &view))

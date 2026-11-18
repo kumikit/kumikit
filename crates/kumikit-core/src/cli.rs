@@ -312,6 +312,10 @@ pub async fn add(target: &Target, file: &Path, yes: bool, out: &mut dyn Out) -> 
     let file =
         std::fs::canonicalize(file).with_context(|| format!("cannot read {}", file.display()))?;
     let manifest = peek_manifest(&file)?;
+    // The core verifies the package itself; this is only to say who signed it.
+    let signer = package::verify_package(&file)
+        .map_err(|e| anyhow!("{e}"))?
+        .key();
     let mut backend = Backend::open(target).await?;
     let path = file
         .to_str()
@@ -358,7 +362,13 @@ pub async fn add(target: &Target, file: &Path, yes: bool, out: &mut dyn Out) -> 
     if let Some(r) = &plugin.repository {
         out.line(&format!("Repository: {r}"));
     }
-    out.line("This package is not signed; Kumikit cannot check who made it.");
+    match signer {
+        Some(key) => out.line(&format!(
+            "Signed by key {}; not checked against a registry.",
+            key.grouped()
+        )),
+        None => out.line("This package is not signed; Kumikit cannot check who made it."),
+    }
     out.line("It asks for these permissions. It:");
     for line in describe(&plugin.requested) {
         out.line(&format!("  - {line}"));
@@ -430,14 +440,26 @@ pub async fn remove(
 }
 
 /// `kumikit plugin pack <dir> [-o <file>]`: validates the manifest and writes a `.kkp`.
-pub fn pack(dir: &Path, output: Option<&Path>, out: &mut dyn Out) -> Result<()> {
+pub fn pack(
+    dir: &Path,
+    output: Option<&Path>,
+    key: Option<&package::SigningKey>,
+    out: &mut dyn Out,
+) -> Result<()> {
     let manifest = Manifest::load(dir).map_err(|e| anyhow!("{e}"))?;
     let file = output.map_or_else(
         || PathBuf::from(format!("{}-{}.kkp", manifest.id, manifest.version)),
         Path::to_path_buf,
     );
-    package::pack(dir, &file).map_err(|e| anyhow!("{e}"))?;
-    out.line(&format!("Wrote {}", file.display()));
+    package::pack_signed(dir, &file, key).map_err(|e| anyhow!("{e}"))?;
+    match key {
+        Some(k) => out.line(&format!(
+            "Wrote {}, signed by {}",
+            file.display(),
+            k.public()
+        )),
+        None => out.line(&format!("Wrote {}", file.display())),
+    }
     Ok(())
 }
 

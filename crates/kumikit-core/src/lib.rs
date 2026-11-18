@@ -10,4 +10,5 @@ pub mod plugins;
 pub mod remote;
 pub mod rpc;
 pub mod serve;
+pub mod signing;
 pub mod transport;

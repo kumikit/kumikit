@@ -22,6 +22,28 @@ fn record(id: &str) -> PluginRecord {
         sha256: "ab".into(),
         granted: None,
         installed: Timestamp("2026-11-15T00:00:00Z".into()),
+        publisher_key: None,
+        source: PluginSource::File,
+    }
+}
+
+#[tokio::test]
+async fn the_publisher_key_and_source_are_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let k = kernel(&dir).await;
+    let mut signed = record("acme.probe");
+    signed.publisher_key = Some("ed25519:abc".into());
+    signed.source = PluginSource::Registry("https://r.example/index.json".into());
+    k.plugin_insert(signed.clone()).await.unwrap();
+    let mut bundled = record("kumikit.x");
+    bundled.source = PluginSource::Bundled;
+    k.plugin_insert(bundled.clone()).await.unwrap();
+    k.close().await;
+    let k = kernel(&dir).await;
+    assert_eq!(k.plugin_get("acme.probe").await.unwrap(), Some(signed));
+    assert_eq!(k.plugin_get("kumikit.x").await.unwrap(), Some(bundled));
+    for s in ["file", "bundled", "registry+https://x/i.json"] {
+        assert_eq!(PluginSource::from_stored(s).as_stored(), s);
     }
 }
 

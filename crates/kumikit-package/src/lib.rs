@@ -11,6 +11,10 @@ use std::path::{Component, Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
+pub mod signature;
+
+pub use signature::{PublicKey, SIGNATURE_FILE, SigningKey, Verified};
+
 /// Largest unpacked package.
 pub const MAX_UNPACKED: u64 = 256 << 20;
 /// Most entries in a package.
@@ -22,6 +26,10 @@ pub enum PackageError {
     /// The archive breaks a rule.
     #[error("invalid package: {0}")]
     Invalid(String),
+    /// The package's signature cannot be trusted: malformed, not matching the files, or
+    /// not made by its key.
+    #[error("untrusted package: {0}")]
+    Untrusted(String),
     /// Reading or writing failed.
     #[error("package I/O: {0}")]
     Io(#[from] io::Error),
@@ -45,14 +53,32 @@ pub fn sha256_file(path: &Path) -> io::Result<String> {
 /// Packs the files under `dir` into a `.kkp` at `out`. Paths are stored relative to
 /// `dir`, sorted, with fixed metadata, so the same input gives the same bytes.
 pub fn pack(dir: &Path, out: &Path) -> Result<(), PackageError> {
+    pack_signed(dir, out, None)
+}
+
+/// Packs like [`pack`]; with `key`, signs the files and adds a `SIGNATURE` (replacing one
+/// that `dir` may hold). Signing keeps packing deterministic: ed25519 signatures are.
+pub fn pack_signed(dir: &Path, out: &Path, key: Option<&SigningKey>) -> Result<(), PackageError> {
+    let signature = key.map(|k| signature::sign_dir(dir, k)).transpose()?;
     let mut files = Vec::new();
     collect(dir, dir, &mut files)?;
-    files.sort();
+    if signature.is_some() {
+        files.retain(|f| f != Path::new(SIGNATURE_FILE));
+    }
+    let mut entries: Vec<(PathBuf, Option<Vec<u8>>)> =
+        files.into_iter().map(|f| (f, None)).collect();
+    if let Some(text) = signature {
+        entries.push((PathBuf::from(SIGNATURE_FILE), Some(text.into_bytes())));
+    }
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
     let file = File::create(out)?;
     let encoder = zstd::Encoder::new(file, 19)?;
     let mut tar = tar::Builder::new(encoder);
-    for rel in files {
-        let data = std::fs::read(dir.join(&rel))?;
+    for (rel, inline) in entries {
+        let data = match inline {
+            Some(bytes) => bytes,
+            None => std::fs::read(dir.join(&rel))?,
+        };
         let mut header = tar::Header::new_ustar();
         header.set_size(data.len() as u64);
         header.set_mode(0o644);
@@ -69,6 +95,27 @@ pub fn pack(dir: &Path, out: &Path) -> Result<(), PackageError> {
     let encoder = tar.into_inner()?;
     encoder.finish()?.flush()?;
     Ok(())
+}
+
+/// Signs the package at `package` with `key` and writes the result to `out` (which may be
+/// the same path): unpacks it, replaces its `SIGNATURE` and packs it again.
+pub fn sign_package(package: &Path, out: &Path, key: &SigningKey) -> Result<(), PackageError> {
+    let work = tempfile::tempdir()?;
+    let unpacked = work.path().join("p");
+    std::fs::create_dir(&unpacked)?;
+    unpack(package, &unpacked)?;
+    let staged = work.path().join("signed.kkp");
+    pack_signed(&unpacked, &staged, Some(key))?;
+    std::fs::copy(&staged, out)?;
+    Ok(())
+}
+
+/// Unpacks the package at `package` into a temporary directory and verifies its
+/// signature.
+pub fn verify_package(package: &Path) -> Result<Verified, PackageError> {
+    let work = tempfile::tempdir()?;
+    unpack(package, work.path())?;
+    signature::verify_dir(work.path())
 }
 
 fn collect(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), PackageError> {
@@ -204,6 +251,34 @@ mod tests {
         h.set_mode(0o644);
         h.set_cksum();
         b.append(&h, data).unwrap();
+    }
+
+    #[test]
+    fn signed_packing_is_deterministic_and_verifies() {
+        let src = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("plugin.toml"), "x").unwrap();
+        std::fs::write(src.path().join("SIGNATURE"), "stale").unwrap();
+        let (key, _) = SigningKey::generate().unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let a = out.path().join("a.kkp");
+        let b = out.path().join("b.kkp");
+        pack_signed(src.path(), &a, Some(&key)).unwrap();
+        pack_signed(src.path(), &b, Some(&key)).unwrap();
+        assert_eq!(sha256_file(&a).unwrap(), sha256_file(&b).unwrap());
+        assert_eq!(verify_package(&a).unwrap(), Verified::Signed(key.public()));
+
+        // Re-signing with another key replaces the signature.
+        let (other, _) = SigningKey::generate().unwrap();
+        sign_package(&a, &a, &other).unwrap();
+        assert_eq!(
+            verify_package(&a).unwrap(),
+            Verified::Signed(other.public())
+        );
+
+        // Unsigned packing of a directory without SIGNATURE stays unsigned.
+        std::fs::remove_file(src.path().join("SIGNATURE")).unwrap();
+        pack(src.path(), &b).unwrap();
+        assert_eq!(verify_package(&b).unwrap(), Verified::Unsigned);
     }
 
     #[test]

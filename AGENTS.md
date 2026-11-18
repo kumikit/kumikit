@@ -44,6 +44,7 @@ earlier one's exit criteria pass.
 
 Now:
 - `sh scripts/check-docs.sh`: AGENTS.md size, and every relative Markdown link resolves.
+- `sh scripts/check-no-keys.sh`: no PEM private key in a tracked file.
 - `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace` (builds the test plugins for `wasm32-wasip2`; the target comes
   with `rust-toolchain.toml` under rustup, or a distribution's Rust WASM package)
