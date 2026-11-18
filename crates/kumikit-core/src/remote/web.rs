@@ -207,7 +207,13 @@ pub(super) async fn serve(req: Request<Incoming>, shared: &Shared, dir: &Path) -
                 json(StatusCode::OK, json!([]))
             }
         },
-        (Method::GET | Method::HEAD, _) => file(dir, &path),
+        (Method::GET | Method::HEAD, _) => {
+            let dir = dir.to_owned();
+            let origin = own_origin(&req);
+            tokio::task::spawn_blocking(move || file(&dir, &path, origin.as_deref()))
+                .await
+                .unwrap_or_else(|_| status(StatusCode::INTERNAL_SERVER_ERROR, "internal error\n"))
+        }
         _ => status(StatusCode::METHOD_NOT_ALLOWED, "not allowed\n"),
     }
 }
@@ -251,8 +257,59 @@ async fn ui_plugins(dir: &Path) -> std::io::Result<serde_json::Value> {
     .map_err(std::io::Error::other)?
 }
 
-/// A file of the web UI, with the browser client's CSP.
-fn file(dir: &Path, path: &str) -> Response<Body> {
+/// For a file of a sandboxed panel plugin (`/ui-plugins/<id>/…` whose manifest says
+/// `isolation = "iframe"`), the plugin id and the hosts it declares.
+fn panel_of(dir: &Path, path: &str) -> Option<(String, Vec<String>)> {
+    let id = path.strip_prefix("/ui-plugins/")?.split('/').next()?;
+    if id.is_empty()
+        || !id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-')
+    {
+        return None;
+    }
+    let text = std::fs::read_to_string(dir.join("ui-plugins").join(id).join("plugin.toml")).ok()?;
+    let manifest: toml::Value = toml::from_str(&text).ok()?;
+    let ui = manifest.get("ui")?;
+    if ui.get("isolation")?.as_str()? != "iframe" {
+        return None;
+    }
+    let network = ui
+        .get("network")
+        .and_then(toml::Value::as_array)
+        .map(|hosts| {
+            hosts
+                .iter()
+                .filter_map(|h| h.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    Some((id.to_owned(), network))
+}
+
+/// Whether an origin built from the request's `Host` is safe to put in a header.
+fn plain_origin(origin: &str) -> bool {
+    origin.strip_prefix("https://").is_some_and(|h| {
+        !h.is_empty()
+            && h.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b".-:[]".contains(&b))
+    })
+}
+
+/// A file of the web UI, with the browser client's CSP; a sandboxed panel's files get the
+/// panel's own CSP and may be framed by this core's page only
+/// (`docs/spec/07-ui-plugins.md#level-2-sandboxed-panels`).
+fn file(dir: &Path, path: &str, origin: Option<&str>) -> Response<Body> {
+    let panel = panel_of(dir, path);
+    let panel_headers = match (&panel, origin) {
+        (None, _) => None,
+        (Some((id, network)), Some(origin)) if plain_origin(origin) => {
+            let csp = kumikit_assets::panel_csp(&format!("{origin}/ui-plugins/{id}/"), network);
+            Some(format!("{csp}; frame-ancestors {origin}"))
+        }
+        // A panel's CSP needs the core's own origin; without a usable Host, serve nothing.
+        (Some(_), _) => return status(StatusCode::BAD_REQUEST, "bad host\n"),
+    };
     let a = kumikit_assets::load(dir, path);
     let mut r = Response::new(Full::new(Bytes::from(a.body)));
     *r.status_mut() = StatusCode::from_u16(a.status).unwrap_or(StatusCode::NOT_FOUND);
@@ -261,15 +318,32 @@ fn file(dir: &Path, path: &str) -> Response<Body> {
         header::CONTENT_TYPE,
         HeaderValue::from_static(a.content_type),
     );
-    h.insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(kumikit_assets::WEB_CSP),
-    );
+    match panel_headers.and_then(|csp| HeaderValue::from_str(&csp).ok()) {
+        Some(csp) => {
+            h.insert(header::CONTENT_SECURITY_POLICY, csp);
+            h.insert(
+                header::X_FRAME_OPTIONS,
+                HeaderValue::from_static("SAMEORIGIN"),
+            );
+            // The panel's document has an opaque origin; its module scripts come with
+            // `Origin: null`.
+            h.insert(
+                header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                HeaderValue::from_static("null"),
+            );
+        }
+        None => {
+            h.insert(
+                header::CONTENT_SECURITY_POLICY,
+                HeaderValue::from_static(kumikit_assets::WEB_CSP),
+            );
+            h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+        }
+    }
     h.insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
-    h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
     h.insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),
@@ -280,6 +354,26 @@ fn file(dir: &Path, path: &str) -> Response<Body> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_plain_hosts_go_into_a_panels_headers() {
+        for ok in [
+            "https://127.0.0.1:7463",
+            "https://devbox",
+            "https://[::1]:7463",
+        ] {
+            assert!(super::plain_origin(ok), "{ok}");
+        }
+        for bad in [
+            "https://a b",
+            "https://x;y",
+            "https://",
+            "http://x",
+            "https://x/y",
+        ] {
+            assert!(!super::plain_origin(bad), "{bad}");
+        }
+    }
+
     #[test]
     fn the_cookie_is_http_only_and_strict() {
         let c = super::cookie("kkd_x", 10).unwrap();

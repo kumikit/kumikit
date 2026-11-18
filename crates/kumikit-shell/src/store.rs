@@ -77,6 +77,9 @@ struct UiSection {
     entry: String,
     #[serde(default = "inline")]
     isolation: String,
+    /// Hosts a sandboxed panel may contact (`https` only).
+    #[serde(default)]
+    network: Vec<String>,
 }
 
 fn inline() -> String {
@@ -202,10 +205,26 @@ pub fn check(dir: &Path) -> Result<(String, String, serde_json::Value), StoreErr
             Some(ui) => {
                 inside(dir, &ui.entry, "the entry", &mut problems);
                 match ui.isolation.as_str() {
-                    "inline" => {}
-                    "iframe" => problems.push(
-                        "sandboxed panels (isolation = \"iframe\") need a later Kumikit".into(),
-                    ),
+                    "inline" => {
+                        if !ui.network.is_empty() {
+                            problems.push(
+                                "[ui] network is only for sandboxed panels (isolation = \"iframe\")"
+                                    .into(),
+                            );
+                        }
+                    }
+                    "iframe" => {
+                        if !ui.entry.ends_with(".html") {
+                            problems.push("a sandboxed panel's entry must be an .html file".into());
+                        }
+                        for host in &ui.network {
+                            if !kumikit_assets::valid_network_host(host) {
+                                problems.push(format!(
+                                    "[ui] network: `{host}` is not a host name (write it like api.example.com)"
+                                ));
+                            }
+                        }
+                    }
                     other => problems.push(format!("isolation `{other}` is not known")),
                 }
             }
@@ -284,6 +303,16 @@ impl Store {
                     .map(|b| b.join(id))
                     .filter(|d| d.is_dir())
             })
+    }
+
+    /// For a sandboxed panel plugin, the hosts it may contact; `None` for any other plugin
+    /// (and for an unknown or broken one).
+    pub fn panel_network(&self, id: &str) -> Option<Vec<String>> {
+        let dir = self.dir(id)?;
+        let text = std::fs::read_to_string(dir.join(MANIFEST)).ok()?;
+        let manifest: Manifest = toml::from_str(&text).ok()?;
+        let ui = manifest.ui?;
+        (ui.isolation == "iframe").then_some(ui.network)
     }
 
     fn installed_version(&self, id: &str) -> Option<String> {
@@ -504,6 +533,29 @@ slots = [{ slot = "inspector.tab", id = "p", title = "P" }]
     }
 
     #[test]
+    fn installs_a_sandboxed_panel_and_reports_its_hosts() {
+        let root = tempfile::tempdir().unwrap();
+        let s = store(root.path());
+        let manifest = UI.replace(
+            "entry = \"dist/index.js\"",
+            "entry = \"dist/index.html\"\nisolation = \"iframe\"\nnetwork = [\"api.example.com\"]",
+        );
+        let p = package(
+            root.path(),
+            "panel",
+            &manifest,
+            &[("dist/index.html", "<!doctype html>")],
+        );
+        s.install(&p).unwrap();
+        assert_eq!(
+            s.panel_network("community.panel"),
+            Some(vec!["api.example.com".to_owned()])
+        );
+        assert_eq!(s.panel_network("kumikit.base"), None, "a theme is no panel");
+        assert_eq!(s.panel_network("nobody.here"), None);
+    }
+
+    #[test]
     fn refuses_what_it_cannot_load() {
         let root = tempfile::tempdir().unwrap();
         let s = store(root.path());
@@ -514,12 +566,28 @@ slots = [{ slot = "inspector.tab", id = "p", title = "P" }]
                 "install it on a core",
             ),
             (
-                "iframe",
+                "iframe-js",
                 &UI.replace(
                     "entry = \"dist/index.js\"",
                     "entry = \"dist/index.js\"\nisolation = \"iframe\"",
                 ),
-                "need a later Kumikit",
+                "must be an .html file",
+            ),
+            (
+                "iframe-host",
+                &UI.replace(
+                    "entry = \"dist/index.js\"",
+                    "entry = \"dist/index.js\"\nisolation = \"iframe\"\nnetwork = [\"https://x.example\"]",
+                ),
+                "is not a host name",
+            ),
+            (
+                "inline-network",
+                &UI.replace(
+                    "entry = \"dist/index.js\"",
+                    "entry = \"dist/index.js\"\nnetwork = [\"x.example\"]",
+                ),
+                "only for sandboxed panels",
             ),
             ("missing", UI, "the entry `dist/index.js` is missing"),
             (

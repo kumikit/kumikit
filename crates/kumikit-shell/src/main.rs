@@ -32,15 +32,34 @@ struct Shell {
     ui: PathBuf,
 }
 
-fn respond(asset: Asset, form: SchemeForm, cors: bool) -> Response<Cow<'static, [u8]>> {
+/// Who a response is for.
+enum Served {
+    /// The UI kernel's own files.
+    App,
+    /// An inline UI plugin or a theme: imported from the app origin.
+    Plugin,
+    /// A sandboxed panel's files, with that panel's CSP. The panel's document has an
+    /// opaque origin, so its module scripts are fetched with `Origin: null`.
+    Panel(String),
+}
+
+fn respond(asset: Asset, form: SchemeForm, served: Served) -> Response<Cow<'static, [u8]>> {
+    let csp = match &served {
+        Served::Panel(csp) => csp.clone(),
+        Served::App | Served::Plugin => assets::csp(form),
+    };
     let mut builder = Response::builder()
         .status(asset.status)
         .header("Content-Type", asset.content_type)
-        .header("Content-Security-Policy", assets::csp(form))
+        .header("Content-Security-Policy", csp)
         .header("X-Content-Type-Options", "nosniff");
-    if cors {
+    match served {
+        Served::App => {}
         // Plugin modules are imported from the app origin.
-        builder = builder.header("Access-Control-Allow-Origin", form.origin(APP_SCHEME));
+        Served::Plugin => {
+            builder = builder.header("Access-Control-Allow-Origin", form.origin(APP_SCHEME));
+        }
+        Served::Panel(_) => builder = builder.header("Access-Control-Allow-Origin", "null"),
     }
     builder
         .body(Cow::Owned(asset.body))
@@ -265,19 +284,26 @@ fn main() {
     let result = builder
         .register_uri_scheme_protocol(APP_SCHEME, move |ctx, request: Request<Vec<u8>>| {
             let shell = ctx.app_handle().state::<Shell>();
-            respond(assets::load(&shell.ui, request.uri().path()), form, false)
+            respond(assets::load(&shell.ui, request.uri().path()), form, Served::App)
         })
         .register_uri_scheme_protocol(PLUGIN_SCHEME, move |ctx, request: Request<Vec<u8>>| {
             let shell = ctx.app_handle().state::<Shell>();
             let uri = request.uri();
             let host = uri.host().unwrap_or("");
-            let asset = match assets::plugin_target(form, host, uri.path())
-                .and_then(|(id, path)| shell.store.dir(&id).map(|d| (d, path)))
-            {
-                Some((dir, path)) => assets::load(&dir, &path),
+            let Some((id, path)) = assets::plugin_target(form, host, uri.path()) else {
+                return respond(assets::load(&PathBuf::new(), "/missing"), form, Served::Plugin);
+            };
+            let asset = match shell.store.dir(&id) {
+                Some(dir) => assets::load(&dir, &path),
                 None => assets::load(&PathBuf::new(), "/missing"),
             };
-            respond(asset, form, true)
+            let served = match shell.store.panel_network(&id) {
+                Some(network) => {
+                    Served::Panel(assets::panel_csp(&assets::panel_source(form, &id), &network))
+                }
+                None => Served::Plugin,
+            };
+            respond(asset, form, served)
         })
         .setup(move |app| {
             let exe_dir = std::env::current_exe()?

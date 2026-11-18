@@ -99,6 +99,19 @@ async fn web_core(dirs: &Dirs) -> (Core, RemoteInfo) {
         "id = \"test.theme\"\nname = \"T\"\nversion = \"1.0.0\"\nkind = [\"theme\"]\napi = \"^0.1\"\n",
     )
     .unwrap();
+    let panel = ui.join("ui-plugins/test.panel");
+    std::fs::create_dir_all(&panel).unwrap();
+    std::fs::write(
+        panel.join("plugin.toml"),
+        "id = \"test.panel\"\nname = \"P\"\nversion = \"1.0.0\"\nkind = [\"ui\"]\napi = \"^0.1\"\n\
+         [ui]\nentry = \"index.html\"\nisolation = \"iframe\"\nnetwork = [\"api.example.com\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        panel.join("index.html"),
+        "<!doctype html><title>panel</title>",
+    )
+    .unwrap();
     Core::start_remote(dirs, &["--web", ui.to_str().unwrap()], false).await
 }
 
@@ -197,9 +210,14 @@ async fn the_ui_is_served_with_a_strict_csp_and_nothing_outside_it() {
         assert_eq!(http(&info, "PUT", "/", &[], "").await.status, 405);
         let list = http(&info, "GET", "/ui-plugins/index.json", &[], "").await;
         let v: Value = serde_json::from_str(&list.body).unwrap();
-        assert_eq!(v[0]["id"], "test.theme");
-        assert_eq!(v[0]["source"], "bundled");
-        assert_eq!(v[0]["manifest"]["kind"][0], "theme");
+        let theme = v
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == "test.theme")
+            .unwrap();
+        assert_eq!(theme["source"], "bundled");
+        assert_eq!(theme["manifest"]["kind"][0], "theme");
         let toml = http(&info, "GET", "/ui-plugins/test.theme/plugin.toml", &[], "").await;
         assert_eq!(toml.status, 200);
         core.stop().await;
@@ -348,6 +366,43 @@ async fn web_needs_an_index_and_listen() {
             .await
             .unwrap();
         assert!(!out.status.success(), "--web without --listen");
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_panels_files_carry_its_own_csp_and_only_this_core_may_frame_them() {
+    within(async {
+        let dirs = Dirs::new();
+        let (core, info) = web_core(&dirs).await;
+        let own = origin(&info);
+        let r = http(&info, "GET", "/ui-plugins/test.panel/index.html", &[], "").await;
+        assert_eq!(r.status, 200);
+        let csp = r.header("content-security-policy").unwrap();
+        assert!(
+            csp.contains(&format!("script-src {own}/ui-plugins/test.panel/;")),
+            "{csp}"
+        );
+        assert!(
+            csp.contains("connect-src https://api.example.com;"),
+            "{csp}"
+        );
+        assert!(csp.contains(&format!("frame-ancestors {own}")), "{csp}");
+        assert!(!csp.contains("'self'") && !csp.contains("unsafe"), "{csp}");
+        assert_eq!(r.header("x-frame-options"), Some("SAMEORIGIN"));
+        assert_eq!(r.header("access-control-allow-origin"), Some("null"));
+
+        // Other plugins and the app keep the page's CSP and may not be framed.
+        let theme = http(&info, "GET", "/ui-plugins/test.theme/plugin.toml", &[], "").await;
+        let csp = theme.header("content-security-policy").unwrap();
+        assert!(
+            csp.contains("frame-ancestors 'none'") && csp.contains("frame-src 'self'"),
+            "{csp}"
+        );
+        assert_eq!(theme.header("x-frame-options"), Some("DENY"));
+        assert_eq!(theme.header("access-control-allow-origin"), None);
+
+        core.stop().await;
     })
     .await;
 }

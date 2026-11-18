@@ -117,7 +117,11 @@ Decided in [ADR 0019](../decisions/0019-sandboxed-panels.md).
 - **CSP.** Every file of a panel plugin is served with its own CSP: `default-src 'none'`;
   scripts, styles, fonts and images (and `data:` images) only from that plugin's
   directory; `connect-src` only the `https` hosts listed in `[ui] network` (none by
-  default); no frames, forms, base changes or objects.
+  default); no frames, forms, base changes or objects. The panel's files are sent with
+  `Access-Control-Allow-Origin: null`, because its opaque origin fetches its module
+  scripts with `Origin: null`. In the browser client they may be framed only by the
+  core's own page (`frame-ancestors` the core's origin); every other file keeps
+  `frame-ancestors 'none'`.
 - **Network.** `[ui] network = ["api.example.com"]` lists the hosts the panel may contact.
   They are shown at install and when an update adds one.
 - **Bridge.** At the frame's first load the UI kernel transfers a `MessagePort` to it

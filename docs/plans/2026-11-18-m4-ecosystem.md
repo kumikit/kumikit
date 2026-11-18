@@ -743,7 +743,7 @@ Each step ends with the Verify checks that apply and one commit on branch `m4-ec
 - second push after step 13 (desktop exit test on Windows, macOS smoke);
 - last push after step 16.
 
-- [ ] **1. Decisions and spec (docs only).** ADR 0018 (signing and the registry: format v1,
+- [x] **1. Decisions and spec (docs only).** ADR 0018 (signing and the registry: format v1,
   ring, publisher files, `index.json`, OS roots, loopback `http`, pinning, no rotation, no
   signed index, each side fetches what it installs, the shell's new commands extending
   ADR 0013). ADR 0019 (level-2 panels: sandbox, per-panel CSP, bridge, method policy,
@@ -764,7 +764,7 @@ Each step ends with the Verify checks that apply and one commit on branch `m4-ec
   - 12: the open question closed, M4 bullets.
 
   Verify: check-docs. Commit: `docs: settle M4 ecosystem design`.
-- [ ] **2. Spike: dependencies, sizes, panels on every webview.**
+- [x] **2. Spike: dependencies, sizes, panels on every webview.**
   - Add the HTTP client connection, `rustls-native-certs` and ring's ed25519 use behind
     one loopback test. Run `cargo deny`: anything outside the list stops the step and I
     ask. Measure the core binary and the `.deb` (container) before and after.
@@ -960,3 +960,37 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
   - `settings.*`, `secret.*`, `command.*` and `workspace.files.*` are listed in 02's
     namespace table but not implemented; panels' read-only list uses only implemented
     methods.
+- Step 2 (Linux): `kumikit-registry` has its fetch module already (hyper's HTTP/1.1
+  client connection over tokio-rustls; `https` with the OS store, loopback `http`,
+  `file:`, https-only redirects, size caps, timeouts), with 15 tests over loopback,
+  including HTTPS through a test certificate authority. `rustls-native-certs` 0.8.5 brings
+  `openssl-probe` (it only finds certificate directories; no OpenSSL is linked),
+  `schannel` on Windows and `security-framework` on macOS; `cargo deny check licenses bans
+  sources` passes. Nothing links the crate into the core yet, so the binary and installer
+  sizes are measured in step 6, as in M3.
+- Step 2, panels: the real pieces went in now (they are step 11's anyway): the app CSP
+  allows frames from the plugin scheme, `kumikit-assets::panel_csp`, the store accepts
+  `isolation = "iframe"` with `[ui] network`, and the shell and the core serve a panel's
+  files with its own CSP and `Access-Control-Allow-Origin: null`.
+  `test-plugins/panel-smoke` (a stand-in page and a panel that probes its sandbox) runs in
+  the shell through `scripts/desktop/panel-smoke.mjs` (stdout reports, no WebDriver) and
+  in browsers through `web/e2e/tests/panel-smoke.spec.ts`. Results:
+  - **WebKitGTK** (container) and **Chromium** (Playwright): the panel's origin is
+    `null`; the parent's DOM is unreachable; `__TAURI_INTERNALS__` is absent; fetches to
+    `ipc:`, `http://ipc.localhost` and the network are blocked by the panel's CSP (no
+    request leaves the browser); popups and top navigation are blocked; a constructed
+    stylesheet applies tokens; **module scripts run** (with `Access-Control-Allow-Origin:
+    null`), so the classic-only fallback is not needed there.
+  - **Finding:** on WebKitGTK, `window.webkit.messageHandlers.ipc` *is* visible inside the
+    panel, and a forged invoke can be posted to it. Tauri refused it (nothing reached
+    `test_report`), so Tauri's own check, not the frame, is what stops it. The smoke test
+    keeps posting forged calls on every webview and fails if one ever lands.
+  - The browser client served every file with `X-Frame-Options: DENY` and
+    `frame-ancestors 'none'`, which would block the page's own panels. Panel files now get
+    `frame-ancestors <the core's origin>` and `SAMEORIGIN`; everything else is unchanged
+    (core test `a_panels_files_carry_its_own_csp_and_only_this_core_may_frame_them`).
+  - WebView2, WKWebView and Playwright WebKit: CI only (`panel-smoke` job, `e2e-browser`).
+- Checks after step 2: clippy, fmt, `cargo test --workspace`, docs and plugin names pass;
+  Playwright Chromium 15 passed (1 live test skipped); both desktop exit tests pass in
+  the container.
+
