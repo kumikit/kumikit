@@ -35,10 +35,29 @@ interface WebCore {
   code(): { code: string; fingerprint: string };
 }
 
+/** Writes the page's WebSocket events and console problems to the test output, next to
+ * the core's debug log, so a CI failure shows both sides of the connection. */
+function watch(page: Page): void {
+  const at = () => new Date().toISOString();
+  page.on('websocket', (ws) => {
+    console.log(`${at()} PAGE websocket open ${ws.url()}`);
+    ws.on('socketerror', (e) => console.log(`${at()} PAGE websocket error ${e}`));
+    ws.on('close', () => console.log(`${at()} PAGE websocket closed`));
+  });
+  page.on('console', (m) => {
+    if (m.type() === 'error' || m.type() === 'warning') console.log(`${at()} PAGE console ${m.type()}: ${m.text()}`);
+  });
+  page.on('pageerror', (e) => console.log(`${at()} PAGE error: ${e.message}`));
+}
+
 const test = base.extend<{ core: WebCore }>({
   // The core's certificate is self-signed: the browser is told to accept it, as a user
   // would after comparing the fingerprint.
   ignoreHTTPSErrors: true,
+  page: async ({ page }, use) => {
+    watch(page);
+    await use(page);
+  },
   core: async ({}, use) => {
     const work = mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'kkb-'));
     if (process.platform !== 'win32') chmodSync(work, 0o700);

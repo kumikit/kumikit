@@ -316,10 +316,19 @@ impl Conn {
         };
         // Client notifications have no id and get no response; none are defined yet.
         let id = request.id?;
+        // Method names and timing only: params and results are never logged here.
+        let started = std::time::Instant::now();
+        tracing::debug!(device = ?self.device, method = %request.method, "request");
         let response = match self.dispatch(&request.method, request.params).await {
             Ok(result) => Response::success(id, result),
             Err(err) => Response::error(Some(id), err),
         };
+        tracing::debug!(
+            device = ?self.device,
+            method = %request.method,
+            ms = started.elapsed().as_millis() as u64,
+            "answered"
+        );
         Some(encode(&response))
     }
 

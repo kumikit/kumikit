@@ -13,7 +13,14 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   use: { trace: 'retain-on-failure' },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        // KK_NETLOG=<file>: Chromium's net-log, for socket-level debugging in CI.
+        ...(process.env.KK_NETLOG ? { launchOptions: { args: [`--log-net-log=${process.env.KK_NETLOG}`, '--net-log-capture-mode=Everything'] } } : {}),
+      },
+    },
     { name: 'webkit', use: { ...devices['Desktop Safari'] } },
   ],
 });
