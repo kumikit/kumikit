@@ -92,6 +92,22 @@ jobs:
       - run: node scripts/bundle.mjs
       - run: npx playwright install --with-deps chromium webkit
         working-directory: web/e2e
+      # TEMPORARY (debug-macos-browser-flake): repeat the flaky spec with Chromium's
+      # net-log and the core's debug log, and keep the logs either way. Remove before merging.
+      - if: runner.os == 'macOS'
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/netlog"
+          KK_NETLOG="$GITHUB_WORKSPACE/netlog/netlog.json" npx playwright test browser.spec.ts --project chromium --repeat-each 15 --max-failures 1 --reporter list 2>&1 | tee "$GITHUB_WORKSPACE/netlog/output.txt"
+          exit ${PIPESTATUS[0]}
+        shell: bash
+        working-directory: web/e2e
+      - if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-browser-debug
+          path: |
+            netlog
+            web/e2e/test-results
       - run: npx playwright test
         working-directory: web/e2e
       - if: failure()
