@@ -72,6 +72,24 @@ async function finish() {
   results.fetchIpc = await tryFetch('ipc://localhost/test_report');
   results.fetchIpcLocalhost = await tryFetch('http://ipc.localhost/test_report');
   results.fetchNet = await tryFetch('https://kumikit-smoke.invalid/');
+  // Tauri's own invoke, if its script reached this frame: the real way a panel would try
+  // to use shell commands. Each attempt waits at most 3 s.
+  const invoke = async (cmd, args) => {
+    const internals = window.__TAURI_INTERNALS__;
+    if (!internals || typeof internals.invoke !== 'function') return 'unavailable';
+    const timeout = new Promise((done) => setTimeout(() => done('no answer'), 3000));
+    const call = internals.invoke(cmd, args).then(
+      (value) => 'ANSWERED ' + JSON.stringify(value).slice(0, 80),
+      (error) => 'refused ' + String(error).slice(0, 120),
+    );
+    try {
+      return await Promise.race([call, timeout]);
+    } catch (e) {
+      return 'threw ' + String(e).slice(0, 120);
+    }
+  };
+  results.invokeReport = await invoke('test_report', { text: 'FORGED invoke' });
+  results.invokeProfiles = await invoke('profiles_list', {});
   try {
     top.location.href = 'about:blank#escaped';
     results.topNav = 'no exception';
