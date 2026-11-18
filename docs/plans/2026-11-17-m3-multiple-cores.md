@@ -787,4 +787,15 @@ Q11 take the recommendation unless you say otherwise.
   ready, and compiling it took longer on the runner than the test took to get there. The
   browser, multi-core and desktop M3 tests now wait for provider-acp to be enabled before
   they rely on it.
+- The same macOS Chromium failure came back on the next push even with the provider-acp
+  wait, so that was not the (only) cause. The trace showed the browser's connection closed
+  right after a folder was opened, and no reconnect attempt ever finished. A WebSocket
+  that stays "connecting" fires no close event, so the browser adapter now times out
+  after 10 s; the core logs why each remote connection ends, at debug level, and the
+  browser spec runs it that way. The following run (44261991021) passed everywhere,
+  including macOS Chromium and WebKit. **The root cause is not confirmed:** the test did
+  not fail again, so the logs never showed it. If it comes back, the CI log now has the
+  core's side. Locally it passed 30 of 30, and 12 of 12 pinned to one CPU. Chromium
+  aborts many TLS handshakes to the self-signed core with "certificate unknown" before
+  Playwright's ignore applies, even in passing runs; that is the first thing to look at.
 
