@@ -6,6 +6,7 @@ members = [
   "crates/kumikit-package",
   "crates/kumikit-assets",
   "crates/kumikit-registry",
+  "crates/kumikit-registry-tool",
   "crates/kumikit-plugin-host",
   "crates/kumikit-core",
   "crates/kumikit-shell",
@@ -15,6 +16,7 @@ members = [
   "test-plugins/fake-acp-agent",
   "test-plugins/fake-ssh",
   "test-plugins/net-cut",
+  "test-plugins/registry-fixture",
   "test-plugins/hello",
   "test-plugins/probe",
   "test-plugins/kumikit-test-plugins",
@@ -34,6 +36,7 @@ kumikit-protocol = { path = "crates/kumikit-protocol" }
 kumikit-kernel = { path = "crates/kumikit-kernel" }
 kumikit-package = { path = "crates/kumikit-package" }
 kumikit-assets = { path = "crates/kumikit-assets" }
+kumikit-registry = { path = "crates/kumikit-registry" }
 kumikit-plugin-host = { path = "crates/kumikit-plugin-host" }
 kumikit-plugin = { path = "sdk/rust" }
 kumikit-provider = { path = "sdk/rust-provider" }

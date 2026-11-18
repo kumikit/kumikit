@@ -782,7 +782,7 @@ Each step ends with the Verify checks that apply and one commit on branch `m4-ec
   `verify`. Core install verifies a signature when present and pins the key (migration
   0005). `check-no-keys.sh`, `.gitignore`. Tests above. Commit: `feat: sign and verify
   plugin packages`.
-- [ ] **4. Registry crate and checker.** `kumikit-registry`: types, fetch and cache,
+- [x] **4. Registry crate and checker.** `kumikit-registry`: types, fetch and cache,
   resolve, install-time checks, and the `check`/`build-index` binary with confusable ids
   and key continuity. `test-plugins/registry-fixture`. Commit: `feat: read and check plugin
   registries`.
@@ -1003,4 +1003,27 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
   come in step 5. `scripts/check-no-keys.sh` runs in the `docs` job. `cli::pack` reads a
   core-plugin manifest, so packing a UI plugin or theme with `kumikit plugin pack` fails
   today; step 8 (shared UI manifest check) fixes that for the templates.
+- CI on the first two pushes (PR #6): the panel smoke passes on **WKWebView (macOS)**,
+  **WebView2 (Windows)** and WebKitGTK. Findings:
+  - On WebView2, Tauri's init script runs in every frame, so a sandboxed panel finds
+    `__TAURI_INTERNALS__`, `window.ipc` and `chrome.webview`. Calling
+    `__TAURI_INTERNALS__.invoke('test_report' | 'profiles_list')` from the panel gets **no
+    answer** (3 s), and nothing reaches the shell: Tauri drops IPC from the frame's
+    opaque (`null`) origin. On WebKitGTK and WKWebView the script is not in the frame at
+    all. The smoke test now tries a real invoke on every webview and fails if one is
+    answered; ADR 0019's "no shell IPC" holds by Tauri's origin check, which this test
+    guards.
+  - Module scripts run from the panel's opaque origin on all three webviews (with
+    `Access-Control-Allow-Origin: null`).
+  - The first Windows run failed only at cleanup: WebView2 still held the client data
+    directory, so the script now checks the results before removing it, with retries.
+- Step 4: the checker lives in its own crate, `kumikit-registry-tool` (binary
+  `kumikit-registry`), because it validates core manifests through
+  `kumikit-plugin-host`, which `kumikit-registry` (used by the shell) must not depend on.
+  `test-plugins/registry-fixture` builds fixture registries with keys made at test time
+  and serves them on loopback, counting requests; it uses the checker's own
+  `facts`/`version_entry`, so fixtures and the checker cannot disagree. The checker
+  reads a UI plugin's manifest only for the fields it copies; full validation of UI
+  manifests comes with the shared check in step 8. `Manifest::requested()` gives a core
+  manifest's permissions in protocol form.
 

@@ -2621,14 +2621,42 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "kumikit-protocol",
  "rcgen",
  "rustls",
  "rustls-native-certs",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-rustls",
+ "toml 1.2.1+spec-1.1.0",
  "tracing",
+]
+
+[[package]]
+name = "kumikit-registry-tool"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "kumikit-package",
+ "kumikit-plugin-host",
+ "kumikit-protocol",
+ "kumikit-registry",
+ "kumikit-test-registry-fixture",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "toml 1.2.1+spec-1.1.0",
 ]
 
 [[package]]
@@ -2687,6 +2715,19 @@ name = "kumikit-test-probe"
 version = "0.1.0"
 dependencies = [
  "kumikit-provider",
+]
+
+[[package]]
+name = "kumikit-test-registry-fixture"
+version = "0.1.0"
+dependencies = [
+ "kumikit-package",
+ "kumikit-registry",
+ "kumikit-registry-tool",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "toml 1.2.1+spec-1.1.0",
 ]
 
 [[package]]

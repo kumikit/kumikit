@@ -40,7 +40,8 @@ crates/
   kumikit-protocol/      # protocol types, method table, local address; generates TypeScript
   kumikit-package/       # .kkp packing and defensive unpacking, shared by core and shell
   kumikit-assets/        # serving UI files: path checks, MIME types, CSP; shared by shell and core
-  kumikit-registry/      # registry index, fetching, install checks; the registry checker binary
+  kumikit-registry/      # registry index, fetching, resolution, install-time checks
+  kumikit-registry-tool/ # `kumikit-registry check | build-index`, run by a registry's CI
   kumikit-theme/         # theme checks (token types, contrast, fonts) for `kumikit theme check`
   kumikit-kernel/        # domain model, event log, storage, secrets, processes, permissions
   kumikit-plugin-host/   # wasmtime component host, WIT bindings, sidecar host (later)
@@ -76,7 +77,8 @@ docs/
 kumikit-protocol  ←  kumikit-kernel  ←  kumikit-plugin-host  ←  kumikit-core
 kumikit-protocol  ←  kumikit-shell
 kumikit-package   ←  kumikit-plugin-host, kumikit-registry, kumikit-core, kumikit-shell
-kumikit-registry  ←  kumikit-core, kumikit-shell
+kumikit-registry  ←  kumikit-core, kumikit-shell, kumikit-registry-tool
+kumikit-plugin-host ← kumikit-registry-tool (to validate core manifests as install does)
 kumikit-theme     ←  kumikit-core
 kumikit-assets    ←  kumikit-core, kumikit-shell
 @kumikit/protocol ←  web/kernel, web/sdk
