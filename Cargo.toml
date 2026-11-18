@@ -4,6 +4,7 @@ members = [
   "crates/kumikit-protocol",
   "crates/kumikit-kernel",
   "crates/kumikit-package",
+  "crates/kumikit-assets",
   "crates/kumikit-plugin-host",
   "crates/kumikit-core",
   "crates/kumikit-shell",
@@ -31,6 +32,7 @@ publish = false
 kumikit-protocol = { path = "crates/kumikit-protocol" }
 kumikit-kernel = { path = "crates/kumikit-kernel" }
 kumikit-package = { path = "crates/kumikit-package" }
+kumikit-assets = { path = "crates/kumikit-assets" }
 kumikit-plugin-host = { path = "crates/kumikit-plugin-host" }
 kumikit-plugin = { path = "sdk/rust" }
 kumikit-provider = { path = "sdk/rust-provider" }

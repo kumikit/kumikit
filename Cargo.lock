@@ -2477,6 +2477,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumikit-assets"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+]
+
+[[package]]
 name = "kumikit-core"
 version = "0.1.0"
 dependencies = [
@@ -2610,6 +2617,7 @@ dependencies = [
  "apple-native-keyring-store",
  "futures-util",
  "keyring-core",
+ "kumikit-assets",
  "kumikit-package",
  "kumikit-protocol",
  "kumikit-test-plugins",

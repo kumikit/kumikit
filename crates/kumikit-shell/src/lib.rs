@@ -3,7 +3,8 @@
 //! the client plugin store. The logic lives here so it is tested without a window; `main.rs` wires it into
 //! Tauri.
 
-pub mod assets;
+/// Serving UI files; shared with the core (`kumikit-assets`).
+pub use kumikit_assets as assets;
 pub mod bridge;
 pub mod connections;
 pub mod local;
