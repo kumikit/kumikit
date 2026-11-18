@@ -32,6 +32,10 @@ is about the code.
   transcripts; scrub ids, times, paths and host names before committing them.
 - **Unknown error codes** deserialize as `ErrorCode::Internal`, as the spec asks.
 
+- **`kumikit_protocol::remote`** holds the pure rules both sides print and read: the
+  fingerprint format, pairing-code normalising, `host[:port]` parsing, the close code and
+  token prefix.
+
 ## Kernel (`crates/kumikit-kernel`)
 
 - **One writer.** `store::Store` sends write closures to a single writer thread, which
@@ -58,6 +62,9 @@ is about the code.
   by reading stdout to EOF: `fake-acp-agent tree` gives a grandchild the same stdout, so
   EOF means every holder exited (no sleeps). The core's environment is injected
   (`SupervisorConfig::env`), so tests control `PATH`.
+- **Devices** (`devices.rs`) store only the token's hash. Revocation deletes the row, then
+  broadcasts the id; a listener that lags must check `device_exists`, not trust the
+  broadcast.
 - **Time and ids are injected** (`KernelConfig { clock, ids }`); tests use `StepClock`
   and `SequentialIds`.
 
@@ -106,8 +113,31 @@ is about the code.
   becomes a default. If Tauri changes the hook, the script fails instead of guessing.
   `scripts/smoke-appimage.sh` proves the result starts: the shell starts the core only
   when the UI kernel's JavaScript connects.
+- **Remote profiles** (`connections.rs`) are what the Tauri commands and the test relay
+  both call; `main.rs` only wires them. The token never leaves `secrets.rs` and
+  `remote.rs`: the shell sends `auth.token` itself before attaching the WebSocket.
+- **A child's stdin does not close on `shutdown`.** For SSH the bridge takes ssh's stdout
+  and stdin as separate halves (`attach_halves`) and drops stdin when writing ends;
+  `io::join` plus `split` kept it open and deadlocked the far side's `kumikit bridge`.
+  ssh's stderr can arrive after its stdout closes, so failures wait (2 s at most) for it.
+- **The keychain path is tested on Linux** against `keyring_core::mock`; only the
+  macOS and Windows store constructors (and the real-keychain test) run in CI alone.
 - **Window tests run in a container** (`sh scripts/desktop/run.sh <cmd>`): Ubuntu, Xvfb,
   WebKitGTK and its WebDriver. Builds there use `target/desktop-container`.
+
+## Test tools (`test-plugins/`)
+
+- **`net-cut`** is a loopback proxy whose `cut` is a black hole (nothing passes, nothing
+  closes) and whose `restore` closes every connection from before the cut. It uses
+  epochs, so a connection whose task never saw the cut is still closed; while cut it does
+  not accept, so new connections wait in the backlog. The relay embeds it; the desktop
+  test drives the binary over stdin.
+- **`fake-ssh`** stands in for `ssh` (`KUMIKIT_SSH`): it skips ssh's options, ignores the
+  destination and runs the remote command locally; the destination `denied` fails like
+  ssh does.
+- **The relay** (`web-relay --remote`) runs a second core behind `net-cut` and serves the
+  shell's profile commands with the shell's own `connections` code. Its bridge socket's
+  first message is `{"type":"open"}` or `{"type":"error",…}`, like `bridge_connect`.
 
 ## UI kernel (`web/kernel`)
 
@@ -124,6 +154,12 @@ is about the code.
 - **No inline styles or `<style>` elements**: the CSP forbids them. The theme engine
   writes a constructed stylesheet (`adoptedStyleSheets`). `scripts/check-ui-rules.mjs`
   catches literal colors, radii, font sizes, shadows and IME-unsafe Enter/Escape.
+- **Several connections.** `kernel.connection` is the active tab's (or the home one), so
+  code written for one core follows the tab. Threads are keyed by the whole address.
+  `requires.core` gating goes through `kernel.slotsIn`, `rendererFor` and
+  `commandAllowed`; use those, not `slots.in`, for anything a plugin contributes.
+- **Read props before closing a dialog.** A component's props are gone once it unmounts,
+  so a dialog that closes itself and then acts must copy them first (`OpenFolder`).
 - **`props` is a reserved name in components**: `$props` would read as a store
   subscription of a variable called `props`.
 
@@ -159,6 +195,19 @@ is about the code.
   only then notifies the serve loop, so the client always gets the answer.
 - **Bundled plugins** (`bundled.rs`) seed after `ready`, in file-name order; ids are
   remembered in `seeded_plugins` (migration 3) so removals stick.
+- **One message loop for every transport.** `rpc::serve_messages` reads and writes whole
+  messages through `messages::{MessageReader, MessageWriter}`: lines (`LineReader`) for
+  sockets, pipes and `kumikit bridge`, WebSocket frames (`remote::ws`) for remote clients.
+  Its `stop` future (a device's revocation) is polled next to `recv`, so a reader that is
+  not cancel-safe (lines) gets a `stop` that never resolves.
+- **The remote gate is not server state.** `remote::gate` reads and answers a remote
+  connection's first message itself; `serve_messages` is built only for an authenticated
+  device, so no kernel method can run before authentication. Browsers authenticate in the
+  upgrade (cookie, same origin) instead. Non-WebSocket requests free their connection's
+  pre-auth place at once.
+- **Remote tests shorten time** with hidden `serve` flags (`--pre-auth-ms`,
+  `--keepalive-ping-ms`, `--keepalive-idle-ms`) and wait for the core to act; the shell's
+  test builds take `KUMIKIT_TEST_KEEPALIVE=<ping ms>,<idle ms>`.
 - **Subscription result before events.** `rpc.rs` queues the `events.subscribe` result,
   then starts the pump (`Conn::deferred`). Starting the pump inside the handler would
   let an event overtake the result.

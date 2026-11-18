@@ -5,8 +5,8 @@
   shows "reconnecting" only in its tabs, and the local tabs keep streaming. Nothing from M4
   (registry, signing, updates, lockfiles, level-2 iframe panels, theme tooling, author
   templates) or M5 (new provider or bot plugins).
-- **Status:** active. Approved 2026-11-17 with the answers under Questions; the browser
-  client is in scope (Q5).
+- **Status:** done (2026-11-18). Every check passes locally on Linux; CI on Linux, macOS
+  and Windows (PR #4) is in the Notes.
 
 ## Scope
 
@@ -500,7 +500,7 @@ remain the first lever, and I would ask before using them.
 | Job | Change |
 |---|---|
 | `rust` (3 OSs) | none in commands; the new core, kernel and shell tests run in `cargo test --workspace` (TLS on loopback, keychain on macOS and Windows) |
-| `e2e-browser` (Linux, macOS) | build adds `-p kumikit-test-net-cut`; the multi-core specs run in the same `npx playwright test` |
+| `e2e-browser` (Linux, macOS) | no new build step (the relay links `net-cut` as a library and builds the test helpers); the multi-core and browser-client specs run in the same `npx playwright test` |
 | `e2e-desktop` (Linux, Windows) | `scripts/desktop/e2e.sh` (and the Windows step) also runs `exit-m3.test.mjs`; build adds `-p kumikit-test-net-cut -p kumikit-test-fake-ssh` |
 | `footprint` (Linux) | the remote-on phase is part of `scripts/footprint.sh`; the shell's second run is reported |
 | `installers` (3 OSs) | none; the size check catches growth |
@@ -510,8 +510,8 @@ AGENTS.md Verify changes:
 - The browser e2e line becomes `node scripts/bundle.mjs && cargo build -p kumikit-core -p
   kumikit-web-relay -p kumikit-test-net-cut`, then `npx playwright test` in `web/e2e`.
 - The desktop exit test line says it runs the M2 and M3 exit tests.
-- New manual line: `cargo test -p kumikit-shell --test ssh -- --ignored` (live SSH to
-  `localhost`; needs a local sshd and `kumikit` on its `PATH`).
+- New manual line: `cargo test -p kumikit-shell --test remote -- --ignored` (live SSH to
+  `KK_SSH_DEST`, default `localhost`; needs an sshd there and `kumikit` on its `PATH`).
 - The status paragraph says M3 is built, at the end.
 
 ## Steps
@@ -580,7 +580,7 @@ code first needs macOS and Windows; the next after step 13; the last after step 
   container, Windows *(CI)*. Commit: `test: add M3 exit-criteria test`. **Second push.**
 - [x] **14. Footprint and installers.** Remote-on phase, shell second run, numbers in
   Notes. Commit: `chore: measure the remote transport's footprint`.
-- [ ] **15. Close out.** Spec matches code, roadmap M3 done, AGENTS.md status and Verify,
+- [x] **15. Close out.** Spec matches code, roadmap M3 done, AGENTS.md status and Verify,
   agent reference (the message trait, the gate, the proxy, test keepalive values), README
   privacy sentence, plan `done`. Commit: `docs: close M3`. **Last push**; mark the PR ready.
 
@@ -770,4 +770,16 @@ Q11 take the recommendation unless you say otherwise.
   - Not done: the planned second shell run with a TLS connection. It needs a paired
     profile and token set up from outside the app, which the scripts cannot do today; the
     gated run is unchanged.
+- CI on the second push (PR #4, steps 1–13): every job passed on macOS and Windows,
+  including the M3 desktop exit test on Windows (WebView2 and Credential Manager), the
+  Playwright suites with WebKit on macOS, and the installers. Installer sizes: NSIS
+  **13.0 MB**, `.dmg` **13.3 MB**, `.deb` and `.rpm` **15.6 MB** (budget 20 MB; M2 was
+  11.3, 11.2 and 13.3 MB); AppImage 93.8 MB, outside the budget. The Linux `rust` job hung:
+  `approvals_record_the_answering_device` waited for an event its client had already
+  skipped (on a fast runner the event came before the reply it was waiting for). Fixed by
+  polling the snapshot and replaying the log, with a deadline; the run was cancelled.
+- Close-out: spec and roadmap say M3 is built; AGENTS.md status and Verify, the agent
+  reference (message loop, gate, test tools, several connections), and the README privacy
+  section (remote access only with `--listen`; connections and keepalive only to cores
+  the user added) are updated. ADRs 0016 and 0017 stay Proposed until the PR merges.
 

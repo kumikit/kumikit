@@ -63,6 +63,12 @@ build (`web/e2e`, Playwright WebKit). A live run against real Claude Code passed
 **Exit:** one window shows tabs from a local core and a remote core; killing the remote's
 network shows "reconnecting" only in its tabs, and the local tabs keep streaming.
 
+**Status:** built. The exit test (`web/e2e-desktop/exit-m3.test.mjs`) drives the real app
+over WebDriver with a remote core behind a cuttable network (`test-plugins/net-cut`) and
+recorded Claude Code transcripts; it passes on Linux and Windows (CI). The same flow runs
+in the browser build with Playwright (`web/e2e/tests/cores.spec.ts`), WebKit included on
+macOS. Plan: [M3 — Multiple cores](../plans/2026-11-17-m3-multiple-cores.md).
+
 ## M4 — Ecosystem
 
 - Package signing, the git registry and its CI, `kumikit plugin add <id>` from the

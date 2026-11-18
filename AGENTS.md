@@ -12,12 +12,15 @@ spec, not here.
 
 ## Status
 
-M0 (protocol and kernel), M1 (plugin host) and M2 (client) are built: `kumikit serve`,
-the kernel, WASM plugins with permissions and a lifecycle, provider-acp, `kumikit plugin`,
-and the desktop app (Tauri shell, Svelte UI kernel, UI SDK 0.1, ui-chat, ui-settings,
-theme-default) ([M0 plan](docs/plans/2026-11-15-m0-protocol-and-kernel.md),
+M0 (protocol and kernel), M1 (plugin host), M2 (client) and M3 (multiple cores) are
+built: `kumikit serve`, the kernel, WASM plugins with permissions and a lifecycle,
+provider-acp, `kumikit plugin`, the desktop app (Tauri shell, Svelte UI kernel, UI SDK
+0.1, ui-chat, ui-settings, theme-default), remote cores over TLS with pairing and device
+tokens or through SSH, and the browser client served by a core
+([M0 plan](docs/plans/2026-11-15-m0-protocol-and-kernel.md),
 [M1 plan](docs/plans/2026-11-15-m1-plugin-host.md),
-[M2 plan](docs/plans/2026-11-16-m2-client.md)). M3 (multiple cores) is next. Build
+[M2 plan](docs/plans/2026-11-16-m2-client.md),
+[M3 plan](docs/plans/2026-11-17-m3-multiple-cores.md)). M4 (ecosystem) is next. Build
 in milestone order
 ([roadmap](docs/spec/12-roadmap.md)); do not start a later milestone's code before the
 earlier one's exit criteria pass.
@@ -53,15 +56,19 @@ Now:
 - `cargo test -p kumikit-protocol` also fails when generated TypeScript is stale;
   `KUMIKIT_BLESS=1 cargo test -p kumikit-protocol` regenerates `web/protocol/`.
 - `npx -p typescript@7.0.2 tsc --noEmit -p web/protocol` when protocol types change.
-- `sh scripts/footprint.sh`: core cold start and idle memory against the budgets
-  (release build; CI runs it on Linux).
+- `sh scripts/footprint.sh`: core cold start and idle memory against the budgets, with
+  remote access off and on (release build; CI runs it on Linux).
+- `cargo test -p kumikit-shell --test remote -- --ignored`: live SSH profile through the
+  real `ssh` (needs `ssh` access to `KK_SSH_DEST`, default `localhost`, where `kumikit`
+  is on the `PATH` and a core runs; manual)
 
 From M2 (npm commands run at the repository root, an npm workspace):
 - `npm ci`, then `npm run check` (svelte-check + tsc) and `npm test` (Vitest)
 - `node scripts/check-npm-licenses.mjs` when npm dependencies change
 - Browser end-to-end: `node scripts/bundle.mjs && cargo build -p kumikit-core -p
-  kumikit-web-relay`, then `npx playwright test` in `web/e2e`
-- Desktop exit test (Linux, in the container): `sh scripts/desktop/run.sh sh
+  kumikit-web-relay`, then `npx playwright test` in `web/e2e` (the relay suites, two
+  cores behind a cuttable network, and the browser client served by a core)
+- Desktop exit tests, M2 and M3 (Linux, in the container): `sh scripts/desktop/run.sh sh
   scripts/desktop/e2e.sh` after `node scripts/bundle.mjs`; Windows runs in CI
 - Desktop shell memory: `sh scripts/desktop/run.sh sh scripts/desktop/footprint.sh`
 
