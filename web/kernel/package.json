@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && vite build --mode browser-test",
+    "build": "vite build && vite build --mode browser && vite build --mode browser-test",
     "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "test:extra": "node scripts/check-ui-rules.mjs && node scripts/size.mjs"
   },

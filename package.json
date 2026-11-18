@@ -16,7 +16,8 @@
     "check": "npm run check --workspaces --if-present",
     "test": "vitest run && npm run test:extra --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
-    "licenses": "node scripts/check-npm-licenses.mjs"
+    "licenses": "node scripts/check-npm-licenses.mjs",
+    "dev:browser": "node web/kernel/scripts/dev-browser.mjs"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "7.3.1",

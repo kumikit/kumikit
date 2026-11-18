@@ -24,6 +24,7 @@ path = "src/main.rs"
 test-hooks = []
 
 [dependencies]
+kumikit-assets.workspace = true
 kumikit-package.workspace = true
 kumikit-protocol.workspace = true
 semver = "1.0.28"
@@ -34,13 +35,27 @@ serde = { version = "1.0.229", features = ["derive"] }
 tauri = { version = "2.12.6", default-features = false, features = ["wry", "compression", "x11"] }
 tauri-plugin-dialog = { version = "2.8.4", default-features = false, features = ["gtk3"] }
 thiserror = "2.0.21"
-tokio = { version = "1.54.1", features = ["rt", "net", "io-util", "sync", "time", "macros"] }
+tokio = { version = "1.54.1", features = ["rt", "net", "io-util", "sync", "time", "macros", "process"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring"] }
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
+sha2 = "0.10"
+keyring-core = "1"
+futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 
 [target."cfg(unix)".dependencies]
-rustix = { version = "1.1.6", features = ["process"] }
+rustix = { version = "1.1.6", features = ["process", "system"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1", default-features = false, features = ["keychain"] }
+
+[target."cfg(windows)".dependencies]
+windows-native-keyring-store = { version = "1", default-features = false }
 
 [build-dependencies]
 tauri-build = { version = "2.7.5", default-features = false, features = [] }
 
 [dev-dependencies]
+kumikit-test-plugins = { path = "../../test-plugins/kumikit-test-plugins" }
+tempfile = "3.27.0"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "io-util", "net", "time"] }

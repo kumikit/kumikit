@@ -8,7 +8,7 @@
 │  UI kernel: connections, tabs, slots, commands, theme engine, plugin manager   │
 │  UI plugins (installed per client): panels, widgets, renderers, themes         │
 └───────┬────────────────────────────┬────────────────────────────┬──────────────┘
-        │ Unix socket / named pipe   │ WebSocket over TLS         │ WebSocket over SSH tunnel
+        │ Unix socket / named pipe   │ WebSocket over TLS         │ stdio over SSH
 ┌───────▼─────────┐         ┌────────▼────────┐          ┌────────▼────────┐
 │ kumikit serve   │         │ kumikit serve   │          │ kumikit serve   │
 │ (this machine)  │         │ (devbox)        │          │ (vm-3)          │
@@ -19,7 +19,7 @@
 ```
 
 - **`kumikit` (core binary).** Headless. `kumikit serve` runs the core; other subcommands
-  (`kumikit plugin add`, `kumikit pair`, `kumikit status`) are thin clients of a running
+  (`kumikit plugin add`, `kumikit pair`, `kumikit devices`, `kumikit bridge`) are thin clients of a running
   core, or operate on its data directory when none runs. The same binary is used on a
   laptop and on a server.
 - **Kumikit desktop (client).** A Tauri 2 app using the system webview (WKWebView,
@@ -39,6 +39,7 @@ connect catches up from the event log.
 crates/
   kumikit-protocol/      # protocol types, method table, local address; generates TypeScript
   kumikit-package/       # .kkp packing and defensive unpacking, shared by core and shell
+  kumikit-assets/        # serving UI files: path checks, MIME types, CSP; shared by shell and core
   kumikit-kernel/        # domain model, event log, storage, secrets, processes, permissions
   kumikit-plugin-host/   # wasmtime component host, WIT bindings, sidecar host (later)
   kumikit-core/          # the `kumikit` binary: transports, auth, CLI
@@ -72,13 +73,15 @@ docs/
 kumikit-protocol  ←  kumikit-kernel  ←  kumikit-plugin-host  ←  kumikit-core
 kumikit-protocol  ←  kumikit-shell
 kumikit-package   ←  kumikit-plugin-host, kumikit-core, kumikit-shell
+kumikit-assets    ←  kumikit-core, kumikit-shell
 @kumikit/protocol ←  web/kernel, web/sdk
 @kumikit/ui-sdk   ←  web/kernel, plugins/ui-*
 wit/              ←  kumikit-plugin-host, sdk/rust*, plugins/*, test-plugins/*
 ```
 
 - `kumikit-protocol` depends on nothing in the workspace. It has no I/O.
-- `kumikit-package` depends on nothing in the workspace and knows no kernel types.
+- `kumikit-package` and `kumikit-assets` depend on nothing in the workspace and know no
+  kernel types.
 - `kumikit-shell` and `web/` never depend on `kumikit-kernel`: the client knows the core
   only through the protocol.
 - `plugins/*` and `test-plugins/*` depend only on `wit/`, `sdk/`, `web/sdk` and
@@ -93,6 +96,7 @@ wit/              ←  kumikit-plugin-host, sdk/rust*, plugins/*, test-plugins/*
 | Core, shell | Rust stable, edition 2024, tokio | Footprint, one language for native code |
 | Plugin runtime | wasmtime, WASM component model, WIT, WASI 0.2; guests built for `wasm32-wasip2` with wit-bindgen | [ADR 0003](../decisions/0003-wasm-first-core-plugins.md), [ADR 0010](../decisions/0010-wasi-p2-and-session-instances.md) |
 | Protocol | JSON-RPC 2.0, schema in Rust, TS generated | [ADR 0005](../decisions/0005-json-rpc-protocol.md) |
+| Remote transport | rustls (ring, TLS 1.3), hyper, tokio-tungstenite, rcgen; the system `ssh` | [ADR 0016](../decisions/0016-remote-transport-and-pairing.md), [ADR 0017](../decisions/0017-shell-remote-profiles-and-ssh.md) |
 | Storage | SQLite (WAL) via rusqlite | Single file, no server, proven |
 | Desktop | Tauri 2, system webview | [ADR 0002](../decisions/0002-separate-core-and-client.md) |
 | UI kernel | Svelte 5 (runes), TypeScript strict, Vite | [ADR 0004](../decisions/0004-svelte-ui-kernel.md) |

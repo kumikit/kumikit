@@ -84,10 +84,10 @@ export class CommandRegistry {
     return cmd.run(args);
   }
 
-  /** Commands available in `ctx`, best match for `query` first. */
-  search(query: string, ctx: WhenContext): Command[] {
+  /** Commands available in `ctx` (and let through by `allow`), best match for `query` first. */
+  search(query: string, ctx: WhenContext, allow: (c: Command) => boolean = () => true): Command[] {
     return this.commands
-      .filter((c) => whenMatches(c.when, ctx))
+      .filter((c) => whenMatches(c.when, ctx) && allow(c))
       .map((c) => ({ c, s: Math.max(fuzzyScore(query, c.title), fuzzyScore(query, c.id) - 2) }))
       .filter((x) => x.s >= 0)
       .sort((a, b) => b.s - a.s || a.c.title.localeCompare(b.c.title))
@@ -95,7 +95,7 @@ export class CommandRegistry {
   }
 
   /** The command bound to a key event in `ctx`, if any. */
-  forKey(e: KeyboardEvent, ctx: WhenContext, mac: boolean): Command | undefined {
-    return this.commands.find((c) => c.keybinding && whenMatches(c.when, ctx) && keyMatches(c.keybinding, e, mac));
+  forKey(e: KeyboardEvent, ctx: WhenContext, mac: boolean, allow: (c: Command) => boolean = () => true): Command | undefined {
+    return this.commands.find((c) => c.keybinding && whenMatches(c.when, ctx) && allow(c) && keyMatches(c.keybinding, e, mac));
   }
 }

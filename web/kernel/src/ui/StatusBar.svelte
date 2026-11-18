@@ -3,22 +3,23 @@
   import SlotHost from './SlotHost.svelte';
 
   let { kernel }: { kernel: Kernel } = $props();
+  // The active tab's core; its name is shown when the window knows several.
   const conn = $derived(kernel.connection);
-  const label = $derived(
-    conn.status === 'ready'
-      ? 'Connected'
-      : conn.status === 'mismatch'
-        ? 'Core version differs'
-        : conn.status === 'reconnecting'
-          ? 'Reconnecting…'
-          : 'Connecting…',
-  );
+  const statusText: Record<string, string> = {
+    ready: 'Connected',
+    mismatch: 'Core version differs',
+    reconnecting: 'Reconnecting…',
+    connecting: 'Connecting…',
+    unauthorized: 'Needs pairing',
+    certificate_changed: 'Certificate changed',
+  };
+  const label = $derived(`${kernel.connections.length > 1 ? `${conn.label}: ` : ''}${statusText[conn.status] ?? conn.status}`);
 </script>
 
 <footer class="bar">
   <span class="conn" class:down={conn.status !== 'ready'} role="status" aria-live="polite">{label}</span>
   <span class="spacer"></span>
-  {#each kernel.slots.in('statusbar.item') as entry (entry)}
+  {#each kernel.slotsIn('statusbar.item') as entry (entry)}
     <SlotHost plugin={entry.plugin} contribution={entry.contribution} props={{}} slots={kernel.slots} />
   {/each}
   <button type="button" class="link" onclick={() => (kernel.dialog = { kind: 'palette' })}>

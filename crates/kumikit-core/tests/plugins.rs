@@ -23,7 +23,7 @@ async fn installing_and_disabling_is_announced_to_every_client() {
         let mut admin = Client::hello(&dirs.address).await;
 
         let hello = admin
-            .call("core.hello", json!({"protocol": "0.3", "client": {"name": "t", "version": "0"}}))
+            .call("core.hello", json!({"protocol": "0.4", "client": {"name": "t", "version": "0"}}))
             .await;
         assert_eq!(hello["plugins"], json!([]));
         assert!(hello["capabilities"].as_array().unwrap().contains(&json!("plugins")));
@@ -89,7 +89,7 @@ async fn enabled_plugins_survive_a_restart_and_appear_in_hello() {
         let hello = c
             .call(
                 "core.hello",
-                json!({"protocol": "0.3", "client": {"name": "t", "version": "0"}}),
+                json!({"protocol": "0.4", "client": {"name": "t", "version": "0"}}),
             )
             .await;
         assert_eq!(
@@ -117,6 +117,37 @@ async fn bad_packages_are_invalid_params() {
             .request("plugin.install", json!({"path": junk.to_str().unwrap()}))
             .await;
         assert_eq!(r["error"]["data"]["code"], "invalid_params", "{r}");
+        core.stop().await;
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_package_can_be_installed_from_its_bytes() {
+    use base64::Engine;
+    within(async {
+        let dirs = Dirs::new();
+        let core = Core::start(&dirs).await;
+        let mut c = Client::hello(&dirs.address).await;
+        let bytes = std::fs::read(probe_kkp(&dirs)).unwrap();
+        let package = base64::engine::general_purpose::STANDARD.encode(bytes);
+        let installed = c.call("plugin.install", json!({"package": package})).await;
+        assert_eq!(installed["plugin"]["id"], "test.probe");
+        assert_eq!(installed["plugin"]["state"], "installed");
+
+        // The same rules as a file: not base64, not a package, both or neither given.
+        for params in [
+            json!({"package": "not base64!"}),
+            json!({"package": base64::engine::general_purpose::STANDARD.encode(b"junk")}),
+            json!({"package": "", "path": "/x.kkp"}),
+            json!({}),
+        ] {
+            let r = c.request("plugin.install", params.clone()).await;
+            assert_eq!(
+                r["error"]["data"]["code"], "invalid_params",
+                "{params}: {r}"
+            );
+        }
         core.stop().await;
     })
     .await;

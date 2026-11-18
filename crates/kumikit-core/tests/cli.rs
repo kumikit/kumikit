@@ -75,7 +75,7 @@ async fn add_on_a_stopped_core_then_serve_offers_the_provider() {
         let hello = c
             .call(
                 "core.hello",
-                json!({"protocol": "0.3", "client": {"name": "t", "version": "0"}}),
+                json!({"protocol": "0.4", "client": {"name": "t", "version": "0"}}),
             )
             .await;
         assert_eq!(
@@ -192,6 +192,161 @@ async fn pack_builds_an_installable_package() {
         let r = kumikit(&dirs, &["pack", src.to_str().unwrap()]).await;
         assert!(!r.ok);
         assert!(r.stderr.contains("not in the package"), "{}", r.stderr);
+    })
+    .await;
+}
+
+async fn kumikit_raw(args: &[&str]) -> Run {
+    let out = tokio::process::Command::new(env!("CARGO_BIN_EXE_kumikit"))
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .unwrap();
+    Run {
+        ok: out.status.success(),
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pair_needs_a_running_core_with_remote_access() {
+    within(async {
+        let dirs = Dirs::new();
+        let r = kumikit_raw(&["pair", "--socket", &dirs.address]).await;
+        assert!(!r.ok);
+        assert!(r.stderr.contains("no core is running"), "{}", r.stderr);
+
+        let core = Core::start(&dirs).await;
+        let r = kumikit_raw(&["pair", "--socket", &dirs.address]).await;
+        assert!(!r.ok);
+        assert!(
+            r.stderr.contains("start the core with --listen"),
+            "{}",
+            r.stderr
+        );
+        core.stop().await;
+
+        let (core, info) = Core::start_remote(&dirs, &[], false).await;
+        let r = kumikit_raw(&["pair", "--socket", &dirs.address]).await;
+        assert!(r.ok, "{}", r.stderr);
+        assert!(
+            r.stdout
+                .contains(&format!("Fingerprint:  {}", info.fingerprint)),
+            "{}",
+            r.stdout
+        );
+        assert!(
+            r.stdout.contains(&format!("Address:      {}", info.url)),
+            "{}",
+            r.stdout
+        );
+        let r = kumikit_raw(&["pair", "--socket", &dirs.address, "--json"]).await;
+        let code: serde_json::Value = serde_json::from_str(r.stdout.trim()).unwrap();
+        assert_eq!(code["fingerprint"], info.fingerprint.as_str());
+        assert_eq!(code["code"].as_str().unwrap().len(), 9);
+        core.stop().await;
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn devices_are_listed_and_revoked_running_or_not() {
+    within(async {
+        let dirs = Dirs::new();
+        let (core, info) = Core::start_remote(&dirs, &[], false).await;
+        let data = dirs.data();
+        let data = data.to_str().unwrap();
+        let devices = |args: &[&str]| {
+            let mut all = vec!["devices"];
+            all.extend_from_slice(args);
+            all.extend_from_slice(&["--socket", &dirs.address, "--data-dir", data]);
+            all.into_iter().map(str::to_owned).collect::<Vec<_>>()
+        };
+        let run = |args: Vec<String>| async move {
+            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+            kumikit_raw(&refs).await
+        };
+        let r = run(devices(&["list"])).await;
+        assert!(
+            r.stdout.contains("No devices are paired."),
+            "{}{}",
+            r.stdout,
+            r.stderr
+        );
+        let id = support_pair(&dirs, &info).await;
+        let r = run(devices(&["list"])).await;
+        assert!(
+            r.stdout.contains(&id) && r.stdout.contains("cli-test"),
+            "{}",
+            r.stdout
+        );
+        core.stop().await;
+
+        // Offline, on the data directory.
+        let r = run(devices(&["list"])).await;
+        assert!(r.stdout.contains(&id), "{}{}", r.stdout, r.stderr);
+        let r = run(devices(&["revoke", &id])).await;
+        assert!(r.ok, "{}", r.stderr);
+        let r = run(devices(&["list"])).await;
+        assert!(r.stdout.contains("No devices are paired."), "{}", r.stdout);
+        let r = run(devices(&["revoke", &id])).await;
+        assert!(!r.ok);
+        assert!(r.stderr.contains("no device"), "{}", r.stderr);
+    })
+    .await;
+}
+
+/// Pairs a device named `cli-test`: `kumikit pair --json` for the code, then `auth.pair`
+/// over the remote transport.
+async fn support_pair(dirs: &Dirs, info: &support::RemoteInfo) -> String {
+    let r = kumikit_raw(&["pair", "--socket", &dirs.address, "--json"]).await;
+    let code: serde_json::Value = serde_json::from_str(r.stdout.trim()).unwrap();
+    let res = support::remote_call_once(
+        info,
+        "auth.pair",
+        json!({"code": code["code"], "deviceName": "cli-test"}),
+    )
+    .await;
+    res["result"]["device"]["id"].as_str().unwrap().to_owned()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bridge_copies_lines_to_the_local_core() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    within(async {
+        let dirs = Dirs::new();
+        let r = kumikit_raw(&["bridge", "--socket", &dirs.address]).await;
+        assert!(!r.ok);
+        assert!(r.stderr.contains("no core is running on this machine"), "{}", r.stderr);
+
+        let core = Core::start(&dirs).await;
+        let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_kumikit"))
+            .args(["bridge", "--socket", &dirs.address])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+        stdin
+            .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"core.hello\",\"params\":{\"protocol\":\"0.4\",\"client\":{\"name\":\"t\",\"version\":\"0\"}}}\n\n")
+            .await
+            .unwrap();
+        let hello: serde_json::Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+        assert_eq!(hello["result"]["protocol"], "0.4");
+        // A local connection: no devices capability without --listen, auth not needed.
+        stdin
+            .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"auth.token\",\"params\":{\"token\":\"x\"}}\n")
+            .await
+            .unwrap();
+        let r: serde_json::Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+        assert_eq!(r["error"]["data"]["code"], "unsupported");
+        drop(stdin);
+        assert!(child.wait().await.unwrap().success());
+        core.stop().await;
     })
     .await;
 }

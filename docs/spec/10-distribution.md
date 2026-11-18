@@ -88,9 +88,26 @@ to install a core plugin:
   plugin; `--yes` grants without asking. Without a terminal and without `--yes`, the
   plugin stays installed but not enabled.
 - `remove` asks before deleting the plugin's data; `--keep-data` keeps it.
+- The CLI talks to the local core only. The desktop app installs on remote cores by
+  uploading the package (`plugin.install { package }`).
 - The SHA-256 of the package is recorded for the lockfile. Installing an id that is
   already installed fails until updates exist; remove it first. Adding the same version
   of a plugin that is installed but not enabled asks again for the grant.
+
+### Remote access commands
+
+- `kumikit serve --listen <host[:port]> [--tls-cert <pem> --tls-key <pem>] [--web <dir>]`
+  turns on the remote transport for that run, and with `--web` serves the browser client
+  ([02](02-protocol.md#remote-transport), [06](06-client.md#browser-client)).
+- `kumikit pair [--json]` prints a pairing code, its expiry, the certificate fingerprint and
+  the URL (`--json`: the `auth.pairing.create` result). It needs a running core with
+  remote access on.
+- `kumikit devices list` and `kumikit devices revoke <id>` manage paired devices, through
+  the running core or, when none runs, on the data directory.
+- `kumikit bridge` copies JSON-RPC lines between stdin/stdout and the local core; the
+  desktop app runs it over SSH.
+
+All take `--socket` (and the device commands `--data-dir`).
 
 ## Lockfiles
 

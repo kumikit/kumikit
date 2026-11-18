@@ -2,7 +2,6 @@
 //! (`docs/spec/02-protocol.md`). Transport-independent, so tests drive it in memory.
 
 use std::collections::HashMap;
-use std::io;
 use std::sync::Arc;
 
 use kumikit_kernel::{Kernel, KernelError, ThreadSubscription};
@@ -19,9 +18,9 @@ use kumikit_protocol::methods::{
 use kumikit_protocol::model::WorkspaceId;
 use kumikit_protocol::{ErrorCode, PROTOCOL_VERSION, ProtocolVersion, RpcError, Topic};
 use serde_json::Value;
-use tokio::io::{
-    AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, BufWriter,
-};
+use tokio::io::{AsyncRead, AsyncWrite};
+
+use crate::messages::{Close, LineReader, LineWriter, MessageReader, MessageWriter, Received};
 use tokio::sync::{Notify, broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 
@@ -52,6 +51,17 @@ pub struct ServerInfo {
     /// Notified when a client asks the core to stop (`core.shutdown`), after the reply
     /// has been written.
     pub shutdown: Arc<Notify>,
+    /// Remote access, when the core runs with `--listen`.
+    pub remote: Option<Arc<crate::remote::Remote>>,
+}
+
+/// Who is on the other end of a connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Peer {
+    /// A local transport (socket, pipe, or SSH arriving on them): the core's own user.
+    Local,
+    /// A paired device on the remote transport, by device id.
+    Device(String),
 }
 
 impl ServerInfo {
@@ -62,39 +72,87 @@ impl ServerInfo {
             name: crate::paths::host_name(),
             os: std::env::consts::OS.to_owned(),
             shutdown: Arc::new(Notify::new()),
+            remote: None,
         }
     }
 }
 
-/// Serves one connection until the client disconnects, the stream fails, or a message
-/// is too long.
+/// Serves one newline-delimited connection (socket, pipe, `kumikit bridge`) until the
+/// client disconnects, the stream fails, or a message is too long.
 pub async fn serve_connection<S>(host: PluginHost, info: Arc<ServerInfo>, stream: S)
 where
     S: AsyncRead + AsyncWrite + Send + 'static,
 {
     let (read, write) = tokio::io::split(stream);
+    serve_messages(
+        host,
+        info,
+        LineReader::new(read),
+        LineWriter::new(write),
+        Peer::Local,
+        std::future::pending(),
+    )
+    .await;
+}
+
+/// Serves one connection over any message transport, until the client disconnects, the
+/// transport fails, a message is too long or not text, or `stop` resolves (the device was
+/// revoked); then the transport closes with `stop`'s reason. `stop` is polled next to
+/// `reader.recv()`, so a reader whose `recv` is not cancel-safe must get a `stop` that
+/// never resolves.
+pub async fn serve_messages<R, W>(
+    host: PluginHost,
+    info: Arc<ServerInfo>,
+    mut reader: R,
+    writer: W,
+    peer: Peer,
+    stop: impl Future<Output = Close> + Send,
+) where
+    R: MessageReader,
+    W: MessageWriter,
+{
     let (tx, rx) = mpsc::channel::<String>(OUTBOUND);
-    let writer = tokio::spawn(write_loop(write, rx));
+    let (close_tx, close_rx) = tokio::sync::oneshot::channel();
+    let writer = tokio::spawn(writer.run(rx, close_rx));
+    tokio::pin!(stop);
+    let mut close_tx = Some(close_tx);
     let mut conn = Conn {
         kernel: host.manager().kernel().clone(),
         host,
         info,
         tx,
         hello: false,
+        device: match peer {
+            Peer::Local => None,
+            Peer::Device(id) => Some(id),
+        },
         stop: false,
         subs: HashMap::new(),
         deferred: None,
         plugins_watch: None,
         plugin_changes: None,
     };
-    let mut reader = BufReader::new(read);
-    let mut buf = Vec::new();
     loop {
-        match read_line(&mut reader, &mut buf, MAX_MESSAGE).await {
-            Ok(Line::Data) => {}
-            Ok(Line::Eof) => break,
-            Ok(Line::TooLong) => {
-                let err = RpcError::new(ErrorCode::InvalidRequest, "message too long");
+        let received = tokio::select! {
+            biased;
+            close = &mut stop => {
+                tracing::debug!(device = ?conn.device, code = close.code, "closing the connection");
+                if let Some(tx) = close_tx.take() {
+                    let _ = tx.send(close);
+                }
+                break;
+            }
+            r = reader.recv() => r,
+        };
+        let message = match received {
+            Ok(Received::Message(m)) => m,
+            Ok(Received::Eof) => {
+                tracing::debug!(device = ?conn.device, "the client closed the connection");
+                break;
+            }
+            Ok(Received::Refused(why)) => {
+                tracing::debug!(device = ?conn.device, why, "closing the connection");
+                let err = RpcError::new(ErrorCode::InvalidRequest, why);
                 let _ = conn.tx.send(encode(&Response::error(None, err))).await;
                 break;
             }
@@ -102,12 +160,11 @@ where
                 tracing::debug!(error = %e, "connection read failed");
                 break;
             }
-        }
-        let line = trim_line(&buf);
-        if line.is_empty() {
+        };
+        if message.is_empty() {
             continue;
         }
-        if let Some(response) = conn.handle(line).await
+        if let Some(response) = conn.handle(&message).await
             && conn.tx.send(response).await.is_err()
         {
             break;
@@ -157,6 +214,8 @@ struct Conn {
     info: Arc<ServerInfo>,
     tx: mpsc::Sender<String>,
     hello: bool,
+    /// The paired device on a remote connection; `None` on local ones.
+    device: Option<String>,
     /// Set by `core.shutdown`: close this connection, then stop the core.
     stop: bool,
     subs: HashMap<String, JoinHandle<()>>,
@@ -208,6 +267,17 @@ fn kernel_err(e: KernelError) -> RpcError {
         tracing::error!(error = %e, "request failed");
     }
     RpcError::new(e.code(), e.to_string())
+}
+
+/// A kernel device record as the protocol shows it; `current` marks the caller's own.
+fn device_info(d: kumikit_kernel::devices::DeviceRecord, current: Option<&str>) -> m::Device {
+    m::Device {
+        current: (current == Some(d.id.as_str())).then_some(true),
+        id: d.id,
+        name: d.name,
+        created: d.created,
+        last_seen: d.last_seen,
+    }
 }
 
 fn parse<M: Method>(params: Option<Value>) -> Result<M::Params, RpcError> {
@@ -288,7 +358,12 @@ impl Conn {
                         os: self.info.os.clone(),
                     },
                     plugins: crate::plugins::infos(&self.host),
-                    capabilities: CAPABILITIES.iter().map(|s| (*s).to_owned()).collect(),
+                    capabilities: CAPABILITIES
+                        .iter()
+                        .copied()
+                        .chain(self.info.remote.is_some().then_some("devices"))
+                        .map(str::to_owned)
+                        .collect(),
                 })
             }
             m::CoreShutdown::NAME => {
@@ -369,7 +444,7 @@ impl Conn {
             m::ThreadRespondApproval::NAME => {
                 let p = parse::<m::ThreadRespondApproval>(params)?;
                 // Local connections have no device id.
-                k.respond_approval(&p.approval, p.decision, None)
+                k.respond_approval(&p.approval, p.decision, self.device.clone())
                     .await
                     .map_err(kernel_err)?;
                 reply::<m::ThreadRespondApproval>(Empty {})
@@ -434,7 +509,18 @@ impl Conn {
             }
             m::PluginInstall::NAME => {
                 let p = parse::<m::PluginInstall>(params)?;
-                let plugin = crate::plugins::install(&self.host, &p.path).await?;
+                let plugin = match (&p.path, &p.package) {
+                    (Some(path), None) => crate::plugins::install(&self.host, path).await?,
+                    (None, Some(package)) => {
+                        crate::plugins::install_package(&self.host, package).await?
+                    }
+                    _ => {
+                        return Err(RpcError::new(
+                            ErrorCode::InvalidParams,
+                            "give exactly one of path and package",
+                        ));
+                    }
+                };
                 reply::<m::PluginInstall>(PluginResult { plugin })
             }
             m::PluginEnable::NAME => {
@@ -454,6 +540,48 @@ impl Conn {
                     .await
                     .map_err(crate::plugins::host_err)?;
                 reply::<m::PluginUninstall>(Empty {})
+            }
+            m::AuthPair::NAME | m::AuthToken::NAME => Err(match self.device {
+                None => RpcError::new(
+                    ErrorCode::Unsupported,
+                    "local connections need no authentication",
+                ),
+                Some(_) => RpcError::new(ErrorCode::Conflict, "already authenticated"),
+            }),
+            m::AuthPairingCreate::NAME => {
+                parse::<m::AuthPairingCreate>(params)?;
+                if self.device.is_some() {
+                    return Err(RpcError::new(
+                        ErrorCode::PermissionDenied,
+                        "pairing codes are made on the core's machine (kumikit pair)",
+                    ));
+                }
+                let Some(remote) = &self.info.remote else {
+                    return Err(RpcError::new(
+                        ErrorCode::Unsupported,
+                        "remote access is off; start the core with --listen",
+                    ));
+                };
+                let code = remote
+                    .create_code()
+                    .map_err(|e| RpcError::new(ErrorCode::Internal, e.to_string()))?;
+                reply::<m::AuthPairingCreate>(code)
+            }
+            m::AuthDevicesList::NAME => {
+                parse::<m::AuthDevicesList>(params)?;
+                let devices = k
+                    .device_list()
+                    .await
+                    .map_err(kernel_err)?
+                    .into_iter()
+                    .map(|d| device_info(d, self.device.as_deref()))
+                    .collect();
+                reply::<m::AuthDevicesList>(m::DeviceListResult { devices })
+            }
+            m::AuthDevicesRevoke::NAME => {
+                let p = parse::<m::AuthDevicesRevoke>(params)?;
+                k.device_revoke(&p.device).await.map_err(kernel_err)?;
+                reply::<m::AuthDevicesRevoke>(Empty {})
             }
             other => Err(RpcError::new(
                 ErrorCode::MethodNotFound,
@@ -565,82 +693,6 @@ async fn pump_workspace(
             }
         }
     }
-}
-
-async fn write_loop<W: AsyncWrite>(write: W, mut rx: mpsc::Receiver<String>) {
-    let out = BufWriter::new(write);
-    tokio::pin!(out);
-    while let Some(line) = rx.recv().await {
-        let mut ok = write_one(&mut out, &line).await;
-        // Write whatever else is ready before flushing once.
-        while ok {
-            match rx.try_recv() {
-                Ok(next) => ok = write_one(&mut out, &next).await,
-                Err(_) => break,
-            }
-        }
-        if !ok || out.flush().await.is_err() {
-            return;
-        }
-    }
-    let _ = out.shutdown().await;
-}
-
-async fn write_one<W: AsyncWrite>(out: &mut std::pin::Pin<&mut BufWriter<W>>, line: &str) -> bool {
-    out.write_all(line.as_bytes()).await.is_ok() && out.write_all(b"\n").await.is_ok()
-}
-
-/// Result of reading one line.
-#[derive(Debug, PartialEq, Eq)]
-enum Line {
-    /// A line (possibly the last one, without a newline) is in the buffer.
-    Data,
-    /// The stream ended.
-    Eof,
-    /// The line exceeds the limit; the stream is left mid-line.
-    TooLong,
-}
-
-async fn read_line<R: AsyncBufRead + Unpin>(
-    r: &mut R,
-    buf: &mut Vec<u8>,
-    max: usize,
-) -> io::Result<Line> {
-    buf.clear();
-    loop {
-        let available = r.fill_buf().await?;
-        if available.is_empty() {
-            return Ok(if buf.is_empty() {
-                Line::Eof
-            } else {
-                Line::Data
-            });
-        }
-        let (chunk, done) = match available.iter().position(|b| *b == b'\n') {
-            Some(i) => (i, true),
-            None => (available.len(), false),
-        };
-        if buf.len() + chunk > max {
-            return Ok(Line::TooLong);
-        }
-        buf.extend_from_slice(&available[..chunk]);
-        r.consume(if done { chunk + 1 } else { chunk });
-        if done {
-            return Ok(Line::Data);
-        }
-    }
-}
-
-fn trim_line(buf: &[u8]) -> &[u8] {
-    let end = buf
-        .iter()
-        .rposition(|b| !b.is_ascii_whitespace())
-        .map_or(0, |i| i + 1);
-    let start = buf
-        .iter()
-        .position(|b| !b.is_ascii_whitespace())
-        .unwrap_or(end);
-    &buf[start..end]
 }
 
 #[cfg(test)]

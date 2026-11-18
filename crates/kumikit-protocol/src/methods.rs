@@ -8,8 +8,8 @@ use ts_rs::TS;
 
 use crate::event::EventNotification;
 use crate::model::{
-    Approval, ApprovalId, Decision, Thread, ThreadId, Turn, TurnId, UserInput, Workspace,
-    WorkspaceId,
+    Approval, ApprovalId, Decision, Thread, ThreadId, Timestamp, Turn, TurnId, UserInput,
+    Workspace, WorkspaceId,
 };
 
 /// A request method: name, params and result.
@@ -78,6 +78,18 @@ macro_rules! methods {
 
 methods! {
     methods {
+        /// `auth.pair`: pair a new device with a one-time code; a remote connection's first
+        /// message.
+        AuthPair = "auth.pair" (AuthPairParams) -> AuthPairResult;
+        /// `auth.token`: authenticate a remote connection as a paired device; its first
+        /// message.
+        AuthToken = "auth.token" (AuthTokenParams) -> AuthTokenResult;
+        /// `auth.pairing.create`: a new pairing code; local connections only.
+        AuthPairingCreate = "auth.pairing.create" (Empty) -> PairingCode;
+        /// `auth.devices.list`: paired devices.
+        AuthDevicesList = "auth.devices.list" (Empty) -> DeviceListResult;
+        /// `auth.devices.revoke`: unpair a device and close its connections.
+        AuthDevicesRevoke = "auth.devices.revoke" (DeviceRef) -> Empty;
         /// `core.hello`: the handshake; the first call on a connection.
         CoreHello = "core.hello" (HelloParams) -> HelloResult;
         /// `core.shutdown`: stop the core; running turns end as on any stop.
@@ -143,6 +155,91 @@ pub struct ClientInfo {
     pub name: String,
     /// Program version.
     pub version: String,
+}
+
+/// Params of `auth.pair`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthPairParams {
+    /// The code `kumikit pair` showed (case, `-` and spaces are ignored).
+    pub code: String,
+    /// A name for this device, 1–64 characters without control characters.
+    pub device_name: String,
+}
+
+/// Result of `auth.pair`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthPairResult {
+    /// The device token. Shown once; the core keeps only its hash.
+    pub token: String,
+    /// The new device.
+    pub device: Device,
+}
+
+/// Params of `auth.token`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthTokenParams {
+    /// The device token from `auth.pair`.
+    pub token: String,
+}
+
+/// Result of `auth.token`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthTokenResult {
+    /// The device the connection is now authenticated as.
+    pub device: Device,
+}
+
+/// A paired device.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct Device {
+    /// Device id.
+    pub id: String,
+    /// The name it gave when it paired.
+    pub name: String,
+    /// When it paired.
+    pub created: Timestamp,
+    /// When it last authenticated, to the minute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_seen: Option<Timestamp>,
+    /// Present and true for the caller's own device.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<bool>,
+}
+
+/// Result of `auth.pairing.create`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PairingCode {
+    /// The one-time code, formatted `ABCD-EFGH`.
+    pub code: String,
+    /// When it stops working.
+    pub expires: Timestamp,
+    /// The core's certificate fingerprint (`SHA256:…`).
+    pub fingerprint: String,
+    /// Where clients connect (`wss://host:port/rpc`).
+    pub url: String,
+}
+
+/// Result of `auth.devices.list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceListResult {
+    /// Paired devices, oldest first.
+    pub devices: Vec<Device>,
+}
+
+/// Names a paired device.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceRef {
+    /// Device id.
+    pub device: String,
 }
 
 /// Params of `core.hello`.
@@ -338,10 +435,17 @@ pub struct PluginListResult {
 /// Params of `plugin.install`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct PluginInstallParams {
     /// Absolute path on the core's machine of a `.kkp` file, or of a directory holding a
-    /// `plugin.toml`, which is packed as `kumikit plugin pack` would.
-    pub path: String,
+    /// `plugin.toml`, which is packed as `kumikit plugin pack` would. Exactly one of `path`
+    /// and `package` is given.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// The bytes of a `.kkp` file, base64 (standard alphabet, padded), for a core on
+    /// another machine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package: Option<String>,
 }
 
 /// A result naming one plugin.

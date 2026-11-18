@@ -1,0 +1,34 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 6,
+    "method": "auth.devices.revoke",
+    "params": {
+      "device": "01JCDV00000000000000000002"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 6,
+    "result": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 7,
+    "method": "auth.devices.revoke",
+    "params": {
+      "device": "01JCDV00000000000000000002"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 7,
+    "error": {
+      "code": -32000,
+      "message": "no device 01JCDV00000000000000000002",
+      "data": {
+        "code": "not_found"
+      }
+    }
+  }
+]

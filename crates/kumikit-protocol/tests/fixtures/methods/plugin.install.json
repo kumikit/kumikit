@@ -107,5 +107,24 @@
         "signed": false
       }
     }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 16,
+    "method": "plugin.install",
+    "params": {
+      "package": "KLUv/QBYdQAAcGx1Z2luLnRvbWwA"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 16,
+    "error": {
+      "code": -32602,
+      "message": "invalid package: not a tar.zst archive",
+      "data": {
+        "code": "invalid_params"
+      }
+    }
   }
 ]

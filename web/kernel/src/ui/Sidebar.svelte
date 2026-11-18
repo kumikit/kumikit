@@ -1,10 +1,11 @@
-<!-- Workspaces and their threads, with each thread's status (06-client, Sidebar). -->
+<!-- Every core's workspaces and their threads, grouped by core, with each thread's status
+(06-client, Sidebar). -->
 <script lang="ts">
   import type { Kernel } from '../app.svelte';
+  import type { CoreConnection } from '../connections/connection.svelte';
   import SlotHost from './SlotHost.svelte';
 
   let { kernel }: { kernel: Kernel } = $props();
-  const conn = $derived(kernel.connection);
   const statusText: Record<string, string> = {
     idle: 'idle',
     running: 'running',
@@ -12,47 +13,65 @@
     failed: 'failed',
     archived: 'archived',
   };
+  const connText: Record<string, string> = {
+    connecting: 'connecting',
+    reconnecting: 'reconnecting',
+    mismatch: 'different version',
+    unauthorized: 'needs pairing',
+    certificate_changed: 'certificate changed',
+  };
+  const coreTitle = (c: CoreConnection) => (c.hello ? `Core ${c.hello.core.version} on ${c.hello.core.name}` : c.label);
 </script>
 
 <nav class="sidebar" aria-label="Workspaces">
-  <div class="head">
-    <span class="core" title={conn.hello ? `Core ${conn.hello.core.version} on ${conn.hello.core.name}` : undefined}>
-      {conn.hello?.core.name ?? 'Local core'}
-    </span>
-    <button type="button" class="kk-button" onclick={() => kernel.openWorkspaceFolder()} disabled={!conn.ready}>Open folder…</button>
-  </div>
-  {#each conn.workspaces as ws (ws.id)}
-    {@const open = kernel.tabs.some((t) => t.workspace === ws.id)}
-    <section aria-label={ws.name}>
-      <button type="button" class="ws" class:current={kernel.activeTab?.workspace === ws.id} title={ws.root} onclick={() => kernel.openTab(ws.id)}>
-        {ws.name}
-      </button>
-      {#if open}
-        <ul>
-          {#each (conn.threads[ws.id] ?? []).filter((t) => t.status !== 'archived') as t (t.id)}
-            <li>
-              <button
-                type="button"
-                class="thread"
-                class:current={kernel.activeThread?.thread === t.id}
-                aria-current={kernel.activeThread?.thread === t.id ? 'page' : undefined}
-                onclick={() => kernel.openTab(ws.id, t.id)}
-              >
-                <span class="kk-status {t.status}" aria-hidden="true"></span>
-                <span class="title">{t.title ?? `Thread ${t.created.slice(0, 16).replace('T', ' ')}`}</span>
-                <span class="kk-sr-only">, {statusText[t.status] ?? t.status}</span>
-              </button>
-            </li>
-          {:else}
-            <li class="kk-muted none">No threads yet</li>
-          {/each}
-        </ul>
-      {/if}
+  {#each kernel.connections as conn (conn.id)}
+    <section class="core" aria-label={conn.label} data-core={conn.id}>
+      <div class="head">
+        <span class="name" title={coreTitle(conn)}>{conn.label}</span>
+        {#if conn.status !== 'ready'}
+          <span class="state {conn.status}" role="status">{connText[conn.status] ?? conn.status}</span>
+        {/if}
+        <button type="button" class="kk-button" onclick={() => kernel.openWorkspaceFolder(conn.id)} disabled={!conn.ready}>Open folder…</button>
+      </div>
+      {#each conn.workspaces as ws (ws.id)}
+        {@const open = kernel.tabs.some((t) => t.connection === conn.id && t.workspace === ws.id)}
+        {@const current = kernel.activeTab?.connection === conn.id && kernel.activeTab?.workspace === ws.id}
+        <section aria-label={ws.name}>
+          <button type="button" class="ws" class:current title={ws.root} onclick={() => kernel.openTab(conn.id, ws.id)}>
+            {ws.name}
+          </button>
+          {#if open}
+            <ul>
+              {#each (conn.threads[ws.id] ?? []).filter((t) => t.status !== 'archived') as t (t.id)}
+                {@const here = current && kernel.activeThread?.thread === t.id}
+                <li>
+                  <button
+                    type="button"
+                    class="thread"
+                    class:current={here}
+                    aria-current={here ? 'page' : undefined}
+                    onclick={() => kernel.openTab(conn.id, ws.id, t.id)}
+                  >
+                    <span class="kk-status {t.status}" aria-hidden="true"></span>
+                    <span class="title">{t.title ?? `Thread ${t.created.slice(0, 16).replace('T', ' ')}`}</span>
+                    <span class="kk-sr-only">, {statusText[t.status] ?? t.status}</span>
+                  </button>
+                </li>
+              {:else}
+                <li class="kk-muted none">No threads yet</li>
+              {/each}
+            </ul>
+          {/if}
+        </section>
+      {:else}
+        {#if conn.ready}<p class="kk-muted none">Open a project folder to start.</p>{/if}
+      {/each}
     </section>
-  {:else}
-    <p class="kk-muted none">Open a project folder to start.</p>
   {/each}
-  {#each kernel.slots.in('sidebar.section') as entry (entry)}
+  {#if kernel.platform.profiles.editable}
+    <button type="button" class="kk-button add" onclick={() => (kernel.main = { kind: 'cores' })}>Add a core…</button>
+  {/if}
+  {#each kernel.slotsIn('sidebar.section') as entry (entry)}
     <section aria-label={entry.contribution.title}>
       <h2>{entry.contribution.title}</h2>
       <SlotHost plugin={entry.plugin} contribution={entry.contribution} props={{ connection: kernel.pluginConnection() }} slots={kernel.slots} />
@@ -78,7 +97,27 @@
     gap: 8px;
   }
   .core {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .core + .core {
+    padding-top: 8px;
+    border-top: 1px solid var(--kk-border-subtle, CanvasText);
+  }
+  .name {
+    flex: 1;
     font-weight: var(--kk-font-weight-strong, bold);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .state {
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-secondary, CanvasText);
+  }
+  .add {
+    align-self: flex-start;
   }
   h2 {
     margin: 4px 0;

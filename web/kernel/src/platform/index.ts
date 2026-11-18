@@ -1,10 +1,24 @@
 /**
- * What the UI kernel needs from where it runs (06-client): the desktop shell, or the
- * test relay in front of a real core. M3 adds a browser WebSocket adapter.
+ * What the UI kernel needs from where it runs (06-client): the desktop shell, a browser
+ * served by a core, or the test relay in front of real cores.
  */
 
 /** What arrives on a connection, in order (the shell bridge's `Incoming`). */
 export type Incoming = { type: 'line'; line: string } | { type: 'closed'; reason: string };
+
+/**
+ * Why connecting failed, as the shell's `bridge_connect` reports it: `unauthorized` (the
+ * device was revoked), `certificate_changed`, `unreachable`, `unknown_profile`, … The UI
+ * stops retrying on the first two.
+ */
+export class ConnectError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
 
 /** An open line connection to a core. */
 export interface LineConnection {
@@ -22,10 +36,65 @@ export interface ClientPluginEntry {
   manifest: unknown;
 }
 
+/** A connection profile as the shell shows it: no address, no token. */
+export interface ProfileInfo {
+  /** The connection id in addresses. */
+  name: string;
+  label: string;
+  /** `local` (this computer), `tls` (paired), `ssh`, or `core` (the core serving a browser). */
+  kind: 'local' | 'tls' | 'ssh' | 'core';
+}
+
+export interface PairRequest {
+  name: string;
+  label: string;
+  /** `host[:port]`, or the URL `kumikit pair` printed. */
+  address: string;
+  /** The fingerprint the user confirmed. */
+  fingerprint: string;
+  code: string;
+  deviceName?: string;
+}
+
+export interface SshRequest {
+  name: string;
+  label: string;
+  destination: string;
+  command?: string;
+}
+
+export interface Removed {
+  /** Whether this device was revoked on the core. */
+  revoked: boolean;
+  /** The device id to revoke there by hand, if not. */
+  deviceId?: string;
+}
+
+/** A file the user picked, read in the page. */
+export interface PickedFile {
+  name: string;
+  bytes: Uint8Array;
+}
+
 export interface Platform {
-  readonly kind: 'tauri' | 'relay';
-  /** Opens a connection to a profile's core (`local` in M2). */
+  readonly kind: 'tauri' | 'relay' | 'browser';
+  /** The profile that always exists: `local` on the desktop, `core` in a browser. */
+  readonly home: string;
+  /** Opens a connection to a profile's core. Rejects with a {@link ConnectError}. */
   connect(profile: string, on: (m: Incoming) => void): Promise<LineConnection>;
+  /** Connection profiles. Rejects with a {@link ConnectError}. */
+  profiles: {
+    /** Whether cores can be added and removed here (not in a browser). */
+    readonly editable: boolean;
+    list(): Promise<ProfileInfo[]>;
+    /** The certificate fingerprint of the core at an address. */
+    probe(address: string): Promise<string>;
+    pair(request: PairRequest): Promise<ProfileInfo>;
+    addSsh(request: SshRequest): Promise<ProfileInfo>;
+    remove(name: string): Promise<Removed>;
+  };
+  /** A file's contents, picked with a file input (for uploads to a core). */
+  pickBytes(accept: string): Promise<PickedFile | null>;
   /** A path on the core's machine, or null if the user cancelled. */
   pickFile(title: string, extensions: string[]): Promise<string | null>;
   pickFolder(title: string): Promise<string | null>;
@@ -38,15 +107,69 @@ export interface Platform {
   };
   /** Whether to start without UI plugins (06-client, safe mode). */
   readonly safeMode: boolean;
+  /** Only in a browser served by a core: pairing this browser, and signing out. */
+  readonly browser?: {
+    /** Pairs with a code from `kumikit pair`; the core keeps the token in an HttpOnly cookie. */
+    pair(code: string, deviceName: string): Promise<void>;
+    /** Revokes this browser's device on the core. */
+    signOut(): Promise<void>;
+  };
 }
 
-declare const __KK_PLATFORM__: 'tauri' | 'relay';
+/** Reads a file the user picks with a standard file input: the page gets only the file
+ * chosen, through the browser's own picker, and no native command is involved. */
+export function pickWithInput(accept: string, doc: Document = document): Promise<PickedFile | null> {
+  return new Promise((resolve) => {
+    const input = doc.createElement('input');
+    input.type = 'file';
+    input.accept = accept;
+    input.hidden = true;
+    input.setAttribute('data-kk-picker', '');
+    const done = (file: PickedFile | null) => {
+      input.remove();
+      resolve(file);
+    };
+    input.addEventListener('change', () => {
+      const f = input.files?.[0];
+      if (!f) return done(null);
+      void f.arrayBuffer().then(
+        (b) => done({ name: f.name, bytes: new Uint8Array(b) }),
+        () => done(null),
+      );
+    });
+    input.addEventListener('cancel', () => done(null));
+    doc.body.append(input);
+    input.click();
+  });
+}
+
+/** Base64 of bytes, in chunks so large packages do not overflow the call stack. */
+export function toBase64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+/** Turns what a shell command or the relay rejected with into a {@link ConnectError}. */
+export function asConnectError(e: unknown): ConnectError {
+  if (e instanceof ConnectError) return e;
+  if (typeof e === 'object' && e !== null && 'code' in e && 'message' in e) {
+    return new ConnectError(String((e as { code: unknown }).code), String((e as { message: unknown }).message));
+  }
+  return new ConnectError('internal', e instanceof Error ? e.message : String(e));
+}
+
+declare const __KK_PLATFORM__: 'tauri' | 'relay' | 'browser';
 
 /** The adapter this bundle was built for. */
 export async function loadPlatform(): Promise<Platform> {
   if (__KK_PLATFORM__ === 'relay') {
     const m = await import('./relay');
     return m.relayPlatform();
+  }
+  if (__KK_PLATFORM__ === 'browser') {
+    const m = await import('./browser');
+    return m.browserPlatform();
   }
   const m = await import('./tauri');
   return m.tauriPlatform();

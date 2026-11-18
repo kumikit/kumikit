@@ -39,3 +39,5 @@ Small, local choices do not need one; a clear commit message is enough.
 | [0013](0013-desktop-shell.md) | The desktop shell: own asset protocol, raw-line bridge, client plugin store | Proposed |
 | [0014](0014-ui-sdk-versioning.md) | UI SDK 0.1: versioning, published lists, thread views | Proposed |
 | [0015](0015-shell-memory-budget.md) | Shell memory budget: anonymous memory, gated on Linux | Proposed |
+| [0016](0016-remote-transport-and-pairing.md) | Remote transport: WebSocket over TLS, pinned certificates, device tokens | Proposed |
+| [0017](0017-shell-remote-profiles-and-ssh.md) | The shell's remote profiles, SSH through the system `ssh`, client secrets | Proposed |

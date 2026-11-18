@@ -32,6 +32,7 @@ export function createContext(k: Kernel, id: string, dispose: (() => void)[]): P
       register: (spec, handler) => keep(k.commands.register(spec, handler, id)),
       run: (cmd, args) => k.commands.run(cmd, args),
     },
+    // The active tab's core (07-ui-plugins, UI SDK).
     get connection() {
       return k.connection.ready || k.connection.hello ? k.pluginConnection() : undefined;
     },
@@ -74,7 +75,8 @@ export function createContext(k: Kernel, id: string, dispose: (() => void)[]): P
       markdown: (el, text) => renderMarkdown(el, text),
       renderItem(el: HTMLElement, props: RendererProps): Unmount {
         const kind = props.item.kind === 'plugin.event' ? `plugin.event:${props.item.plugin}/${props.item.event}` : props.item.kind;
-        const entry = k.slots.renderer(kind);
+        // Renderers whose plugin's requires.core this thread's core does not meet are skipped.
+        const entry = k.rendererFor(kind, props.address.connection);
         if (!entry) return fallback(el, props.item);
         try {
           return entry.contribution.mount(el, props);

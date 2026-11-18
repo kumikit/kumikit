@@ -20,7 +20,11 @@ const GUESTS: &[(&str, &str)] = &[
 ];
 
 /// Host programs: (package, binary name).
-const PROGRAMS: &[(&str, &str)] = &[("kumikit-fake-acp-agent", "fake-acp-agent")];
+const PROGRAMS: &[(&str, &str)] = &[
+    ("kumikit-fake-acp-agent", "fake-acp-agent"),
+    ("kumikit-test-fake-ssh", "fake-ssh"),
+    ("kumikit-test-net-cut", "net-cut"),
+];
 
 /// Removes the outer build's settings (flags, target, profile, jobserver) so the nested
 /// cargo builds as if run from a shell.

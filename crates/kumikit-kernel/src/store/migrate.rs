@@ -10,6 +10,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0001_init.sql"),
     include_str!("../../migrations/0002_plugins.sql"),
     include_str!("../../migrations/0003_seeded_plugins.sql"),
+    include_str!("../../migrations/0004_devices.sql"),
 ];
 
 /// Applies the migrations `conn` has not seen yet, each in its own transaction. Fails
@@ -42,18 +43,18 @@ mod tests {
     #[test]
     fn fresh_database_reaches_latest() {
         let mut conn = Connection::open_in_memory().unwrap();
-        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 3);
-        assert_eq!(version(&conn), 3);
+        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 4);
+        assert_eq!(version(&conn), 4);
         let tables: i64 = conn
             .query_row(
                 "SELECT count(*) FROM sqlite_master WHERE type = 'table'
                  AND name IN ('workspaces','threads','events','turns','approvals',
-                              'plugins','plugin_kv','seeded_plugins')",
+                              'plugins','plugin_kv','seeded_plugins','devices')",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(tables, 8);
+        assert_eq!(tables, 9);
     }
 
     #[test]
@@ -65,7 +66,7 @@ mod tests {
             [],
         )
         .unwrap();
-        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 3);
+        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 4);
         let n: i64 = conn
             .query_row("SELECT count(*) FROM workspaces", [], |r| r.get(0))
             .unwrap();
@@ -110,7 +111,7 @@ mod tests {
         let err = migrate(&mut conn, MIGRATIONS).unwrap_err();
         assert!(matches!(
             err,
-            StoreError::NewerSchema { found: 7, known: 3 }
+            StoreError::NewerSchema { found: 7, known: 4 }
         ));
     }
 }

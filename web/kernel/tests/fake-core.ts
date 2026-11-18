@@ -2,7 +2,7 @@
  * and can push notifications or drop the connection. */
 import type { EventNotification } from '@kumikit/protocol';
 
-import type { Incoming, LineConnection, Platform } from '../src/platform/index';
+import { ConnectError, type Incoming, type LineConnection, type Platform, type ProfileInfo } from '../src/platform/index';
 import type { Timers } from '../src/connections/connection.svelte';
 
 type Handler = (params: Record<string, unknown>) => unknown;
@@ -14,12 +14,14 @@ export class FakeCore {
   logs = new Map<string, EventNotification[]>();
   connections = 0;
   refuse = false;
+  /** When set, connecting fails with this code (as the shell reports it). */
+  refuseWith: string | undefined;
   #on: ((m: Incoming) => void) | undefined;
 
   constructor() {
     this.handle('core.hello', (p) =>
-      p.protocol === '0.3'
-        ? { protocol: '0.3', core: { version: '0', name: 'fake', os: 'linux' }, plugins: [], capabilities: ['threads', 'approvals', 'plugins', 'providers', 'workspace_events'] }
+      p.protocol === '0.4'
+        ? { protocol: '0.4', core: { version: '0', name: 'fake', os: 'linux' }, plugins: [], capabilities: ['threads', 'approvals', 'plugins', 'providers', 'workspace_events'] }
         : { error: { code: 'protocol_mismatch', message: 'core speaks protocol 0.3' } },
     );
     this.handle('provider.list', () => ({ providers: [] }));
@@ -61,35 +63,66 @@ export class FakeCore {
     on?.({ type: 'closed', reason });
   }
 
-  platform(): Platform {
+  /** Connects a line client, as `Platform.connect` would. */
+  async connect(on: (m: Incoming) => void): Promise<LineConnection> {
+    if (this.refuseWith) throw new ConnectError(this.refuseWith, `refused: ${this.refuseWith}`);
+    if (this.refuse) throw new Error('no core');
+    this.connections++;
+    this.#on = on;
     return {
-      kind: 'relay',
-      connect: async (_profile, on): Promise<LineConnection> => {
-        if (this.refuse) throw new Error('no core');
-        this.connections++;
-        this.#on = on;
-        return {
-          send: async (line) => {
-            const msg = JSON.parse(line) as { id: number; method: string; params: Record<string, unknown> };
-            this.requests.push({ method: msg.method, params: msg.params });
-            const h = this.handlers.get(msg.method);
-            const out = h ? h(msg.params) : { error: { code: 'method_not_found', message: msg.method } };
-            const reply =
-              typeof out === 'object' && out !== null && 'error' in out
-                ? { jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: (out as { error: { message: string } }).error.message, data: { code: (out as { error: { code: string } }).error.code } } }
-                : { jsonrpc: '2.0', id: msg.id, result: out };
-            queueMicrotask(() => on({ type: 'line', line: JSON.stringify(reply) }));
-          },
-          close: () => this.drop('closed by client'),
-        };
+      send: async (line) => {
+        const msg = JSON.parse(line) as { id: number; method: string; params: Record<string, unknown> };
+        this.requests.push({ method: msg.method, params: msg.params });
+        const h = this.handlers.get(msg.method);
+        const out = h ? h(msg.params) : { error: { code: 'method_not_found', message: msg.method } };
+        const reply =
+          typeof out === 'object' && out !== null && 'error' in out
+            ? { jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: (out as { error: { message: string } }).error.message, data: { code: (out as { error: { code: string } }).error.code } } }
+            : { jsonrpc: '2.0', id: msg.id, result: out };
+        queueMicrotask(() => on({ type: 'line', line: JSON.stringify(reply) }));
       },
-      pickFile: async () => null,
-      pickFolder: async () => null,
-      pluginUrl: (id, path) => `/plugins/${id}/${path}`,
-      clientPlugins: { list: async () => [], install: async () => { throw new Error('no'); }, remove: async () => {} },
-      safeMode: false,
+      close: () => this.drop('closed by client'),
     };
   }
+
+  platform(): Platform {
+    return platformOf({ local: this });
+  }
+}
+
+/** A platform whose profiles are these fake cores; the first is the home one. */
+export function platformOf(cores: Record<string, FakeCore>, labels: Record<string, string> = {}, listed?: string[]): Platform {
+  const names = listed ?? Object.keys(cores);
+  const removed: string[] = [];
+  return {
+    kind: 'relay',
+    home: Object.keys(cores)[0]!,
+    connect: (profile, on) => {
+      const core = cores[profile];
+      if (!core || removed.includes(profile)) return Promise.reject(new ConnectError('unknown_profile', `no core named ${profile}`));
+      return core.connect(on);
+    },
+    profiles: {
+      editable: true,
+      list: async () =>
+        names
+          .filter((n) => !removed.includes(n))
+          .map((n, i): ProfileInfo => ({ name: n, label: labels[n] ?? n, kind: i === 0 ? 'local' : 'tls' })),
+      probe: async () => 'SHA256:00',
+      pair: async (r) => ({ name: r.name, label: r.label, kind: 'tls' }),
+      addSsh: async (r) => ({ name: r.name, label: r.label, kind: 'ssh' }),
+      remove: async (name) => {
+        removed.push(name);
+        return { revoked: true };
+      },
+    },
+    pickBytes: async () => null,
+    pickFile: async () => null,
+      pickFolder: async () => null,
+      pluginUrl: (id, path) => `/plugins/${id}/${path}`,
+    clientPlugins: { list: async () => [], install: async () => { throw new Error('no'); }, remove: async () => {} },
+    safeMode: false,
+  };
 }
 
 /** Timers that run only when the test says so. */

@@ -70,20 +70,86 @@ impl Bridge {
     where
         S: AsyncRead + AsyncWrite + Send + 'static,
     {
-        let id = format!("c{}", self.inner.next.fetch_add(1, Ordering::Relaxed) + 1);
+        self.attach_explained(stream, sink, std::future::ready)
+    }
+
+    /// Like [`Bridge::attach`], with `explain` rewriting the reason the connection closed
+    /// (an SSH connection reports ssh's own message).
+    pub fn attach_explained<S, F>(
+        &self,
+        stream: S,
+        sink: impl Fn(Incoming) + Send + Sync + 'static,
+        explain: impl FnOnce(String) -> F + Send + 'static,
+    ) -> String
+    where
+        S: AsyncRead + AsyncWrite + Send + 'static,
+        F: Future<Output = String> + Send,
+    {
         let (read, write) = tokio::io::split(stream);
-        let (tx, rx) = mpsc::channel(OUTBOUND);
-        self.inner.conns().insert(id.clone(), tx);
+        self.attach_halves(read, write, sink, explain)
+    }
+
+    /// Like [`Bridge::attach_explained`], with the two directions as separate objects.
+    /// The write side is dropped when the connection closes, which is what closes a pipe
+    /// (a child's stdin does not close on `shutdown`).
+    pub fn attach_halves<R, W, F>(
+        &self,
+        read: R,
+        write: W,
+        sink: impl Fn(Incoming) + Send + Sync + 'static,
+        explain: impl FnOnce(String) -> F + Send + 'static,
+    ) -> String
+    where
+        R: AsyncRead + Unpin + Send + 'static,
+        W: AsyncWrite + Send + 'static,
+        F: Future<Output = String> + Send,
+    {
+        let (id, rx) = self.register();
         let writer = tokio::spawn(write_loop(write, rx));
         let inner = Arc::clone(&self.inner);
         let conn = id.clone();
         tokio::spawn(async move {
-            let reason = read_loop(read, &sink).await;
+            let reason = explain(read_loop(read, &sink).await).await;
             inner.conns().remove(&conn);
             writer.abort();
             sink(Incoming::Closed { reason });
         });
         id
+    }
+
+    /// Takes over an authenticated WebSocket to a remote core: one message per text
+    /// frame. The shell pings every `ping` and closes the connection after `idle` without
+    /// any frame from the core.
+    pub fn attach_ws<S>(
+        &self,
+        ws: tokio_tungstenite::WebSocketStream<S>,
+        ping: std::time::Duration,
+        idle: std::time::Duration,
+        sink: impl Fn(Incoming) + Send + Sync + 'static,
+    ) -> String
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
+        use futures_util::StreamExt;
+        let (id, rx) = self.register();
+        let (write, read) = ws.split();
+        let writer = tokio::spawn(ws_write_loop(write, rx, ping));
+        let inner = Arc::clone(&self.inner);
+        let conn = id.clone();
+        tokio::spawn(async move {
+            let reason = ws_read_loop(read, idle, &sink).await;
+            inner.conns().remove(&conn);
+            writer.abort();
+            sink(Incoming::Closed { reason });
+        });
+        id
+    }
+
+    fn register(&self) -> (String, mpsc::Receiver<String>) {
+        let id = format!("c{}", self.inner.next.fetch_add(1, Ordering::Relaxed) + 1);
+        let (tx, rx) = mpsc::channel(OUTBOUND);
+        self.inner.conns().insert(id.clone(), tx);
+        (id, rx)
     }
 
     /// Sends one message. The line must be one JSON text without a newline.
@@ -172,6 +238,87 @@ async fn read_line<R: AsyncBufRead + Unpin>(
             return Ok(Some(()));
         }
     }
+}
+
+async fn ws_read_loop<S>(
+    mut read: futures_util::stream::SplitStream<tokio_tungstenite::WebSocketStream<S>>,
+    idle: std::time::Duration,
+    sink: &impl Fn(Incoming),
+) -> String
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    use futures_util::StreamExt;
+    use tokio_tungstenite::tungstenite::{Error, Message};
+    loop {
+        let Ok(next) = tokio::time::timeout(idle, read.next()).await else {
+            return "the core stopped answering".into();
+        };
+        match next {
+            Some(Ok(Message::Text(t))) => {
+                let line = t.as_str().trim();
+                if !line.is_empty() {
+                    sink(Incoming::Line {
+                        line: line.to_owned(),
+                    });
+                }
+            }
+            Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => {}
+            Some(Ok(Message::Binary(_))) => return "the core sent a binary frame".into(),
+            Some(Ok(Message::Close(frame))) => {
+                return match frame {
+                    Some(f) if u16::from(f.code) == kumikit_protocol::remote::CLOSE_REVOKED => {
+                        "this device was revoked".into()
+                    }
+                    Some(f) if !f.reason.is_empty() => {
+                        format!("the core closed the connection: {}", f.reason)
+                    }
+                    _ => "the core closed the connection".into(),
+                };
+            }
+            Some(Err(Error::Capacity(_))) => {
+                return "the core sent a message longer than 8 MiB".into();
+            }
+            Some(Err(e)) => return format!("the connection failed: {e}"),
+            None => return "the core closed the connection".into(),
+        }
+    }
+}
+
+async fn ws_write_loop<S>(
+    mut write: futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<S>,
+        tokio_tungstenite::tungstenite::Message,
+    >,
+    mut rx: mpsc::Receiver<String>,
+    ping: std::time::Duration,
+) where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    use futures_util::SinkExt;
+    use tokio_tungstenite::tungstenite::{Bytes, Message};
+    let mut tick = tokio::time::interval(ping);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    tick.tick().await;
+    loop {
+        tokio::select! {
+            m = rx.recv() => match m {
+                Some(line) => {
+                    if write.send(Message::text(line)).await.is_err() {
+                        return;
+                    }
+                }
+                None => break,
+            },
+            _ = tick.tick() => {
+                if write.send(Message::Ping(Bytes::new())).await.is_err() {
+                    return;
+                }
+            }
+        }
+    }
+    let _ = write.send(Message::Close(None)).await;
+    let _ = write.close().await;
 }
 
 async fn write_loop<W: AsyncWrite>(write: W, mut rx: mpsc::Receiver<String>) {

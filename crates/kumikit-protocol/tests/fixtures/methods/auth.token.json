@@ -1,0 +1,41 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "auth.token",
+    "params": {
+      "token": "kkd_7tY3b1Qm0Zx9cR2vL8nW4pK6sD1fH5jG0aE3uI7oB2c"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "device": {
+        "id": "01JCDV00000000000000000001",
+        "name": "Work laptop",
+        "created": "2026-11-15T10:00:00.000Z",
+        "lastSeen": "2026-11-15T10:05:00.000Z"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "auth.token",
+    "params": {
+      "token": "kkd_revoked"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+      "code": -32000,
+      "message": "unknown or revoked device token",
+      "data": {
+        "code": "unauthenticated"
+      }
+    }
+  }
+]

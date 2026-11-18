@@ -1,0 +1,15 @@
+[package]
+name = "kumikit-assets"
+description = "Serving UI files: path checks, MIME types and the CSP, shared by the desktop shell and the core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"

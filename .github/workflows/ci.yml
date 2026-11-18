@@ -101,7 +101,7 @@ jobs:
           path: web/e2e/playwright-report
 
   e2e-desktop:
-    # The M2 exit test on the real app over WebDriver. macOS has no WebDriver for
+    # The M2 and M3 exit tests on the real app over WebDriver. macOS has no WebDriver for
     # WKWebView; e2e-browser covers WebKit there (M2 plan, Tests).
     strategy:
       fail-fast: false
@@ -145,7 +145,8 @@ jobs:
           agent=$(dirname "$(find target/kumikit-test -type f -name fake-acp-agent.exe | head -n 1)")
           KK_APP="$PWD/target/debug/kumikit-desktop.exe" KK_CORE_BIN="$PWD/target/debug/kumikit.exe" \
           KK_FAKE_AGENT_DIR="$(cygpath -w "$(cd "$agent" && pwd)")" KK_BUNDLE="$PWD/target/bundle" \
-          KK_ARTIFACTS="$PWD/target/e2e-desktop" node --test web/e2e-desktop/exit.test.mjs
+          KK_NET_CUT="$(cygpath -w "$PWD/$(find target/kumikit-test -type f -name net-cut.exe | head -n 1)")" \
+          KK_ARTIFACTS="$PWD/target/e2e-desktop" node --test --test-concurrency=1 web/e2e-desktop/exit.test.mjs web/e2e-desktop/exit-m3.test.mjs
       - if: failure()
         uses: actions/upload-artifact@v4
         with:

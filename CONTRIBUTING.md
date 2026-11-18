@@ -1,8 +1,12 @@
 # Contributing to Kumikit
 
-Thanks for helping. Kumikit is early: the protocol and kernel (milestone M0) exist, the
-rest is specification. The most useful contributions right now are reviews of the
-[specification](docs/spec/README.md) and proposals as ADRs.
+Thanks for helping. Kumikit is early: the core, plugins, desktop app, remote cores and
+browser client exist (milestones M0–M3); the plugin registry and signing (M4) are next.
+Reviews of the [specification](docs/spec/README.md), proposals as ADRs, and bug reports
+are all useful.
+
+To build and run it, and for the tools each platform needs, see
+[Building from source](docs/building.md).
 
 Code conventions for humans and coding agents are in [AGENTS.md](AGENTS.md). Read it
 before your first change.
@@ -21,9 +25,14 @@ Run before opening a pull request:
 
 ```sh
 sh scripts/check-docs.sh
+cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+npm run check && npm test
 ```
 
-More checks are added as code lands; [AGENTS.md](AGENTS.md#verify) has the current list.
+[AGENTS.md](AGENTS.md#verify) has the full list, including the end-to-end and footprint
+checks and when each applies; [Building from source](docs/building.md#tests) has the setup
+they need.
 
 ## Pull requests
 

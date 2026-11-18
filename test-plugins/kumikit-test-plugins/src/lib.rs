@@ -12,6 +12,12 @@ pub const PROBE_WASM: &str = env!("KUMIKIT_TEST_WASM_KUMIKIT_TEST_PROBE");
 /// The fake agent program (`test-plugins/fake-acp-agent`), built for the host.
 pub const FAKE_ACP_AGENT: &str = env!("KUMIKIT_TEST_BIN_FAKE_ACP_AGENT");
 
+/// A stand-in for `ssh` (`test-plugins/fake-ssh`), built for the host.
+pub const FAKE_SSH: &str = env!("KUMIKIT_TEST_BIN_FAKE_SSH");
+
+/// The cuttable network proxy (`test-plugins/net-cut`), built for the host.
+pub const NET_CUT: &str = env!("KUMIKIT_TEST_BIN_NET_CUT");
+
 /// The `kumikit.provider-acp` plugin's component (`plugins/provider-acp`).
 pub const PROVIDER_ACP_WASM: &str = env!("KUMIKIT_TEST_WASM_KUMIKIT_PROVIDER_ACP");
 

@@ -1,12 +1,16 @@
 /**
  * Thread state for plugins and the kernel (06-client, Thread store; ADR 0014): one
- * subscription per open thread, events folded into a `ThreadView` once per frame.
+ * subscription per open thread, events folded into a `ThreadView` once per frame. Threads
+ * are keyed by their whole address, so the same ids on two cores never mix.
  */
 import type { Decision, EventNotification } from '@kumikit/protocol';
 import type { ThreadAddress, ThreadView } from '@kumikit/ui-sdk';
 
 import type { CoreConnection } from '../connections/connection.svelte';
 import { emptyView, foldEvents } from './fold';
+
+/** Finds a connection by id. */
+export type Connections = (id: string) => CoreConnection | undefined;
 
 /** Schedules a fold; `requestAnimationFrame` in the page, immediate in tests. */
 export type Schedule = (fn: () => void) => void;
@@ -23,11 +27,11 @@ class OpenThread {
 
   constructor(
     readonly address: ThreadAddress,
-    private readonly connection: CoreConnection,
+    private readonly connection: CoreConnection | undefined,
     private readonly schedule: Schedule,
   ) {
-    this.view = { ...emptyView(address), live: connection.ready };
-    this.#stop = connection.subscribe(`thread:${address.thread}`, 0, (e) => this.#push(e));
+    this.view = { ...emptyView(address), live: connection?.ready ?? false };
+    this.#stop = connection?.subscribe(`thread:${address.thread}`, 0, (e) => this.#push(e)) ?? (() => {});
   }
 
   #push(e: EventNotification): void {
@@ -42,9 +46,9 @@ class OpenThread {
     this.#scheduled = false;
     const batch = this.#queue;
     this.#queue = [];
-    const thread = (this.connection.threads[this.address.workspace] ?? []).find((t) => t.id === this.address.thread);
+    const thread = (this.connection?.threads[this.address.workspace] ?? []).find((t) => t.id === this.address.thread);
     let next = foldEvents(this.view, batch);
-    const live = this.connection.ready;
+    const live = this.connection?.ready ?? false;
     if (next.live !== live || next.thread !== thread) {
       next = { ...next, live };
       if (thread) next.thread = thread;
@@ -67,19 +71,25 @@ export class ThreadStore {
   #open = new Map<string, OpenThread>();
 
   constructor(
-    private readonly connection: CoreConnection,
+    private readonly connections: Connections,
     private readonly schedule: Schedule = frame,
   ) {}
 
   #key(a: ThreadAddress): string {
-    return `${a.workspace}/${a.thread}`;
+    return `${a.connection}/${a.workspace}/${a.thread}`;
+  }
+
+  #connection(address: ThreadAddress): CoreConnection {
+    const c = this.connections(address.connection);
+    if (!c) throw new Error(`no core named ${address.connection}`);
+    return c;
   }
 
   #get(address: ThreadAddress): OpenThread {
     const key = this.#key(address);
     let t = this.#open.get(key);
     if (!t) {
-      t = new OpenThread(address, this.connection, this.schedule);
+      t = new OpenThread(address, this.connections(address.connection), this.schedule);
       this.#open.set(key, t);
     }
     return t;
@@ -104,25 +114,28 @@ export class ThreadStore {
     };
   }
 
-  /** Refolds every open thread (after a connection status change). */
-  refresh(): void {
-    for (const t of this.#open.values()) t.flush();
+  /** Refolds the open threads of one connection, or all (after a status change). */
+  refresh(connection?: string): void {
+    for (const t of this.#open.values()) if (!connection || t.address.connection === connection) t.flush();
   }
 
   /** Sends a message; one sent during a turn shows as queued until it starts. */
   async send(address: ThreadAddress, text: string): Promise<void> {
     const t = this.#get(address);
-    const r = await this.connection.call('thread.send', { thread: address.thread, input: { text } });
+    const r = await this.#connection(address).call('thread.send', { thread: address.thread, input: { text } });
     if (r.queued) t.set({ ...t.view, queued: [...t.view.queued, text] });
   }
 
   async cancel(address: ThreadAddress): Promise<void> {
-    await this.connection.call('thread.cancel', { thread: address.thread });
+    await this.#connection(address).call('thread.cancel', { thread: address.thread });
     const t = this.#open.get(this.#key(address));
     if (t) t.set({ ...t.view, queued: [] });
   }
 
-  respond(approval: string, decision: Decision): Promise<unknown> {
-    return this.connection.call('thread.respondApproval', { approval, decision });
+  /** Answers an approval on the core the thread is on. */
+  respond(connection: string, approval: string, decision: Decision): Promise<unknown> {
+    const c = this.connections(connection);
+    if (!c) return Promise.reject(new Error(`no core named ${connection}`));
+    return c.call('thread.respondApproval', { approval, decision });
   }
 }

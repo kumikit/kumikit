@@ -56,7 +56,13 @@ A package is either a core plugin or exactly one of `ui` and `theme`; each insta
 refuses the other's packages. `isolation = "inline"` is level 3; `"iframe"` (level 2) is
 refused until M4. The shell checks the structure and that the files exist; the UI kernel
 checks the contents when it loads a plugin (slot names, token values, font files).
-`requires.core` is stored; tabs gate on it from M3.
+`requires.core` lists core plugins as `<plugin id>@<semver range>` (for example
+`kumikit.git@^1`). An entry is met on a connection when that core reports the plugin as
+enabled (in `core.hello` or the latest `core.pluginsChanged`) at a version in the range. A
+UI plugin's module is loaded and activated once; its slot contributions and commands are
+offered only while the active tab's core meets every entry, and `thread.view` and
+`transcript.renderer` are chosen per tab. A plugin without `requires.core` shows on every
+core.
 
 ## Level 1: declarative contributions
 

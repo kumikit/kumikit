@@ -172,7 +172,8 @@ impl Backend {
         match self {
             Backend::Remote(rpc) => Ok(rpc
                 .call::<PluginInstall>(&kumikit_protocol::methods::PluginInstallParams {
-                    path: path.to_owned(),
+                    path: Some(path.to_owned()),
+                    package: None,
                 })
                 .await?
                 .plugin),
@@ -193,6 +194,52 @@ impl Backend {
             Backend::Local { host, .. } => crate::plugins::enable(host, id, grant)
                 .await
                 .map_err(rpc_err),
+        }
+    }
+
+    async fn devices(&mut self) -> Result<Vec<kumikit_protocol::methods::Device>> {
+        match self {
+            Backend::Remote(rpc) => Ok(rpc
+                .call::<kumikit_protocol::methods::AuthDevicesList>(&Default::default())
+                .await
+                .map_err(rpc_err)?
+                .devices),
+            Backend::Local { host, .. } => Ok(host
+                .manager()
+                .kernel()
+                .device_list()
+                .await
+                .map_err(|e| anyhow!("{e}"))?
+                .into_iter()
+                .map(|d| kumikit_protocol::methods::Device {
+                    id: d.id,
+                    name: d.name,
+                    created: d.created,
+                    last_seen: d.last_seen,
+                    current: None,
+                })
+                .collect()),
+        }
+    }
+
+    async fn revoke(&mut self, id: &str) -> Result<()> {
+        match self {
+            Backend::Remote(rpc) => {
+                rpc.call::<kumikit_protocol::methods::AuthDevicesRevoke>(
+                    &kumikit_protocol::methods::DeviceRef {
+                        device: id.to_owned(),
+                    },
+                )
+                .await
+                .map_err(rpc_err)?;
+                Ok(())
+            }
+            Backend::Local { host, .. } => host
+                .manager()
+                .kernel()
+                .device_revoke(id)
+                .await
+                .map_err(|e| anyhow!("{e}")),
         }
     }
 
@@ -392,4 +439,137 @@ pub fn pack(dir: &Path, output: Option<&Path>, out: &mut dyn Out) -> Result<()> 
     package::pack(dir, &file).map_err(|e| anyhow!("{e}"))?;
     out.line(&format!("Wrote {}", file.display()));
     Ok(())
+}
+
+/// Connects to the running core and completes the handshake; fails if none runs.
+async fn running(target: &Target) -> Result<Rpc> {
+    let stream = crate::transport::connect(&target.address)
+        .await
+        .map_err(|_| {
+            anyhow!(
+                "no core is running at {}; start one with `kumikit serve --listen <host>`",
+                target.address
+            )
+        })?;
+    let (read, write) = tokio::io::split(stream);
+    let mut rpc = Rpc {
+        reader: Box::new(BufReader::new(read)),
+        writer: Box::new(write),
+        next: 0,
+    };
+    rpc.request(
+        "core.hello",
+        json!({"protocol": PROTOCOL_VERSION.to_string(),
+               "client": {"name": "kumikit-cli", "version": env!("CARGO_PKG_VERSION")}}),
+    )
+    .await
+    .map_err(rpc_err)
+    .context("the running core refused the connection")?;
+    Ok(rpc)
+}
+
+/// `kumikit pair [--json]` (`docs/spec/02-protocol.md#pairing`).
+pub async fn pair(target: &Target, as_json: bool, out: &mut dyn Out) -> Result<()> {
+    let mut rpc = running(target).await?;
+    let code = rpc
+        .call::<kumikit_protocol::methods::AuthPairingCreate>(&Default::default())
+        .await
+        .map_err(rpc_err)?;
+    if as_json {
+        out.line(&serde_json::to_string(&code)?);
+        return Ok(());
+    }
+    out.line(&format!("Pairing code: {}", code.code));
+    out.line(&format!("Valid until:  {} (works once)", code.expires));
+    out.line(&format!("Fingerprint:  {}", code.fingerprint));
+    out.line(&format!("Address:      {}", code.url));
+    out.line("");
+    out.line("In the Kumikit app, add a core with this address and code. Before you confirm,");
+    out.line("check that the fingerprint the app shows is the one above.");
+    Ok(())
+}
+
+/// `kumikit devices list`.
+pub async fn devices_list(target: &Target, out: &mut dyn Out) -> Result<()> {
+    let mut backend = Backend::open(target).await?;
+    let devices = backend.devices().await?;
+    if devices.is_empty() {
+        out.line("No devices are paired.");
+    }
+    for d in devices {
+        let seen = d
+            .last_seen
+            .map(|t| format!("last seen {t}"))
+            .unwrap_or_else(|| "never connected since pairing".into());
+        out.line(&format!(
+            "{}  {}  paired {}, {seen}",
+            d.id, d.name, d.created
+        ));
+    }
+    Ok(())
+}
+
+/// `kumikit devices revoke <id>`.
+pub async fn devices_revoke(target: &Target, id: &str, out: &mut dyn Out) -> Result<()> {
+    let mut backend = Backend::open(target).await?;
+    backend.revoke(id).await?;
+    out.line(&format!(
+        "Revoked {id}. Its connections are closed and its token no longer works."
+    ));
+    Ok(())
+}
+
+/// `kumikit bridge`: copies JSON-RPC lines between stdin/stdout and the core on this
+/// machine (`docs/spec/02-protocol.md#stdio-over-ssh`). The desktop app runs it over SSH.
+pub async fn bridge(target: &Target) -> Result<()> {
+    use crate::messages::{LineReader, LineWriter, MessageReader, MessageWriter, Received};
+    let stream = crate::transport::connect(&target.address)
+        .await
+        .map_err(|_| anyhow!("no core is running on this machine (at {})", target.address))?;
+    let (core_read, core_write) = tokio::io::split(stream);
+
+    /// Copies whole messages from `from` into a writer task, until the end or an error.
+    async fn copy<R: MessageReader, W: MessageWriter>(
+        mut from: R,
+        to: W,
+        what: &str,
+    ) -> Result<()> {
+        let (tx, rx) = tokio::sync::mpsc::channel::<String>(64);
+        let (_close, close_rx) = tokio::sync::oneshot::channel();
+        let writer = tokio::spawn(to.run(rx, close_rx));
+        let result = loop {
+            match from.recv().await {
+                Ok(Received::Message(m)) if m.is_empty() => {}
+                Ok(Received::Message(m)) => {
+                    let line = String::from_utf8(m)
+                        .map_err(|_| anyhow!("{what} sent a message that is not UTF-8"))?;
+                    if tx.send(line).await.is_err() {
+                        break Ok(());
+                    }
+                }
+                Ok(Received::Eof) => break Ok(()),
+                Ok(Received::Refused(why)) => break Err(anyhow!("{what}: {why}")),
+                Err(e) => break Err(anyhow!("{what}: {e}")),
+            }
+        };
+        drop(tx);
+        let _ = writer.await;
+        result
+    }
+
+    let up = copy(
+        LineReader::new(tokio::io::stdin()),
+        LineWriter::new(core_write),
+        "the client",
+    );
+    let down = copy(
+        LineReader::new(core_read),
+        LineWriter::new(tokio::io::stdout()),
+        "the core",
+    );
+    // Either direction ending ends the bridge: the client left, or the core closed.
+    tokio::select! {
+        r = up => r,
+        r = down => r,
+    }
 }

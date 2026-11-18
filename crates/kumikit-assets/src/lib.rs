@@ -1,8 +1,9 @@
-//! Serving files to the webview: the UI kernel from `kumikit-app://` and UI plugins from
-//! `kumikit-plugin://<id>/` (`docs/spec/06-client.md#shell-rust-kumikit-shell`).
+//! Serving UI files: the UI kernel and UI plugins, to the desktop shell's webview
+//! (`kumikit-app://`, `kumikit-plugin://<id>/`; `docs/spec/06-client.md#shell-rust-kumikit-shell`)
+//! and, from the core, to a browser (`docs/spec/06-client.md#browser-client`).
 //!
-//! Everything here is plain functions over paths and strings, so it is tested without a
-//! window. `main.rs` turns an [`Asset`] into a Tauri response.
+//! Everything here is plain functions over paths and strings, with no workspace
+//! dependencies, so the shell and the core share the path checks, MIME types and CSP.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -69,6 +70,13 @@ pub fn csp(form: SchemeForm) -> String {
          base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'"
     )
 }
+
+/// The Content-Security-Policy of the browser client, served by a core over HTTPS
+/// (`docs/spec/06-client.md#browser-client`): everything from the core's own origin, which
+/// covers `wss:` to it, nothing inline, and no framing by other pages.
+pub const WEB_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
+    font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'none'; \
+    frame-ancestors 'none'; object-src 'none'";
 
 /// A file to answer a request with.
 #[derive(Debug, Clone, PartialEq, Eq)]

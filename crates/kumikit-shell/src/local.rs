@@ -49,6 +49,21 @@ impl LocalCore {
     }
 }
 
+/// This computer's name, the default name of a paired device.
+pub fn host_name() -> String {
+    #[cfg(unix)]
+    {
+        rustix::system::uname()
+            .nodename()
+            .to_string_lossy()
+            .into_owned()
+    }
+    #[cfg(not(unix))]
+    {
+        std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Kumikit desktop".into())
+    }
+}
+
 /// How a connection to the local core came about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Found {

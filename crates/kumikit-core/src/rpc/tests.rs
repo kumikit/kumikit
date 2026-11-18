@@ -18,8 +18,11 @@ use super::*;
 
 /// A provider for these tests: echoes the input word by word. Lives in the test module;
 /// nothing provider-shaped is compiled into the core.
-#[derive(Debug)]
-struct Echo;
+/// The input `ask` requests an approval and waits for its answer.
+#[derive(Debug, Default)]
+struct Echo {
+    answered: Arc<tokio::sync::Notify>,
+}
 
 impl Provider for Echo {
     fn id(&self) -> &str {
@@ -45,6 +48,12 @@ impl Provider for Echo {
     ) -> BoxFuture<'_, ProviderResult<()>> {
         Box::pin(async move {
             let err = |e: KernelError| kumikit_kernel::provider::ProviderError::new(e.to_string());
+            if input.text == "ask" {
+                sink.request_approval("tool", "run it?", None)
+                    .await
+                    .map_err(err)?;
+                self.answered.notified().await;
+            }
             for word in input.text.split_inclusive(' ') {
                 sink.emit(ProviderEvent::TextDelta { text: word.into() })
                     .await
@@ -71,6 +80,7 @@ impl Provider for Echo {
         _a: ApprovalId,
         _d: Decision,
     ) -> BoxFuture<'_, ProviderResult<()>> {
+        self.answered.notify_one();
         Box::pin(async { Ok(()) })
     }
     fn cancel(&self, _s: String) -> BoxFuture<'_, ()> {
@@ -89,11 +99,15 @@ struct Client {
 }
 
 async fn client() -> Client {
+    client_as(Peer::Local).await
+}
+
+async fn client_as(peer: Peer) -> Client {
     let dir = tempfile::tempdir().unwrap();
     let kernel = Kernel::open(KernelConfig::new(dir.path().join("db")))
         .await
         .unwrap();
-    kernel.register_provider(Arc::new(Echo)).unwrap();
+    kernel.register_provider(Arc::new(Echo::default())).unwrap();
     let dirs = Dirs::new(dir.path());
     let runtime = Arc::new(Runtime::new(EngineConfig::default(), dirs.cache.clone()));
     let manager = Manager::open(kernel, dirs, runtime).await.unwrap();
@@ -104,8 +118,17 @@ async fn client() -> Client {
         name: "test".into(),
         os: "test".into(),
         shutdown: Arc::new(tokio::sync::Notify::new()),
+        remote: None,
     });
-    tokio::spawn(serve_connection(host, info, theirs));
+    let (read, write) = tokio::io::split(theirs);
+    tokio::spawn(serve_messages(
+        host,
+        info,
+        LineReader::new(read),
+        LineWriter::new(write),
+        peer,
+        std::future::pending(),
+    ));
     let (read, write) = tokio::io::split(ours);
     Client {
         _dir: dir,
@@ -143,10 +166,10 @@ impl Client {
         let r = self
             .call(
                 "core.hello",
-                json!({"protocol":"0.3","client":{"name":"t","version":"1"}}),
+                json!({"protocol":"0.4","client":{"name":"t","version":"1"}}),
             )
             .await;
-        assert_eq!(r["result"]["protocol"], "0.3", "{r}");
+        assert_eq!(r["result"]["protocol"], "0.4", "{r}");
     }
 
     fn dir(&self) -> String {
@@ -217,12 +240,12 @@ async fn hello_describes_the_core() {
     let r = c
         .call(
             "core.hello",
-            json!({"protocol":"0.3","client":{"name":"t","version":"1"}}),
+            json!({"protocol":"0.4","client":{"name":"t","version":"1"}}),
         )
         .await;
     assert_eq!(
         r["result"],
-        json!({"protocol":"0.3","core":{"version":"0.0.0","name":"test","os":"test"},
+        json!({"protocol":"0.4","core":{"version":"0.0.0","name":"test","os":"test"},
                "plugins":[],"capabilities":["threads","approvals","plugins","providers","workspace_events"]})
     );
 }
@@ -338,4 +361,86 @@ async fn subscribe_result_comes_before_events() {
     assert_eq!(r["result"]["head"], 6);
     let r = c.call("events.unsubscribe", json!({"topic": topic})).await;
     assert_eq!(r["result"], json!({}));
+}
+
+#[tokio::test]
+async fn auth_on_a_local_connection() {
+    let mut c = client().await;
+    c.hello().await;
+    for method in ["auth.pair", "auth.token"] {
+        let r = c.call(method, json!({})).await;
+        assert_eq!(code(&r), "unsupported", "{method}");
+    }
+    // Remote access is off in this core.
+    let r = c.call("auth.pairing.create", json!({})).await;
+    assert_eq!(code(&r), "unsupported");
+    let r = c.call("auth.devices.list", json!({})).await;
+    assert_eq!(r["result"], json!({"devices": []}), "{r}");
+    let r = c
+        .call("auth.devices.revoke", json!({"device": "nope"}))
+        .await;
+    assert_eq!(code(&r), "not_found");
+}
+
+#[tokio::test]
+async fn approvals_record_the_answering_device() {
+    // `call` skips notifications while it waits for its answer, so this test does not
+    // subscribe until it needs events: it polls the snapshot for the approval, then
+    // replays the log (the subscribe result always comes before the replay).
+    let run = async {
+        for (peer, by) in [
+            (
+                Peer::Device("01JCDV00000000000000000001".into()),
+                Some("01JCDV00000000000000000001"),
+            ),
+            (Peer::Local, None),
+        ] {
+            let mut c = client_as(peer).await;
+            c.hello().await;
+            let dir = tempfile::tempdir().unwrap();
+            let ws = c
+                .call(
+                    "workspace.open",
+                    json!({"path": dir.path().to_str().unwrap()}),
+                )
+                .await;
+            let t = c
+                .call(
+                    "thread.create",
+                    json!({"workspace": ws["result"]["workspace"]["id"]}),
+                )
+                .await;
+            let thread = t["result"]["thread"]["id"].clone();
+            c.call(
+                "thread.send",
+                json!({"thread": thread, "input": {"text": "ask"}}),
+            )
+            .await;
+            let approval = loop {
+                let snap = c.call("thread.get", json!({"thread": thread})).await;
+                if let Some(a) = snap["result"]["pendingApprovals"].get(0) {
+                    break a["id"].clone();
+                }
+                tokio::task::yield_now().await;
+            };
+            c.call(
+                "thread.respondApproval",
+                json!({"approval": approval, "decision": "allow"}),
+            )
+            .await;
+            let topic = format!("thread:{}", thread.as_str().unwrap());
+            c.call("events.subscribe", json!({"topic": topic, "after": 0}))
+                .await;
+            let resolved = loop {
+                let m = c.recv().await.unwrap();
+                if m["params"]["kind"] == "approval.resolved" {
+                    break m["params"]["data"].clone();
+                }
+            };
+            assert_eq!(resolved["by"].as_str(), by, "{resolved}");
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(60), run)
+        .await
+        .expect("the test exceeded its deadline");
 }
