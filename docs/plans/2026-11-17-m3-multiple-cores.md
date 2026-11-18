@@ -578,7 +578,7 @@ code first needs macOS and Windows; the next after step 13; the last after step 
   serve the UI to browsers from the core`.
 - [x] **13. Desktop exit test.** `exit-m3.test.mjs`, `e2e.sh`, CI step; Linux in the
   container, Windows *(CI)*. Commit: `test: add M3 exit-criteria test`. **Second push.**
-- [ ] **14. Footprint and installers.** Remote-on phase, shell second run, numbers in
+- [x] **14. Footprint and installers.** Remote-on phase, shell second run, numbers in
   Notes. Commit: `chore: measure the remote transport's footprint`.
 - [ ] **15. Close out.** Spec matches code, roadmap M3 done, AGENTS.md status and Verify,
   agent reference (the message trait, the gate, the proxy, test keepalive values), README
@@ -759,4 +759,15 @@ Q11 take the recommendation unless you say otherwise.
   provider on each core with `kumikit plugin add`, and pairs through the real shell (token
   in the 0600 file on Linux). Windows runs it in CI with `node --test
   --test-concurrency=1`, since both tests use tauri-driver's port.
+- Step 14 (2026-11-18, Linux x86_64, release):
+  - Core, remote off: cold start 3 ms, idle 11.4 MB (12.3 MB with plugins), activation
+    5.0 ms / +7.9 MB. Remote on with one paired client past `core.hello`: cold start 3 ms
+    (the first start, generating the certificate: 4 ms), idle **14.0 MB**. Budgets 300 ms
+    and 30 MB; `scripts/footprint.sh` gates both phases.
+  - Core binary **28.4 MiB** (25.4 before M3; budget 32 MiB).
+  - Desktop shell, container under Xvfb, median of 5: **36.8 MiB anonymous** (36.5
+    before; budget 60 MB); resident 157 MiB.
+  - Not done: the planned second shell run with a TLS connection. It needs a paired
+    profile and token set up from outside the app, which the scripts cannot do today; the
+    gated run is unchanged.
 

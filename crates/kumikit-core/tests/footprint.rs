@@ -9,7 +9,10 @@
 //!    `serve` starts): the same two budgets, so enabled but unused plugins cost nothing;
 //! 3. activation: `thread.create` on the delegated provider loads provider-acp's
 //!    control instance from the compile cache and calls `activate` and `list-models`
-//!    (no agent is started); its round trip and the memory it adds.
+//!    (no agent is started); its round trip and the memory it adds;
+//! 4. remote access on (`--listen 127.0.0.1:0`, M3): the first start, which generates the
+//!    certificate, is reported; a later start and the idle memory with one paired client
+//!    connected and past `core.hello` are held to the same budgets as phase 1.
 //!
 //! A measurement, not a correctness test: it is `#[ignore]`d and meant for a release
 //! build. Run it with `sh scripts/footprint.sh`.
@@ -175,6 +178,66 @@ fn median<T: Ord + Copy>(mut v: Vec<T>) -> T {
     v[v.len() / 2]
 }
 
+/// Phase 4: returns the first start (with certificate generation) and a sample of a later
+/// start with one paired, authenticated remote client.
+async fn sample_remote() -> (Duration, Sample) {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let dirs = Dirs::new();
+    let t = std::time::Instant::now();
+    let (core, _) = Core::start_remote(&dirs, &[], false).await;
+    let first = t.elapsed();
+    core.stop().await;
+    let t = std::time::Instant::now();
+    let (core, info) = Core::start_remote(&dirs, &[], false).await;
+    let start = t.elapsed();
+    let mut local = Client::hello(&dirs.address).await;
+    let code = local.call("auth.pairing.create", json!({})).await;
+    let paired = support::remote_call_once(
+        &info,
+        "auth.pair",
+        json!({"code": code["code"], "deviceName": "footprint"}),
+    )
+    .await;
+    let token = paired["result"]["token"].as_str().unwrap().to_owned();
+    let mut ws = support::ws(&info).await;
+    for (id, method, params) in [
+        (1, "auth.token", json!({"token": token})),
+        (
+            2,
+            "core.hello",
+            json!({"protocol": "0.4", "client": {"name": "footprint", "version": "0"}}),
+        ),
+    ] {
+        ws.send(Message::text(
+            json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string(),
+        ))
+        .await
+        .unwrap();
+        loop {
+            if let Some(Ok(Message::Text(t))) = ws.next().await {
+                let v: serde_json::Value = serde_json::from_str(t.as_str()).unwrap();
+                assert!(v.get("result").is_some(), "{method}: {v}");
+                break;
+            }
+        }
+    }
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let idle_kb = rss_kb(core.pid());
+    drop(ws);
+    drop(local);
+    core.stop().await;
+    (
+        first,
+        Sample {
+            start,
+            idle_kb,
+            activate: None,
+            activate_kb: None,
+        },
+    )
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "measurement; run with scripts/footprint.sh on a release build"]
 async fn core_footprint_is_within_budget() {
@@ -219,6 +282,19 @@ async fn core_footprint_is_within_budget() {
     }
     let binary = std::fs::metadata(env!("CARGO_BIN_EXE_kumikit")).map(|m| m.len());
     let bytes = binary.expect("the core binary exists");
+    let mut firsts = Vec::new();
+    let mut remote = Vec::new();
+    for _ in 0..RUNS {
+        let (first, s) = sample_remote().await;
+        firsts.push(first);
+        remote.push(s);
+    }
+    println!(
+        "remote on: first start, generating the certificate (median of {RUNS}): {} ms",
+        median(firsts).as_millis()
+    );
+    check_start_and_idle("remote on, one paired client", &remote);
+
     println!("core binary: {:.1} MiB", bytes as f64 / (1024.0 * 1024.0));
     assert!(
         bytes <= BINARY_BUDGET_BYTES,
