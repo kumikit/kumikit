@@ -98,8 +98,11 @@ that do not understand one skip it; a UI plugin can register a renderer for it.
   data directory `plugin-data/<id>/`. A plugin's data is deleted when it is uninstalled,
   after confirmation.
 - The `plugins` table records each installed plugin: id, version, state (`installed`,
-  `enabled`, `disabled`), the package's SHA-256 and the granted permissions. Unpacked
-  packages live in `plugins/<id>/<version>/` in the data directory.
+  `enabled`, `disabled`), the package's SHA-256, the granted permissions, the pinned
+  publisher key (when the package was signed) and its source (a registry URL, `file` or
+  `bundled`). Unpacked packages live in `plugins/<id>/<version>/` in the data directory.
+  After every change the core rewrites `plugins.lock` from this table
+  ([10](10-distribution.md#lockfiles)); the table stays the record.
 - One core owns a data directory at a time: `kumikit serve`, and CLI commands that work
   on the data directory while no core runs, hold an exclusive lock on `core.lock`.
 - Events are stored as JSON. Old threads can be compacted (text deltas folded into

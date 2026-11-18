@@ -18,7 +18,8 @@ raised two more gaps:
 
 ## Decision
 
-- `@kumikit/ui-sdk` starts at **0.1.0** and freezes at 1.0, before third parties publish.
+- `@kumikit/ui-sdk` starts at **0.1.0** and freezes at 1.0, before third parties publish
+  (when: [ADR 0020](0020-interface-freeze-after-m5.md), after M5).
   UI plugin and theme manifests use `api = "^0.1"`, a range over the UI SDK version.
 - The slot list and the token set are versioned with the SDK. Each published version is
   a directory `web/sdk/api/<version>/` holding `slots.json` and `tokens.json`.

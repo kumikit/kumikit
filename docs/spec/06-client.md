@@ -14,8 +14,9 @@ The shell's jobs, and its only commands ([ADR 0013](../decisions/0013-desktop-sh
   `http://<scheme>.localhost/` (WebView2 on Windows), that form is used. Every response
   carries the CSP: `default-src 'none'`, with scripts, styles, fonts and images only from
   the app and plugin schemes (images also from `data:`), no inline scripts or styles, no
-  `eval`, no frames, and no network: `fetch` reaches only the app and plugin schemes and
-  the shell's IPC. A path outside the plugin's
+  `eval`, frames only from the plugin scheme (sandboxed panels, [07](07-ui-plugins.md#level-2-sandboxed-panels)),
+  and no network: `fetch` reaches only the app and plugin schemes and the shell's IPC.
+  Files of a panel plugin carry that panel's own CSP instead. A path outside the plugin's
   directory is refused.
 - **Local core.** Looks for the core on the local address ([02](02-protocol.md#local-transport-details)).
   If no core answers, it starts the core binary bundled with it (never one from `PATH`) as
@@ -55,11 +56,22 @@ The shell's jobs, and its only commands ([ADR 0013](../decisions/0013-desktop-sh
   command? })` (checks it with a `core.hello` over its own connection), and `profile_remove(name)` (revokes its own
   device on the core if it can reach it within 2 s, then forgets the token and profile).
   After a profile is added the webview never sees its address again.
-- **Client plugin store:** `client_plugins_list`, `client_plugins_install(path)` and
-  `client_plugins_remove(id)`. Installs UI plugin and theme packages into
-  `<client data>/ui-plugins/<id>/<version>/`, checks the structure of their manifest
-  ([07](07-ui-plugins.md#manifest)), refuses core plugin packages, and lists the plugins
-  bundled with the app (read-only) next to the installed ones.
+- **Client plugin store:** `client_plugins_list`, `client_plugins_install(source)` (a
+  `{ path }` or `{ registry: { id, version?, sha256? } }`) and `client_plugins_remove(id)`.
+  Installs UI plugin and theme packages into `<client data>/ui-plugins/<id>/<version>/`,
+  checks the structure of their manifest ([07](07-ui-plugins.md#manifest)) and their
+  signature ([04](04-plugin-host.md#signatures)), pins the publisher key, refuses core
+  plugin packages, and lists the plugins bundled with the app (read-only) next to the
+  installed ones. Packages are checked as the core checks them ([10](10-distribution.md#install)).
+- **Client registry** ([ADR 0018](../decisions/0018-package-signing-and-registry.md)): the
+  shell fetches UI plugins and themes from the client's registries, only when the user
+  asks. `client_registry_search(query, refresh)` searches them (UI plugins and themes),
+  `client_registries_get` and `client_registries_set(urls)` read and replace the ordered
+  list (`<client data>/registries.toml`), `client_plugins_updates(refresh)` lists updates,
+  `client_plugins_update(id, version)` applies one (wider network hosts or a change to
+  inline code need the UI's confirmation first), and `client_lock` returns
+  `<client data>/plugins.lock`, which the shell rewrites after every install, update and
+  removal ([10](10-distribution.md#lockfiles)).
 - **Client secrets:** device tokens for paired cores. On macOS the Keychain and on Windows
   the Credential Manager (service `dev.kumikit.client`, account the profile name); on
   Linux, and wherever `KUMIKIT_CLIENT_SECRETS=file` is set, `<client data>/secrets.json`
@@ -71,7 +83,8 @@ The shell holds the client data directory ([01](01-architecture.md#data-director
 puts the webview's storage inside it. For tests and development, environment variables
 override the defaults: `KUMIKIT_SOCKET` (the local address), `KUMIKIT_CORE_DATA_DIR`,
 `KUMIKIT_CLIENT_DATA_DIR`, `KUMIKIT_CORE_BIN` (the core binary to start), `KUMIKIT_SSH`
-(the `ssh` program), `KUMIKIT_CLIENT_SECRETS=file`, and the app's
+(the `ssh` program), `KUMIKIT_CLIENT_SECRETS=file`, `KUMIKIT_DEFAULT_REGISTRY` (the
+default registry URL, also read by the core), and the app's
 resource directories `KUMIKIT_UI_DIR`, `KUMIKIT_BUNDLED_UI_PLUGINS` and
 `KUMIKIT_BUNDLED_CORE_PLUGINS`.
 
@@ -104,17 +117,32 @@ The plugin manager is part of the UI kernel, not a plugin, so the user can alway
 a plugin that broke the UI. **Safe mode** (`kumikit-desktop --safe`) loads no UI plugins; themes
 still load.
 
-- **Core plugins:** installed on a chosen core (the active tab's by default). On the local
+- **Browse:** a search over the registries, core plugins from the chosen core's
+  `registry.search` and UI plugins and themes from the shell's. A result shows its name,
+  publisher, key id, registry, repository, description and permissions; installing it asks
+  where (a core, or this app for UI plugins and themes).
+- **Core plugins:** installed on a chosen core (the active tab's by default): from a
+  registry with `plugin.install { registry }`, which the core fetches itself; on the local
   core, from a `.kkp` or a folder with a `plugin.toml`, picked with the file picker and
-  passed to `plugin.install { path }`. On a core on another machine (and in the browser
-  client), from a `.kkp` chosen with a standard file input; the webview reads it and sends
-  `plugin.install { package }`. The requested permissions are shown in
-  plain words (the same wording as `kumikit plugin add`), with the warning that the
-  package is unsigned, and granted as a whole.
-- **Client plugins:** installed through the shell's client plugin store. A third-party UI
-  plugin with inline code asks for trust first: it runs with full access to the app and to
-  every connected core. Themes run no code and need no trust. A disabled UI plugin's
+  passed to `plugin.install { path }`; on a core on another machine (and in the browser
+  client), from a `.kkp` chosen with a standard file input, which the webview reads and
+  sends as `plugin.install { package }`. The requested permissions are shown in plain
+  words (the same wording as `kumikit plugin add`), with who signed the package (or the
+  warning that it is unsigned), and granted as a whole.
+- **Client plugins:** installed through the shell's client plugin store, from a registry
+  or a file. A third-party UI plugin with inline code asks for trust first: it runs with
+  full access to the app and to every connected core. Sandboxed panels and themes need no
+  trust; panels show the methods and network hosts they may use. A disabled UI plugin's
   contributions disappear at once; its module stays loaded until the app restarts.
+- **Updates:** "Check for updates" (per core, and for this app) lists what the registries
+  offer; nothing is applied until the user chooses an update. An update that widens
+  permissions shows the new ones and is applied only after they are granted.
+- **Lockfiles:** "Export lock file" shows the core's or the app's lockfile with Copy;
+  "Import lock file" reads one through a file input, shows what would be installed and
+  every permission, and asks once ([10](10-distribution.md#lockfiles)).
+- **Registries** (in Settings): the ordered list for each core and for this app; add by
+  URL, remove.
+- **Starter pack:** the first-run welcome screen ([10](10-distribution.md#starter-pack)).
 - **Bundled plugins.** The app's resources hold the bundled UI plugins and a data file,
   `bundled.json`, which lists them and names the fallback theme. The UI kernel names no
   plugin in code. If the fallback theme is missing, the base styles fall back to system

@@ -62,13 +62,21 @@ and plugins use only the token names, as CSS custom properties.
 
 ## Validation
 
-At install and in the theme author's tooling (`kumikit theme check`, M4). Until then the
-UI kernel checks values by type when it loads a theme, and first-party themes have a
-contrast test:
+The UI kernel checks a theme when it is installed and loaded; theme authors run the same
+checks with `kumikit theme check <dir | file.kkp> [--strict] [--json]`:
+- The manifest's structure ([07](07-ui-plugins.md#manifest)).
+- Token values by type (above). An invalid value is an error.
 - Contrast: text tokens against the surfaces they are used on must meet WCAG AA (4.5:1 for
-  body text, 3:1 for large text and UI components). Failures are reported; installing
-  anyway is allowed with a warning.
-- Every referenced font file exists and is a web font.
+  body text, 3:1 for large text and UI components). Failures are warnings; installing
+  anyway is allowed with a warning, and `--strict` makes them errors.
+- Every referenced font file exists in the package and is a web font (WOFF or WOFF2). A
+  missing or other file is an error.
+
+The two implementations (TypeScript in the UI kernel, Rust in the `kumikit-theme` crate
+behind the CLI) share their data: the token set (`web/sdk/api/<version>/tokens.json`), the
+contrast pairs (`web/sdk/theme-rules.json`) and a set of test vectors
+(`web/sdk/tests/theme-vectors.json`) that both test suites must pass, so they cannot
+disagree without a test failing.
 
 ## Platform modes
 

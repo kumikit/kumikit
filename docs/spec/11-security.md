@@ -14,7 +14,10 @@ programs as the user, and the conversation history.
 | A plugin escapes through a spawned program | `spawn` is an explicit, prominently explained permission; only listed executables; cwd limited to workspaces; minimal environment |
 | A plugin exhausts the core | Memory limits, epoch interruption, restart with backoff, per-plugin process accounting |
 | A remote core runs code in the user's webview | Core plugins have declarative UI only; UI plugins are installed on the client by the user |
-| A UI plugin reads other tabs or the core | Iframe sandbox by default; bridge limited to declared needs; inline only when trusted |
+| A UI plugin reads other tabs or the core | Third-party UI plugins run as sandboxed panels: an opaque-origin iframe, a bridge limited to the tab's connection, read-only kernel methods in the tab's workspace and the `requires.core` plugins' methods; inline only when trusted |
+| A panel reaches the shell (profiles, tokens, the plugin store) | No shell IPC in the frame; the bridge exposes no shell command |
+| A panel sends data out | A CSP per panel: `connect-src` only to the hosts it declares, shown at install |
+| A panel navigates, opens popups or hands its bridge to another page | Sandbox without top navigation or popups; a frame that loads a second document is removed and its port closed |
 | A theme injects code or CSS | Themes are typed token values only; no raw CSS in v1 |
 | Someone on the network connects to a core | Remote access only with `serve --listen`, nothing stored that turns it on; TLS 1.3 with a pinned certificate; the first message must authenticate; pairing code then device token; tokens revocable, closing live connections |
 | Guessing a pairing code | 40-bit codes, valid 5 minutes, single use, burnt after 5 wrong tries, one live code at a time |
@@ -24,10 +27,17 @@ programs as the user, and the conversation history.
 | A stolen device token | Tokens are random 256-bit values; the core stores only hashes; clients keep them in the OS keychain or a 0600 file, never in the webview; revocation is immediate |
 | A web page reaches a core (cross-site WebSocket or form) | A browser `Origin` must be the core's own and the web UI must be on; the browser token is an `HttpOnly; Secure; SameSite=Strict` cookie; pairing and sign-out need same-origin JSON requests; `frame-ancestors 'none'` |
 | SSH destinations used for injection | Validated, passed after `--`, no shell; `BatchMode` so nothing prompts |
-| A trusted inline UI plugin adds or removes core profiles | Trust already grants full access to the app (the trust prompt says so); sandboxed panels (M4) get no profile commands |
+| A trusted inline UI plugin adds or removes core profiles | Trust already grants full access to the app (the trust prompt says so); sandboxed panels get no profile commands |
 | Another local user connects to the core | Socket 0600 and peer-credential check; per-user pipe ACL on Windows |
-| A tampered or substituted package | SHA-256 in the registry, publisher signature, key pinned across versions |
-| A typo-squatted plugin | Registry CI checks for confusable ids; install shows publisher and repository |
+| A tampered or substituted package | SHA-256 in the registry, publisher signature over every file, key pinned across versions; registry packages must be signed |
+| A registry entry that misstates permissions | The entry's copy of the manifest must equal the package's (registry CI and install) |
+| A second registry takes over a plugin's updates | A plugin updates only from the registry it was installed from |
+| A network attacker on registry traffic | HTTPS with the OS's trusted certificates; plain `http` only to loopback; size and time limits |
+| A silent or downgrading update | Updates are listed only on request, applied only by the user, never to a lower version; wider permissions need a new grant |
+| A lockfile import installs something else | Each entry's SHA-256 is pinned; an import adds no registry |
+| A publisher's private key leaks | Key files are 0600 and kept outside work trees; never printed or logged; CI refuses committed private keys |
+| The registry is contacted behind the user's back | Only on browse, search, install, lockfile import or an update check; the first-run screen asks first |
+| A typo-squatted plugin | Registry CI checks for confusable ids; one key per publisher namespace; install shows publisher, key id, registry and repository |
 | Secrets leak to the UI or logs | Secrets are write-only over the protocol; the logger redacts values of known secrets |
 
 ## Rules

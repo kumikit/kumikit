@@ -41,3 +41,7 @@ Small, local choices do not need one; a clear commit message is enough.
 | [0015](0015-shell-memory-budget.md) | Shell memory budget: anonymous memory, gated on Linux | Proposed |
 | [0016](0016-remote-transport-and-pairing.md) | Remote transport: WebSocket over TLS, pinned certificates, device tokens | Proposed |
 | [0017](0017-shell-remote-profiles-and-ssh.md) | The shell's remote profiles, SSH through the system `ssh`, client secrets | Proposed |
+| [0018](0018-package-signing-and-registry.md) | Package signing and the plugin registry | Proposed |
+| [0019](0019-sandboxed-panels.md) | Sandboxed panels: iframes, a CSP per panel, a narrow bridge | Proposed |
+| [0020](0020-interface-freeze-after-m5.md) | Freeze WIT and the UI SDK after M5; early publishers until then | Proposed |
+| [0021](0021-no-sidecars-in-1-0.md) | No sidecar plugins in 1.0 | Proposed |

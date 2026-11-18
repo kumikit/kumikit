@@ -40,6 +40,8 @@ crates/
   kumikit-protocol/      # protocol types, method table, local address; generates TypeScript
   kumikit-package/       # .kkp packing and defensive unpacking, shared by core and shell
   kumikit-assets/        # serving UI files: path checks, MIME types, CSP; shared by shell and core
+  kumikit-registry/      # registry index, fetching, install checks; the registry checker binary
+  kumikit-theme/         # theme checks (token types, contrast, fonts) for `kumikit theme check`
   kumikit-kernel/        # domain model, event log, storage, secrets, processes, permissions
   kumikit-plugin-host/   # wasmtime component host, WIT bindings, sidecar host (later)
   kumikit-core/          # the `kumikit` binary: transports, auth, CLI
@@ -60,6 +62,7 @@ plugins/                 # first-party plugins, built with the public SDKs only
   ui-chat/
   ui-settings/
   theme-default/
+templates/               # plugin author templates: core plugin (Rust), UI plugin (Svelte), theme
 test-plugins/            # plugins and helper programs used only by tests
 docs/
   spec/                  # this specification
@@ -72,7 +75,9 @@ docs/
 ```
 kumikit-protocol  ←  kumikit-kernel  ←  kumikit-plugin-host  ←  kumikit-core
 kumikit-protocol  ←  kumikit-shell
-kumikit-package   ←  kumikit-plugin-host, kumikit-core, kumikit-shell
+kumikit-package   ←  kumikit-plugin-host, kumikit-registry, kumikit-core, kumikit-shell
+kumikit-registry  ←  kumikit-core, kumikit-shell
+kumikit-theme     ←  kumikit-core
 kumikit-assets    ←  kumikit-core, kumikit-shell
 @kumikit/protocol ←  web/kernel, web/sdk
 @kumikit/ui-sdk   ←  web/kernel, plugins/ui-*
@@ -82,6 +87,10 @@ wit/              ←  kumikit-plugin-host, sdk/rust*, plugins/*, test-plugins/*
 - `kumikit-protocol` depends on nothing in the workspace. It has no I/O.
 - `kumikit-package` and `kumikit-assets` depend on nothing in the workspace and know no
   kernel types.
+- `kumikit-registry` depends only on `kumikit-package` and `kumikit-protocol`;
+  `kumikit-theme` on nothing in the workspace. Neither knows kernel types.
+- `templates/` are built like third-party projects: outside the cargo and npm workspaces,
+  against the public SDKs only.
 - `kumikit-shell` and `web/` never depend on `kumikit-kernel`: the client knows the core
   only through the protocol.
 - `plugins/*` and `test-plugins/*` depend only on `wit/`, `sdk/`, `web/sdk` and
@@ -101,6 +110,8 @@ wit/              ←  kumikit-plugin-host, sdk/rust*, plugins/*, test-plugins/*
 | Desktop | Tauri 2, system webview | [ADR 0002](../decisions/0002-separate-core-and-client.md) |
 | UI kernel | Svelte 5 (runes), TypeScript strict, Vite | [ADR 0004](../decisions/0004-svelte-ui-kernel.md) |
 | Plugin packages | tar.zst + manifest + ed25519 signature | [10-distribution.md](10-distribution.md) |
+| Signing, registry | ed25519 through `ring`; `index.json` over HTTPS (hyper client, OS trust store via `rustls-native-certs`) | [ADR 0018](../decisions/0018-package-signing-and-registry.md) |
+| Sandboxed UI panels | iframe sandbox, a CSP per panel, `MessagePort` bridge | [ADR 0019](../decisions/0019-sandboxed-panels.md) |
 
 ## Data directories
 

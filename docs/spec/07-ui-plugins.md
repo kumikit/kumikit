@@ -30,12 +30,15 @@ Slots are versioned with the UI SDK. Adding a slot is a minor change.
 
 ## Versions
 
-The UI SDK is at **0.1** and freezes at 1.0, before third parties publish (M4)
-([ADR 0014](../decisions/0014-ui-sdk-versioning.md)). A UI plugin's or theme's `api` is a
+The UI SDK is at **0.1.1** (0.1.0 plus sandboxed panels) and freezes at 1.0 after M5,
+before the official registry opens to third parties
+([ADR 0014](../decisions/0014-ui-sdk-versioning.md),
+[ADR 0020](../decisions/0020-interface-freeze-after-m5.md)). A UI plugin's or theme's `api` is a
 range over the UI SDK version (`api = "^0.1"`), separate from the kernel plugin API of
 core plugins. The slot list and the token set of each published SDK version are files in
 `web/sdk/api/<version>/` (`slots.json`, `tokens.json`); `web/sdk/api/PUBLISHED` records
-their hashes, and a test fails if a published version changes.
+their hashes, and a test fails if a published version changes. A version that changes neither list
+(0.1.1) adds no directory; its lists are those of 0.1.0.
 
 ## Manifest
 
@@ -48,13 +51,13 @@ UI plugins and themes use the same `plugin.toml` rules as core plugins for `id`,
 | `kind` | provider, tool, bot, integration | `["ui"]` | `["theme"]` |
 | `api` | kernel plugin API (`^0.1`) | UI SDK (`^0.1`) | UI SDK (`^0.1`) |
 | Code | `[runtime]` (WASM) | `[ui] entry`, `isolation` | none |
-| Permissions | `[permissions]` | none; `[requires] core`, and trust for third-party inline code | none |
+| Permissions | `[permissions]` | none; `[requires] core`, `[ui] network` for panels, and trust for third-party inline code | none |
 | Contributes | providers, commands, settings, … | `slots`, `commands`, `settings` | `[theme] variants`, `fonts` |
 | Installed by | the core (`plugin.install`) | the shell's client plugin store | the shell's client plugin store |
 
 A package is either a core plugin or exactly one of `ui` and `theme`; each installer
-refuses the other's packages. `isolation = "inline"` is level 3; `"iframe"` (level 2) is
-refused until M4. The shell checks the structure and that the files exist; the UI kernel
+refuses the other's packages. `isolation = "inline"` is level 3; `"iframe"` is level 2,
+whose `entry` is an HTML file. The shell checks the structure and that the files exist; the UI kernel
 checks the contents when it loads a plugin (slot names, token values, font files).
 `requires.core` lists core plugins as `<plugin id>@<semver range>` (for example
 `kumikit.git@^1`). An entry is met on a connection when that core reports the plugin as
@@ -88,22 +91,57 @@ This covers most plugin UI and keeps it consistent with the theme for free.
 ```toml
 id = "community.ui-git-graph"
 kind = ["ui"]
-api = "^0.1"
+api = "^0.1.1"
 [ui]
 entry = "dist/index.html"
 isolation = "iframe"
+network = []                       # https hosts the panel may contact
 [requires]
 core = ["kumikit.git@^1"]
 [contributes]
 slots = [{ slot = "inspector.tab", id = "git-graph", title = "Graph" }]
 ```
 
-- Loaded into `<iframe sandbox="allow-scripts">` from `kumikit-plugin://<id>/`. CSP:
-  no network unless the plugin declares hosts, no top navigation, no popups.
-- Talks to the host through a postMessage bridge exposing the UI SDK API asynchronously.
-- The host passes the current theme tokens and updates them live, so panels can match.
-- Calls to the core go through the bridge and are limited to what the plugin declared
-  (`requires.core` methods and read-only kernel methods).
+Decided in [ADR 0019](../decisions/0019-sandboxed-panels.md).
+
+- **Slots.** A panel contributes through `[contributes] slots` to `sidebar.section`,
+  `inspector.tab`, `view` or `settings.page`; other slots are refused for `iframe`
+  plugins. Its document is loaded only when its slot is shown.
+- **Frame.** `<iframe sandbox="allow-scripts">` loading `[ui] entry` from the plugin's own
+  URL (`kumikit-plugin://<id>/`, `http://kumikit-plugin.localhost/<id>/` on WebView2,
+  `/ui-plugins/<id>/` in the browser client), with no referrer. Without
+  `allow-same-origin` the panel has an opaque origin: it cannot reach the app's DOM,
+  storage or cookies. It cannot navigate the top window, open popups, submit forms or
+  show modal dialogs. If the frame loads a second document, the UI kernel removes it,
+  closes its bridge and says so in the slot.
+- **CSP.** Every file of a panel plugin is served with its own CSP: `default-src 'none'`;
+  scripts, styles, fonts and images (and `data:` images) only from that plugin's
+  directory; `connect-src` only the `https` hosts listed in `[ui] network` (none by
+  default); no frames, forms, base changes or objects.
+- **Network.** `[ui] network = ["api.example.com"]` lists the hosts the panel may contact.
+  They are shown at install and when an update adds one.
+- **Bridge.** At the frame's first load the UI kernel transfers a `MessagePort` to it
+  (`{ type: "kumikit.panel", version: 1 }`); all later messages use that port, and other
+  `window` messages are ignored. Calls are `{ id, method, params }` answered by
+  `{ id, result }` or `{ id, error }`, at most 1 MiB each and 64 in flight.
+- **SDK.** `@kumikit/ui-sdk/panel` exports `connectPanel(): Promise<PanelContext>`: the
+  UI SDK below, asynchronous: `slot` and `props` (the tab's address), `connection.call` and
+  `connection.subscribe`, `threads.watch`, `theme` (tokens, appearance, `onChange`; the SDK
+  applies the tokens to the panel's document as `--kk-*` properties and the UI kernel
+  pushes changes live), `storage` (async `get`, `set`, `delete`), `notify`, and
+  `commands.run` for the plugin's own commands.
+- **What a panel may call.** Only its tab's connection, and only:
+  - read-only kernel methods: `workspace.list`, `thread.list`, `thread.get`,
+    `provider.list`, `provider.models`, `plugin.list`, and subscriptions to `thread:` and
+    `workspace:` topics, with thread and workspace reads limited to the tab's workspace;
+  - `<pluginId>/*` methods of the plugins in its `requires.core`.
+
+  Everything else fails with `permission_denied`: other connections, writes (`thread.send`,
+  approvals, `plugin.*`, `registry.*`, `settings.*`, `secret.*`, `auth.*`,
+  `core.shutdown`), and every shell command (profiles, the client plugin store). The
+  shell's IPC is not reachable from a panel.
+- **Trust.** Panels need no trust prompt; changing a plugin from `iframe` to `inline` in an
+  update asks for trust again.
 
 ## Level 3: inline modules
 

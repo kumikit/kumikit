@@ -76,9 +76,14 @@ macOS. Plan: [M3 — Multiple cores](../plans/2026-11-17-m3-multiple-cores.md).
 - Sandboxed iframe panels (level 2) and the postMessage bridge.
 - Theme validation tooling (`kumikit theme check`).
 - Plugin author templates: core plugin (Rust), UI plugin (Svelte), theme.
+- The starter pack on first run.
+- WIT and the UI SDK stay 0.x; they freeze at 1.0 after M5, when the official registry
+  opens to third parties ([ADR 0020](../decisions/0020-interface-freeze-after-m5.md)).
 
 **Exit:** a plugin published to the registry by a third party installs on a fresh machine,
 with its permissions shown and enforced.
+
+**Status:** in progress. Plan: [M4 — Ecosystem](../plans/2026-11-18-m4-ecosystem.md).
 
 ## M5 — Plugins
 
@@ -93,5 +98,6 @@ change; if one does, the kernel change lands first as a general API.
 | WASI 0.3 (native async) adoption timing | Decided for now: WASI 0.2 ([ADR 0010](../decisions/0010-wasi-p2-and-session-instances.md)); revisit when wasmtime ships WASI 0.3 as stable (Rust's `wasm32-wasip3` target is tier 2 since 1.100) |
 | SQL storage for plugins beyond key-value | When a plugin needs it |
 | Whether themes may ship restricted CSS in v2 | After M4, from theme authors' feedback |
-| Sidecar plugins: ship in 1.0 or later | M4 |
+| Sidecar plugins: ship in 1.0 or later | Decided: not in 1.0 ([ADR 0021](../decisions/0021-no-sidecars-in-1-0.md)) |
+| Freezing WIT and the UI SDK at 1.0 | After M5 ([ADR 0020](../decisions/0020-interface-freeze-after-m5.md)) |
 | Mobile client over the same protocol | After 1.0 |

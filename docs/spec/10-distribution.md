@@ -22,8 +22,19 @@ enables a seeded plugin only if it requests no permissions; any other stays inst
 until the user grants it. The core names no plugin: the directory decides. A core started
 without the flag (for example from the CLI) preinstalls nothing.
 
-On first run (from M4, with the registry), a "starter pack" screen offers common plugins (agent providers, git, a bot)
-to install. Nothing is installed without the user choosing it.
+### Starter pack
+
+On a client's first run, a welcome screen offers the registry's **starter pack**: common
+plugins (agent providers, git, a bot) listed in the registry's `starter` list.
+
+- Nothing is fetched until the user chooses "Browse the starter pack"; the screen says that
+  this contacts the registry and names its host. "Not now" is remembered, and the screen is
+  reachable later from the palette.
+- Each entry shows its publisher, description and permissions and has its own Install
+  button, which goes through the normal permission dialog. Nothing is preselected and there
+  is no "install all": nothing is installed without the user choosing it.
+- The list is registry data; the UI kernel names no plugin. The browser client shows only
+  core plugins (it cannot install UI plugins).
 
 ## Desktop installers
 
@@ -41,58 +52,164 @@ starts on X11 (or Xwayland) by default; `GDK_BACKEND=wayland` selects GTK's Wayl
 ## Package format
 
 `<id>-<version>.kkp`: a tar.zst archive with `plugin.toml`, the component or UI bundle,
-assets and a `SIGNATURE` file. The signature is ed25519 over a list of file hashes, made
-with the publisher's key.
+assets and, when signed, a `SIGNATURE` file ([04](04-plugin-host.md#signatures)): ed25519
+over the list of the other files' SHA-256 hashes, made with the publisher's key
+([ADR 0018](../decisions/0018-package-signing-and-registry.md)).
+
+### Publisher keys
+
+- `kumikit plugin keygen [--out <file>] [--force]` makes a key pair. The private key is a
+  PKCS#8 file (PEM, `-----BEGIN PRIVATE KEY-----`) with mode 0600, by default in
+  `<user config dir>/kumikit/keys/` (Linux `$XDG_CONFIG_HOME/kumikit/keys`, macOS
+  `~/Library/Application Support/dev.kumikit/keys`, Windows `%APPDATA%\kumikit\keys`). It
+  prints only the public key id (`ed25519:` and the key in base64url). `--out` inside a git
+  work tree is refused unless `--force` is given.
+- Signing reads the private key from `--key <file>` or from the `KUMIKIT_SIGNING_KEY`
+  environment variable (the PEM text, for a CI secret). On Unix a key file readable by
+  group or others is refused. Key material is never printed or logged.
+- `kumikit plugin pack <dir> [-o <file.kkp>] [--key <file>]` packs, and signs with
+  `--key`. `kumikit plugin sign <file.kkp> --key <file>` adds or replaces the signature of
+  an existing package. `kumikit plugin verify <file.kkp> [--key <id>]` prints who signed it
+  or that it is not signed, and fails on a bad signature or another key than `--key`.
 
 ## Registry
 
-- The registry is a git repository, `github.com/kumikit/registry`, with one file per
-  plugin: `plugins/<publisher>/<name>.toml` listing versions, download URLs (usually
-  GitHub release assets), SHA-256 hashes and the publisher's public key.
-- Publishing is a pull request to the registry. CI checks the manifest, the hash, the
-  signature, that the publisher key matches earlier versions, and that the id is not
-  confusingly close to an existing one.
-- The registry is fetched only when the user browses, searches, installs or checks for
-  updates, or when they turn on periodic update checks. No other traffic.
-- Other registries can be added by URL; installing from a local `.kkp` file works offline.
+A registry is a git repository of plugin descriptions, and the `index.json` its CI builds
+from them. The official one is `github.com/kumikit/registry`, whose index is served at
+`https://kumikit.github.io/registry/index.json`.
+
+```
+publishers/<publisher>.toml       # the publisher's key and who may change its files
+plugins/<publisher>/<name>.toml   # one plugin: metadata and versions
+starter.toml                      # ids offered on the first-run screen
+allow-confusable.toml             # reviewed exceptions to the confusable-id check
+```
+
+```toml
+# publishers/acme.toml
+name = "Acme"
+key = "ed25519:Hx3k…"
+github = ["acme-bot", "jane"]     # GitHub logins that may change this publisher's files
+early = true                      # accepted before 1.0 (ADR 0020)
+```
+
+```toml
+# plugins/acme/probe.toml
+id = "acme.probe"
+name = "Probe"
+description = "…"
+repository = "https://github.com/acme/kumikit-probe"
+license = "MIT"
+kind = ["provider"]
+
+[[versions]]
+version = "0.1.0"
+url = "https://github.com/acme/kumikit-probe/releases/download/v0.1.0/acme.probe-0.1.0.kkp"
+sha256 = "…"
+api = "^0.1"                                   # copied from the manifest
+permissions = { spawn = ["fake-acp-agent"] }   # copied from the manifest (core plugins)
+yanked = false
+```
+
+- UI plugins and themes copy `[ui] network`, `isolation` and `requires.core` instead of
+  `permissions`.
+- **Index.** On its default branch the registry's CI builds `index.json` (`format`, `name`,
+  `generated`, `starter`, `publishers` with their keys, `plugins` with their versions) and
+  publishes it. Clients read only the index; they never clone the repository.
+- **Publishing** is a pull request. CI (`kumikit-registry check`) downloads each new
+  version and checks its SHA-256, that it is signed by the publisher's key, its manifest
+  (the same validation as install), that the copied fields equal the manifest, that the id
+  starts with the publisher's name, that the publisher key did not change, that no
+  published version was changed or removed (a version can only be marked `yanked`), that
+  the author of the pull request is in the publisher's `github` list, and that a new id is
+  not confusingly close to an existing one. Reserved publishers: `kumikit`, `test`, `local`.
+- **Confusable ids.** Ids are ASCII, so the check compares skeletons: lowercase, `-`
+  removed, `0→o 1→l i→l 5→s rn→m vv→w`. A new id is refused if its skeleton equals an
+  existing one's, if it is one edit away from an existing id of 5 or more characters, or
+  if its publisher is confusable with a reserved one. Exceptions are listed in
+  `allow-confusable.toml`, so a maintainer reviews them.
+- **Before 1.0** the official registry accepts only publishers marked `early`
+  ([ADR 0020](../decisions/0020-interface-freeze-after-m5.md)). Anyone can run their own.
+
+### Fetching
+
+- A registry is a URL to an index: `https://…` (verified with the operating system's
+  trusted certificates), `http://` only for a loopback host (`127.0.0.1`, `::1`,
+  `localhost`), or `file:` for a mirror on the same machine. Redirects are followed up to
+  5 times and only to `https` (or loopback `http` from loopback). Limits: index 16 MiB,
+  package 64 MiB, 10 s to connect, 30 s per request.
+- **When.** Only when the user browses or searches the registry, installs or updates from
+  it, imports a lockfile from it, or checks for updates. Nothing at startup, first run,
+  connect or in the background; there are no periodic checks. A search reuses a cached
+  index younger than 10 minutes; installing and checking for updates revalidate it
+  (`If-None-Match`).
+- **Who.** Each side fetches what it installs: a core fetches core plugins (a remote core
+  downloads on its own machine), the desktop app's shell fetches UI plugins and themes.
+- **Cache:** `<core data>/registry-cache/` and `<client data>/registry-cache/` (the index
+  and its ETag, named by the SHA-256 of the URL).
+- **Several registries.** Each core and each client keeps an ordered list
+  (`<core data>/registries.toml`, `<client data>/registries.toml`), by default the
+  official one. `KUMIKIT_DEFAULT_REGISTRY` replaces the default (tests, development). An id
+  resolves to the first registry that lists it, and search shows which registry each
+  result comes from. A plugin is updated only from the registry it was installed from.
+- Installing from a local `.kkp` file works offline.
 
 ## Install
 
 ```sh
-kumikit plugin add kumikit.provider-claude          # on the local core
-kumikit plugin add kumikit.provider-claude --core devbox
-kumikit plugin add ./my-plugin-0.1.0.kkp            # local file
-kumikit plugin list | update | disable <id> | remove <id>
+kumikit plugin add acme.probe[@0.1.0] [--registry <url>] [--yes]   # from a registry
+kumikit plugin add ./my-plugin-0.1.0.kkp [--yes]                   # a local file
+kumikit plugin search <words>
+kumikit plugin update [<id>] [--yes] [--allow-wider]
+kumikit plugin registry list | add <url> | remove <url>
+kumikit plugin lock export [-o <file>] | import <file> [--yes]
+kumikit plugin list | remove <id> [--yes] [--keep-data]
 ```
 
-The desktop plugin manager does the same through the protocol (`plugin.install`, with a
-`.kkp` or a folder holding a `plugin.toml`) for core plugins, and through the shell's
-client plugin store for UI plugins and themes ([06](06-client.md#shell-rust-kumikit-shell)).
+The argument of `add` is a file when it names an existing file or ends in `.kkp`, and an
+id otherwise. The desktop plugin manager does the same through the protocol
+(`plugin.install` with `registry`, `path` or `package`) for core plugins, and through the
+shell's client plugin store for UI plugins and themes ([06](06-client.md#shell-rust-kumikit-shell)).
 
-Install steps: download → check hash → check signature against the registry's publisher
-key → validate manifest → show permissions → unpack → enable.
+Install steps:
 
-### Local packages (before signing)
+1. Resolve the id in the registry: the latest version that is not yanked and whose `api`
+   this Kumikit satisfies, or the version asked for.
+2. Download, and check the SHA-256 against the index (and against the lockfile, when
+   importing one).
+3. Unpack into a staging directory, defensively ([04](04-plugin-host.md#package-contents)).
+4. Check the signature against the registry's publisher key, and against the key pinned
+   for this id if one is installed. A registry package must be signed.
+5. Validate the manifest, and check that its id, version, `api` and permissions equal the
+   index's copy.
+6. Show the name, publisher, key id, registry, repository and permissions in plain words.
+7. Install (move into place, record the hash, key and source); enable only after the user
+   grants the permissions.
 
-Until signing and the registry exist (M4), `kumikit plugin add <file.kkp>` is the only way
-to install a core plugin:
+A failure in steps 2–5 installs nothing and is reported as untrusted
+([02](02-protocol.md#errors)).
+
+### Local packages
 
 - `kumikit plugin add <file.kkp> [--yes]`, `kumikit plugin list`, `kumikit plugin remove
-  <id> [--yes] [--keep-data]`, and `kumikit plugin pack <dir> [-o <file.kkp>]` to build a
-  package. All take `--socket` and `--data-dir`.
+  <id> [--yes] [--keep-data]` and `kumikit plugin pack`. All take `--socket` and
+  `--data-dir`.
 - The commands talk to the running core through `plugin.*`. When no core runs, they open
   the data directory themselves (holding its lock) and do the same work.
 - `add` unpacks and validates the package, then prints the plugin's name, publisher,
-  repository and permissions in plain words, and that the package is not signed so its
-  publisher cannot be verified. It asks before granting the permissions and enabling the
-  plugin; `--yes` grants without asking. Without a terminal and without `--yes`, the
-  plugin stays installed but not enabled.
+  repository and permissions in plain words. A signed file shows "signed by key ed25519:…,
+  not checked against a registry", and that key is pinned. An unsigned one shows that the
+  package is not signed, so its publisher cannot be verified. It asks before granting the
+  permissions and enabling the plugin; `--yes` grants without asking. Without a terminal
+  and without `--yes`, the plugin stays installed but not enabled.
 - `remove` asks before deleting the plugin's data; `--keep-data` keeps it.
-- The CLI talks to the local core only. The desktop app installs on remote cores by
-  uploading the package (`plugin.install { package }`).
-- The SHA-256 of the package is recorded for the lockfile. Installing an id that is
-  already installed fails until updates exist; remove it first. Adding the same version
-  of a plugin that is installed but not enabled asks again for the grant.
+- The CLI talks to the core on its own machine. To install on another machine, run it
+  there (for example `ssh devbox kumikit plugin add <id>`), or use the desktop app, which
+  installs on any core it is connected to (by registry id, or by uploading the package with
+  `plugin.install { package }`).
+- The SHA-256 of the package is recorded for the lockfile. Adding an id that is already
+  installed fails; use `update`. Adding the same version of a plugin that is installed but
+  not enabled asks again for the grant.
 
 ### Remote access commands
 
@@ -109,13 +226,49 @@ to install a core plugin:
 
 All take `--socket` (and the device commands `--data-dir`).
 
+## Updates
+
+- Updates are proposed, never applied silently. `kumikit plugin update` and the plugin
+  manager's "Check for updates" list installed registry plugins whose registry has a
+  higher version that is not yanked and that this Kumikit can run; never a lower one.
+- An update is downloaded and checked like an install, then replaces the old version.
+  If its permissions are no wider, the plugin keeps its state (and gets the new, possibly
+  narrower, set). Wider permissions (a new program, host or secret, more file access,
+  tools, raised limits) are shown and must be granted first; until then the plugin stays
+  on the old version. An update fails while one of the plugin's turns is running.
+- `--yes` applies updates that do not widen permissions; widening needs an interactive yes
+  or `--allow-wider`.
+- For UI plugins, wider means new network hosts or a change from a sandboxed panel to an
+  inline module (which needs trust again).
+
 ## Lockfiles
 
-- Each core keeps `plugins.lock` in its data directory; the client keeps its own.
-- The lock records id, version, hash and granted permissions. Exporting and importing it
-  reproduces a setup on another machine.
-- Updates are proposed, not applied silently; an update that widens permissions waits for
-  approval.
+- Each core keeps `plugins.lock` in its data directory, rewritten after every install,
+  update, enable, disable and uninstall; the client keeps its own in the client data
+  directory for installed UI plugins and themes.
+
+  ```toml
+  # Written by Kumikit. Export it to reproduce these plugins on another core.
+  format = 1
+  [[plugin]]
+  id = "acme.probe"
+  version = "0.1.0"
+  sha256 = "…"
+  source = "registry+https://kumikit.github.io/registry/index.json"   # or "file", "bundled"
+  key = "ed25519:…"                                                    # when signed
+  state = "enabled"
+  granted = { spawn = ["fake-acp-agent"] }
+  ```
+
+  The client's lock has no `granted`; when the UI kernel exports it, it adds `enabled` and
+  `trusted` (trust is the UI plugin's grant) from the client settings.
+- **Export:** `kumikit plugin lock export`, or "Export lock file" in the plugin manager.
+- **Import:** `kumikit plugin lock import <file>`, or "Import lock file". Entries already
+  installed at that version are skipped; registry entries are installed at the locked
+  version and must have the locked SHA-256; the registry must already be configured
+  (import does not add registries); `file` and `bundled` entries are reported. All the
+  permissions (and trust, on the client) are shown together and confirmed once, then the
+  entries that were enabled are enabled.
 
 ## Versioning
 
