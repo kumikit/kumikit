@@ -576,7 +576,7 @@ code first needs macOS and Windows; the next after step 13; the last after step 
   pairing screen, `bundle.mjs` writes `ui-browser`, `dev:browser`, core tests and the
   Playwright browser specs. Commits: `refactor: share asset serving with the core`, `feat:
   serve the UI to browsers from the core`.
-- [ ] **13. Desktop exit test.** `exit-m3.test.mjs`, `e2e.sh`, CI step; Linux in the
+- [x] **13. Desktop exit test.** `exit-m3.test.mjs`, `e2e.sh`, CI step; Linux in the
   container, Windows *(CI)*. Commit: `test: add M3 exit-criteria test`. **Second push.**
 - [ ] **14. Footprint and installers.** Remote-on phase, shell second run, numbers in
   Notes. Commit: `chore: measure the remote transport's footprint`.
@@ -752,4 +752,11 @@ Q11 take the recommendation unless you say otherwise.
   (`npm run dev:browser`) was checked by hand against a core: a wrong fingerprint is
   refused; with the right one the UI, `/auth/status` and pairing work through the proxy.
   The WebSocket through the dev proxy is not covered by an automated test.
+- Step 13: `web/e2e-desktop/exit-m3.test.mjs` passes on Linux in the container, 3 of 3
+  runs (about 12 s each, after the M2 test). The app starts the local core; the test starts
+  the remote core (with `--bundled-plugins`, which the recorded provider's backend needs:
+  the first run failed without it) behind the `net-cut` binary, installs the recorded
+  provider on each core with `kumikit plugin add`, and pairs through the real shell (token
+  in the 0600 file on Linux). Windows runs it in CI with `node --test
+  --test-concurrency=1`, since both tests use tauri-driver's port.
 
