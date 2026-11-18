@@ -1,24 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <title>Kumikit</title>
-  <!-- Kumiko: a lattice of strips joined over and under, without nails.
-       Each crossing alternates which strip sits on top, so the joints
-       interlock. The strips run past the tile edge: the lattice is a
-       piece of a larger whole, and more pieces can be fitted to it. -->
-  <rect width="64" height="64" rx="14" fill="#26231f"/>
-  <g fill="#d9a866">
-    <rect x="0" y="17" width="64" height="7"/>
-    <rect x="0" y="40" width="64" height="7"/>
-    <rect x="17" y="0" width="7" height="64"/>
-    <rect x="40" y="0" width="7" height="64"/>
-  </g>
-  <!-- Crossings where the horizontal strip lies on top -->
-  <g fill="#d9a866" stroke="#26231f" stroke-width="1.6">
-    <rect x="40" y="17" width="7" height="7"/>
-    <rect x="17" y="40" width="7" height="7"/>
-  </g>
-  <!-- Crossings where the vertical strip lies on top -->
-  <g fill="#d9a866" stroke="#26231f" stroke-width="1.6">
-    <rect x="17" y="17" width="7" height="7"/>
-    <rect x="40" y="40" width="7" height="7"/>
+  <!-- Asanoha (hemp leaf), the classic kumiko pattern: a hexagon split into six
+       triangles, each joined to its centre. Kumiko is Japanese woodwork in which a
+       lattice is assembled from many small pieces without nails. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#151a33"/>
+      <stop offset="1" stop-color="#070912"/>
+    </linearGradient>
+    <linearGradient id="ink" gradientUnits="userSpaceOnUse" x1="60" y1="36" x2="196" y2="220">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="0.5" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#38bdf8" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#38bdf8" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+  <rect x="1" y="1" width="254" height="254" rx="55" fill="none" stroke="#fff" stroke-opacity="0.08" stroke-width="2"/>
+  <circle cx="128" cy="128" r="110" fill="url(#glow)"/>
+  <g fill="none" stroke="url(#ink)" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke-width="12" d="M128.0 42.0 L202.5 85.0 L202.5 171.0 L128.0 214.0 L53.5 171.0 L53.5 85.0 Z"/>
+    <path stroke-width="9" d="M128.0 128.0 L128.0 42.0 M128.0 128.0 L202.5 85.0 M128.0 128.0 L202.5 171.0 M128.0 128.0 L128.0 214.0 M128.0 128.0 L53.5 171.0 M128.0 128.0 L53.5 85.0"/>
+    <path stroke-width="5.5" d="M128.0 42.0 L152.8 85.0 L202.5 85.0 M152.8 85.0 L128.0 128.0 M202.5 85.0 L177.7 128.0 L202.5 171.0 M177.7 128.0 L128.0 128.0 M202.5 171.0 L152.8 171.0 L128.0 214.0 M152.8 171.0 L128.0 128.0 M128.0 214.0 L103.2 171.0 L53.5 171.0 M103.2 171.0 L128.0 128.0 M53.5 171.0 L78.3 128.0 L53.5 85.0 M78.3 128.0 L128.0 128.0 M53.5 85.0 L103.2 85.0 L128.0 42.0 M103.2 85.0 L128.0 128.0"/>
   </g>
 </svg>

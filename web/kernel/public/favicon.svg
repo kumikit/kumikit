@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Kumikit</title>
+  <!-- Asanoha (hemp leaf), the classic kumiko pattern: a hexagon split into six
+       triangles, each joined to its centre. Kumiko is Japanese woodwork in which a
+       lattice is assembled from many small pieces without nails. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#151a33"/>
+      <stop offset="1" stop-color="#070912"/>
+    </linearGradient>
+    <linearGradient id="ink" gradientUnits="userSpaceOnUse" x1="60" y1="36" x2="196" y2="220">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="0.5" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+  <g fill="none" stroke="url(#ink)" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke-width="17" d="M128.0 38.0 L205.9 83.0 L205.9 173.0 L128.0 218.0 L50.1 173.0 L50.1 83.0 Z"/>
+    <path stroke-width="12" d="M128.0 117.0 L128.0 38.0 M137.5 122.5 L205.9 83.0 M137.5 133.5 L205.9 173.0 M128.0 139.0 L128.0 218.0 M118.5 133.5 L50.1 173.0 M118.5 122.5 L50.1 83.0"/>
+    <path stroke-width="8" d="M128.0 38.0 L154.0 83.0 L205.9 83.0 M154.0 83.0 L133.5 118.5 M205.9 83.0 L180.0 128.0 L205.9 173.0 M180.0 128.0 L139.0 128.0 M205.9 173.0 L154.0 173.0 L128.0 218.0 M154.0 173.0 L133.5 137.5 M128.0 218.0 L102.0 173.0 L50.1 173.0 M102.0 173.0 L122.5 137.5 M50.1 173.0 L76.0 128.0 L50.1 83.0 M76.0 128.0 L117.0 128.0 M50.1 83.0 L102.0 83.0 L128.0 38.0 M102.0 83.0 L122.5 118.5"/>
+  </g>
+</svg>

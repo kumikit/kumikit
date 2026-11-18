@@ -163,3 +163,13 @@ test('a wrong code is refused, and the pairing screen has no axe violations', as
   // The real code still works: one wrong try does not burn it.
   await pair(page, core);
 });
+
+test('the core serves the favicon the page links to, before pairing', async ({ page, core }) => {
+  await page.goto(core.url);
+  const href = await page.locator('link[rel="icon"]').getAttribute('href');
+  expect(href).toBe('./favicon.svg');
+  const r = await page.request.get(new URL(href!, core.url).href);
+  expect(r.status()).toBe(200);
+  expect(r.headers()['content-type']).toBe('image/svg+xml');
+  expect(await r.text()).toContain('<title>Kumikit</title>');
+});

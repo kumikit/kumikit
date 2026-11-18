@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/brand/kumikit-icon.svg" width="128" height="128" alt="Kumikit icon: an asanoha kumiko pattern in a hexagon">
+</p>
+
 # Kumikit
 
 A small, pluggable framework for working with coding agents.
