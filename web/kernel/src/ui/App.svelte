@@ -6,6 +6,7 @@
   import PluginsView from './PluginsView.svelte';
   import CoresView from './CoresView.svelte';
   import OpenFolder from './OpenFolder.svelte';
+  import PairBrowser from './PairBrowser.svelte';
   import SettingsView from './SettingsView.svelte';
   import Sidebar from './Sidebar.svelte';
   import SlotHost from './SlotHost.svelte';
@@ -15,6 +16,8 @@
   import Toasts from './Toasts.svelte';
 
   let { kernel }: { kernel: Kernel } = $props();
+  // In a browser served by a core, an unpaired browser sees only the pairing screen.
+  const pairing = $derived(kernel.platform.browser !== undefined && kernel.connections[0]?.status === 'unauthorized');
   const mainView = $derived(kernel.main);
   const pluginView = $derived(
     mainView.kind === 'view' ? kernel.slots.in('view').find((v) => v.contribution.id === mainView.id) : undefined,
@@ -31,6 +34,9 @@
 
 <svelte:window onkeydown={onKey} />
 
+{#if pairing}
+  <PairBrowser {kernel} />
+{:else}
 <div class="frame">
   <aside><Sidebar {kernel} /></aside>
   <main>
@@ -54,6 +60,8 @@
   </main>
   <StatusBar {kernel} />
 </div>
+
+{/if}
 
 {#if kernel.dialog?.kind === 'palette'}
   <Palette {kernel} />

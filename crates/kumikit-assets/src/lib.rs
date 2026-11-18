@@ -71,6 +71,13 @@ pub fn csp(form: SchemeForm) -> String {
     )
 }
 
+/// The Content-Security-Policy of the browser client, served by a core over HTTPS
+/// (`docs/spec/06-client.md#browser-client`): everything from the core's own origin, which
+/// covers `wss:` to it, nothing inline, and no framing by other pages.
+pub const WEB_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
+    font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'none'; \
+    frame-ancestors 'none'; object-src 'none'";
+
 /// A file to answer a request with.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Asset {

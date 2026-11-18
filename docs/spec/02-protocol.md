@@ -64,7 +64,8 @@ Decided in [ADR 0016](../decisions/0016-remote-transport-and-pairing.md).
   request's `Host`) and the core must serve the web UI (`--web`, [06](06-client.md#browser-client));
   otherwise the upgrade is refused. The upgrade is authenticated by the `kk_device` cookie
   set at pairing (401 without a valid one), so the page's first message is `core.hello`.
-- **Web routes** (only with `--web`): the UI bundle and its UI plugins, `GET /auth/status` →
+- **Web routes** (only with `--web`): the UI bundle and its UI plugins (listed at
+  `GET /ui-plugins/index.json`, read from their manifests), `GET /auth/status` →
   `{ paired, core: { name } }`, `POST /auth/pair { code, deviceName }` → `{ device }` and the
   cookie `kk_device=<token>; HttpOnly; Secure; SameSite=Strict; Path=/`, and
   `POST /auth/logout`, which revokes the cookie's device. Both `POST`s need

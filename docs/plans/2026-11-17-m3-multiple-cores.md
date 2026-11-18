@@ -571,7 +571,7 @@ code first needs macOS and Windows; the next after step 13; the last after step 
   `feat: show tabs from several cores in one window`.
 - [x] **11. Playwright multi-core suite.** Specs above, axe, keyboard. Commit: `test:
   drive two cores from the browser build`.
-- [ ] **12. Browser client.** `kumikit-assets` (moved from the shell, no behaviour
+- [x] **12. Browser client.** `kumikit-assets` (moved from the shell, no behaviour
   change, as its own commit), `--web`, the routes and cookie, the browser adapter and
   pairing screen, `bundle.mjs` writes `ui-browser`, `dev:browser`, core tests and the
   Playwright browser specs. Commits: `refactor: share asset serving with the core`, `feat:
@@ -739,4 +739,17 @@ Q11 take the recommendation unless you say otherwise.
   did not move focus into themselves. On the fingerprint step focus lands on Cancel, so a
   reflexive Enter never confirms an unchecked certificate. The palette helper now looks
   inside the palette dialog, since the plugin manager has a second combobox.
+- Step 12: `kumikit-assets` holds the shell's asset code unchanged, plus the browser
+  client's CSP. The core serves `--web <dir>` on its remote port; the bundled UI plugins
+  are listed at `/ui-plugins/index.json`, which the core builds from their `plugin.toml`
+  (no TOML parser in `bundle.mjs`, and no new npm dependency for one). A non-WebSocket
+  request frees its connection's unauthenticated place at once, so browsers' parallel
+  keep-alive connections do not use up the 32. Tests: `tests/web.rs` (routes, CSP, path
+  traversal, same-origin and JSON-only POSTs, cookie attributes, token never in a body,
+  cookie-authenticated socket, sign-out closing it with 4001), and
+  `web/e2e/tests/browser.spec.ts` against a core with no relay (pairing, HttpOnly cookie,
+  the M2 flow by upload and typed path, reload, sign-out, wrong code, axe). Dev mode
+  (`npm run dev:browser`) was checked by hand against a core: a wrong fingerprint is
+  refused; with the right one the UI, `/auth/status` and pairing work through the proxy.
+  The WebSocket through the dev proxy is not covered by an automated test.
 

@@ -40,6 +40,9 @@ enum Command {
         /// PEM private key of --tls-cert.
         #[arg(long, requires_all = ["tls_cert", "listen"])]
         tls_key: Option<PathBuf>,
+        /// Serve the browser client from this directory on the remote port (needs --listen).
+        #[arg(long, requires = "listen", value_name = "DIR")]
+        web: Option<PathBuf>,
         /// Test only: milliseconds to authenticate a remote connection.
         #[arg(long, hide = true)]
         pre_auth_ms: Option<u64>,
@@ -150,6 +153,7 @@ fn main() -> Result<()> {
             listen,
             tls_cert,
             tls_key,
+            web,
             pre_auth_ms,
             keepalive_ping_ms,
             keepalive_idle_ms,
@@ -170,6 +174,7 @@ fn main() -> Result<()> {
                     listen,
                     certificate: tls_cert.zip(tls_key),
                     limits,
+                    web,
                 }
             });
             runtime.block_on(run_serve(socket, data_dir, bundled_plugins, remote))

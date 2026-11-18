@@ -107,6 +107,13 @@ export interface Platform {
   };
   /** Whether to start without UI plugins (06-client, safe mode). */
   readonly safeMode: boolean;
+  /** Only in a browser served by a core: pairing this browser, and signing out. */
+  readonly browser?: {
+    /** Pairs with a code from `kumikit pair`; the core keeps the token in an HttpOnly cookie. */
+    pair(code: string, deviceName: string): Promise<void>;
+    /** Revokes this browser's device on the core. */
+    signOut(): Promise<void>;
+  };
 }
 
 /** Reads a file the user picks with a standard file input: the page gets only the file
@@ -159,6 +166,10 @@ export async function loadPlatform(): Promise<Platform> {
   if (__KK_PLATFORM__ === 'relay') {
     const m = await import('./relay');
     return m.relayPlatform();
+  }
+  if (__KK_PLATFORM__ === 'browser') {
+    const m = await import('./browser');
+    return m.browserPlatform();
   }
   const m = await import('./tauri');
   return m.tauriPlatform();

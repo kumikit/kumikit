@@ -383,6 +383,13 @@ export class Kernel {
     c.register({ id: 'plugins.open', title: 'Manage plugins' }, () => {
       this.main = { kind: 'plugins' };
     });
+    const browser = this.platform.browser;
+    if (browser) {
+      c.register({ id: 'core.signOut', title: 'Sign out of this core' }, async () => {
+        await this.attempt('Cannot sign out', () => browser.signOut());
+        this.connection.reconnectNow();
+      });
+    }
     c.register({ id: 'theme.system', title: 'Theme: follow the system' }, () => this.selectTheme(undefined, 'system'));
     c.register({ id: 'cores.open', title: 'Cores: add, remove, reconnect' }, () => {
       this.main = { kind: 'cores' };

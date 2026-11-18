@@ -7,6 +7,7 @@
 
 pub mod pairing;
 pub mod tls;
+mod web;
 pub mod ws;
 
 use std::io;
@@ -78,6 +79,8 @@ pub struct Remote {
     pub bound: SocketAddr,
     /// Time limits.
     pub limits: Limits,
+    /// The browser client's files (`--web`), when the core serves it.
+    pub web: Option<std::path::PathBuf>,
     pairing: Mutex<Pairing>,
 }
 
@@ -140,6 +143,7 @@ impl Remote {
             url,
             bound,
             limits,
+            web: None,
             pairing: Mutex::new(Pairing::default()),
         }
     }
@@ -193,7 +197,9 @@ pub async fn run(
             let permit = Arc::new(Mutex::new(Some(permit)));
             let service = hyper::service::service_fn(move |req| {
                 let (shared, permit) = (Arc::clone(&shared), Arc::clone(&permit));
-                async move { Ok::<_, std::convert::Infallible>(route(req, shared, permit, deadline)) }
+                async move {
+                    Ok::<_, std::convert::Infallible>(route(req, shared, permit, deadline).await)
+                }
             });
             let conn = hyper::server::conn::http1::Builder::new()
                 .timer(TokioTimer::new())
@@ -219,21 +225,26 @@ fn status(code: StatusCode, text: &'static str) -> Response<Body> {
     r
 }
 
-fn route(
+async fn route(
     req: Request<Incoming>,
     shared: Arc<Shared>,
     permit: Arc<Mutex<Option<OwnedSemaphorePermit>>>,
     deadline: Instant,
 ) -> Response<Body> {
-    if req.uri().path() != RPC_PATH {
-        return status(StatusCode::NOT_FOUND, "not found\n");
+    if req.uri().path() == RPC_PATH {
+        // Only browsers send `Origin`: they authenticate with the cookie set at pairing,
+        // and only when this core serves the web UI.
+        if req.headers().contains_key(header::ORIGIN) {
+            return web::browser_upgrade(req, shared, permit, deadline).await;
+        }
+        return upgrade(req, shared, permit, deadline, None);
     }
-    // Only browsers send `Origin`. There is no browser client on this core, so a web page
-    // can never open the socket.
-    if req.headers().contains_key(header::ORIGIN) {
-        return status(StatusCode::FORBIDDEN, "browsers are not served here\n");
+    // Not a WebSocket: this connection no longer takes an unauthenticated place.
+    drop(permit.lock().unwrap_or_else(|p| p.into_inner()).take());
+    match shared.remote.web.clone() {
+        Some(dir) => web::serve(req, &shared, &dir).await,
+        None => status(StatusCode::NOT_FOUND, "not found\n"),
     }
-    upgrade(req, shared, permit, deadline)
 }
 
 fn header_has(req: &Request<Incoming>, name: header::HeaderName, token: &str) -> bool {
@@ -246,11 +257,16 @@ fn header_has(req: &Request<Incoming>, name: header::HeaderName, token: &str) ->
 }
 
 /// Answers a WebSocket upgrade on `/rpc` and starts the connection once upgraded.
+/// A device already known when the upgrade is answered (a browser's cookie), with the
+/// revocations it was subscribed to before the cookie was checked.
+type Preauthenticated = (String, broadcast::Receiver<String>);
+
 fn upgrade(
     mut req: Request<Incoming>,
     shared: Arc<Shared>,
     permit: Arc<Mutex<Option<OwnedSemaphorePermit>>>,
     deadline: Instant,
+    pre: Option<Preauthenticated>,
 ) -> Response<Body> {
     let key = req.headers().get(header::SEC_WEBSOCKET_KEY).cloned();
     let ok = req.method() == hyper::Method::GET
@@ -281,7 +297,7 @@ fn upgrade(
             Some(ws::config()),
         )
         .await;
-        connection(ws, shared, permit, deadline).await;
+        connection(ws, shared, permit, deadline, pre).await;
     });
     let mut r = Response::new(Full::new(Bytes::new()));
     *r.status_mut() = StatusCode::SWITCHING_PROTOCOLS;
@@ -300,10 +316,15 @@ async fn connection<S>(
     shared: Arc<Shared>,
     permit: OwnedSemaphorePermit,
     deadline: Instant,
+    pre: Option<Preauthenticated>,
 ) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
     let kernel = shared.host.manager().kernel().clone();
+    if let Some((device, revocations)) = pre {
+        drop(permit);
+        return serve(ws, &shared, kernel, device, revocations).await;
+    }
     // Subscribed before the token is checked, so a revocation in between is not missed.
     let revocations = kernel.device_revocations();
     let device =
@@ -326,6 +347,19 @@ async fn connection<S>(
             }
         };
     drop(permit);
+    serve(ws, &shared, kernel, device, revocations).await;
+}
+
+/// The JSON-RPC server for an authenticated device, until it leaves or is revoked.
+async fn serve<S>(
+    ws: WebSocketStream<S>,
+    shared: &Shared,
+    kernel: Kernel,
+    device: String,
+    revocations: broadcast::Receiver<String>,
+) where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     let limits = shared.remote.limits;
     let (reader, writer) = ws::split(ws, limits.ping, limits.idle);
     let stop = revoked(kernel, device.clone(), revocations);
@@ -477,18 +511,20 @@ async fn token(kernel: &Kernel, params: Value) -> Result<(String, Value), RpcErr
     Ok((id, result))
 }
 
-async fn pair(
+/// Redeems a pairing code and records the new device; returns its token (shown once)
+/// and record.
+async fn pair_device(
     kernel: &Kernel,
     remote: &Remote,
-    params: Value,
-) -> Result<(String, Value), RpcError> {
-    let p: AuthPairParams = serde_json::from_value(params).map_err(invalid)?;
-    if !valid_device_name(&p.device_name) {
+    code: &str,
+    device_name: &str,
+) -> Result<(String, kumikit_kernel::devices::DeviceRecord), RpcError> {
+    if !valid_device_name(device_name) {
         return Err(invalid(
             "deviceName must be 1–64 characters without control characters",
         ));
     }
-    if remote.redeem(&p.code).is_err() {
+    if remote.redeem(code).is_err() {
         return Err(RpcError::new(
             ErrorCode::Unauthenticated,
             "wrong or expired pairing code",
@@ -497,10 +533,20 @@ async fn pair(
     let token =
         pairing::new_token().map_err(|e| RpcError::new(ErrorCode::Internal, e.to_string()))?;
     let record = kernel
-        .device_insert(p.device_name.trim(), &pairing::token_hash(&token))
+        .device_insert(device_name.trim(), &pairing::token_hash(&token))
         .await
         .map_err(|e| RpcError::new(e.code(), e.to_string()))?;
     tracing::info!(device = %record.id, "paired a new device");
+    Ok((token, record))
+}
+
+async fn pair(
+    kernel: &Kernel,
+    remote: &Remote,
+    params: Value,
+) -> Result<(String, Value), RpcError> {
+    let p: AuthPairParams = serde_json::from_value(params).map_err(invalid)?;
+    let (token, record) = pair_device(kernel, remote, &p.code, &p.device_name).await?;
     let id = record.id.clone();
     let result = serde_json::to_value(AuthPairResult {
         token,

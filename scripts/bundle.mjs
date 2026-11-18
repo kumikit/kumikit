@@ -1,5 +1,7 @@
 // Assembles the desktop app's resources in target/bundle (docs/plans M2, step 10):
 //   ui/            the UI kernel (desktop build) and bundled.json
+//   ui-browser/    the browser client, for `kumikit serve --listen … --web target/bundle/ui-browser`:
+//                  the browser build, bundled.json and the bundled UI plugins in ui-plugins/
 //   ui-browser-test/ the browser-test build, for Playwright
 //   ui-plugins/<id>/ the bundled UI plugins and themes, unpacked (read-only)
 //   core-plugins/  provider-acp as a .kkp, seeded on the core with --bundled-plugins
@@ -19,10 +21,10 @@ const tomlString = (text, key) => new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, 'm').e
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 
-// The UI kernel, both builds.
+// The UI kernel, all three builds.
 run('npm', ['run', 'build', '-w', '@kumikit/kernel']);
 const bundled = JSON.stringify({ fallbackTheme: FALLBACK_THEME }, null, 2) + '\n';
-for (const [from, to] of [['web/kernel/dist/desktop', 'ui'], ['web/kernel/dist/browser-test', 'ui-browser-test']]) {
+for (const [from, to] of [['web/kernel/dist/desktop', 'ui'], ['web/kernel/dist/browser', 'ui-browser'], ['web/kernel/dist/browser-test', 'ui-browser-test']]) {
   cpSync(from, join(OUT, to), { recursive: true });
   writeFileSync(join(OUT, to, 'bundled.json'), bundled);
 }
@@ -41,6 +43,9 @@ for (const dir of UI_PLUGINS) {
   for (const m of manifest.matchAll(/tokens\s*=\s*"([^"]+)"/g)) cpSync(join(dir, m[1]), join(target, m[1]));
   for (const m of manifest.matchAll(/"(fonts\/[^"]+\.woff2)"/g)) cpSync(join(dir, m[1]), join(target, m[1]));
 }
+
+// The browser client serves the same UI plugins itself.
+cpSync(join(OUT, 'ui-plugins'), join(OUT, 'ui-browser', 'ui-plugins'), { recursive: true });
 
 // provider-acp: a release component, packed like `kumikit plugin pack`.
 run('cargo', ['build', '-q', '--release', '-p', 'kumikit-provider-acp', '--target', 'wasm32-wasip2']);

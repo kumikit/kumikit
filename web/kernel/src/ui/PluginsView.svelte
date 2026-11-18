@@ -125,7 +125,9 @@
   <section aria-labelledby="kk-client-plugins">
     <div class="head">
       <h2 id="kk-client-plugins">On this client</h2>
-      <button type="button" class="kk-button" onclick={installClient}>Install from file…</button>
+      {#if kernel.platform.kind !== 'browser'}
+        <button type="button" class="kk-button" onclick={installClient}>Install from file…</button>
+      {/if}
     </div>
     <ul class="list">
       {#each client.plugins as p (p.entry.id)}

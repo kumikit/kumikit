@@ -39,6 +39,8 @@ pub struct RemoteOptions {
     pub certificate: Option<(PathBuf, PathBuf)>,
     /// Time limits.
     pub limits: crate::remote::Limits,
+    /// `--web`: the browser client's files, served on the remote port.
+    pub web: Option<PathBuf>,
 }
 
 /// What `serve` tells its caller once it accepts connections.
@@ -167,7 +169,19 @@ async fn prepare_remote(
     };
     let host_name = crate::paths::host_name();
     let tls = crate::remote::tls::load(&source, &host_name)?;
-    let state = crate::remote::Remote::new(bound, tls.fingerprint, &host_name, r.limits);
+    let mut state = crate::remote::Remote::new(bound, tls.fingerprint, &host_name, r.limits);
+    if let Some(web) = &r.web {
+        if !web.join("index.html").is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "--web {}: no index.html there (build it with node scripts/bundle.mjs)",
+                    web.display()
+                ),
+            ));
+        }
+        state.web = Some(web.clone());
+    }
     Ok(Some((tcp, tls.config, state)))
 }
 

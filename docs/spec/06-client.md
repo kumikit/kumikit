@@ -174,8 +174,9 @@ the shell (plus `frame-ancestors 'none'`), and UI plugins from `/ui-plugins/<id>
   fingerprint in the browser's certificate viewer should match `kumikit pair`'s.
 - **Dev mode** (development only, never in a build): `npm run dev:browser -- --core
   https://<host:port> --fingerprint <SHA256:…>` runs Vite's dev server with hot reload on
-  loopback and proxies `/rpc`, `/auth` and `/ui-plugins` to that core, after checking its
-  certificate's fingerprint, rewriting `Origin` to the core's own.
+  `localhost` and proxies `/rpc`, `/auth`, `/ui-plugins` and `/bundled.json` to that
+  core. It checks the core's certificate against the fingerprint, then trusts only that
+  certificate for every proxied connection, and rewrites `Origin` to the core's own.
 
 The UI kernel reaches the shell or the browser through a platform adapter (connect,
 profiles, the file pickers, plugin URLs). Tests use a test-only adapter that speaks the
