@@ -117,6 +117,11 @@
     if (c) await kernel.removeCore(c.id);
   }
 
+  /** Moves focus into a form when it appears, so keyboard users land on its first field. */
+  function focusFirst(node: HTMLElement) {
+    node.querySelector<HTMLElement>('[data-autofocus], input, button')?.focus();
+  }
+
   function onKey(e: KeyboardEvent, close: () => void) {
     if (!isComposing(e) && e.key === 'Escape') close();
   }
@@ -156,7 +161,7 @@
         </div>
       {:else if mode === 'pair'}
         {#if !fingerprint}
-          <form onsubmit={check} aria-label="Pair with a core">
+          <form onsubmit={check} aria-label="Pair with a core" use:focusFirst>
             <label>Address <span class="kk-muted">(host:port, or the address <code>kumikit pair</code> printed)</span>
               <input class="kk-input" bind:value={address} required data-autofocus autocomplete="off" spellcheck="false" />
             </label>
@@ -173,7 +178,7 @@
             </div>
           </form>
         {:else}
-          <div class="confirm" role="group" aria-labelledby="kk-fingerprint-title">
+          <div class="confirm" role="group" aria-labelledby="kk-fingerprint-title" use:focusFirst>
             <h3 id="kk-fingerprint-title">Is this the core's fingerprint?</h3>
             <p>Compare it with the fingerprint <code>kumikit pair</code> printed on the core's machine. If they differ, something else answered at this address: cancel.</p>
             <p class="fingerprint" data-fingerprint>{fingerprint}</p>
@@ -185,7 +190,7 @@
           </div>
         {/if}
       {:else}
-        <form onsubmit={addSsh} aria-label="Add a core through SSH">
+        <form onsubmit={addSsh} aria-label="Add a core through SSH" use:focusFirst>
           <label>SSH destination <span class="kk-muted">(a host from ~/.ssh/config, or user@host)</span>
             <input class="kk-input" bind:value={destination} required data-autofocus autocomplete="off" spellcheck="false" />
           </label>

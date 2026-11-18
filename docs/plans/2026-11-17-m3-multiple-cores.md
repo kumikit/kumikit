@@ -569,7 +569,7 @@ code first needs macOS and Windows; the next after step 13; the last after step 
   Reconnect now, routing, tabs, grouped sidebar, Cores view, plugin manager core choice and
   upload, `requires.core` gating; `npm run check`, `npm test`, size budget. Commit:
   `feat: show tabs from several cores in one window`.
-- [ ] **11. Playwright multi-core suite.** Specs above, axe, keyboard. Commit: `test:
+- [x] **11. Playwright multi-core suite.** Specs above, axe, keyboard. Commit: `test:
   drive two cores from the browser build`.
 - [ ] **12. Browser client.** `kumikit-assets` (moved from the shell, no behaviour
   change, as its own commit), `--web`, the routes and cookie, the browser adapter and
@@ -731,4 +731,12 @@ Q11 take the recommendation unless you say otherwise.
   M2 tests (and the desktop test) rely on are kept: the sidebar is still the
   "Workspaces" navigation, each core a labelled section in it, and the plugin manager's
   region is still "On this core", now with a core picker.
+- Step 11: `web/e2e/tests/cores.spec.ts` (4 tests): the exit flow with two cores and the
+  cut network, revocation and certificate rotation, `requires.core` gating, and axe plus a
+  keyboard-only pairing in the Cores view. Chromium locally, 16 of 16 over 4 repeats;
+  WebKit only in CI. The suite found two bugs: the open-folder dialog read its props after
+  closing itself (Svelte props are gone once a component unmounts), and the add-core forms
+  did not move focus into themselves. On the fingerprint step focus lands on Cancel, so a
+  reflexive Enter never confirms an unchecked certificate. The palette helper now looks
+  inside the palette dialog, since the plugin manager has a second combobox.
 

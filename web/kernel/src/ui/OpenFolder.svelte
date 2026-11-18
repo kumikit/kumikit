@@ -16,9 +16,11 @@ computer's files, so the path on that machine is typed. -->
   async function open(e: Event) {
     e.preventDefault();
     const p = path.trim();
+    // Read the props before closing: the dialog unmounts with it.
+    const [k, c] = [kernel, connection];
     if (!p) return;
     close();
-    await kernel.openWorkspaceFolder(connection, p);
+    await k.openWorkspaceFolder(c, p);
   }
 
   function onKey(e: KeyboardEvent) {
