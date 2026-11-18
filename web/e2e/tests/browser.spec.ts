@@ -48,7 +48,8 @@ const test = base.extend<{ core: WebCore }>({
     const child: ChildProcess = spawn(
       KUMIKIT,
       ['serve', '--socket', socket, '--data-dir', join(work, 'data'), '--listen', '127.0.0.1:0', '--web', join(ROOT, 'target/bundle/ui-browser'), '--bundled-plugins', join(ROOT, 'target/bundle/core-plugins')],
-      { stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, PATH: [agentDir(), process.env.PATH].join(delimiter) } },
+      // Debug logs of the core's connections go to the test output, for CI failures.
+      { stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, KUMIKIT_LOG: 'kumikit_core=debug', PATH: [agentDir(), process.env.PATH].join(delimiter) } },
     );
     const url = await new Promise<string>((ok, fail) => {
       const lines = createInterface({ input: child.stdout! });

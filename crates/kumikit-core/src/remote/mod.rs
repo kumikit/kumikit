@@ -291,6 +291,7 @@ fn upgrade(
                 return;
             }
         };
+        tracing::debug!("WebSocket upgraded");
         let ws = WebSocketStream::from_raw_socket(
             TokioIo::new(upgraded),
             Role::Server,

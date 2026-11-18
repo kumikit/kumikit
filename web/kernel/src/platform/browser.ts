@@ -30,12 +30,19 @@ export function browserPlatform(): Platform {
         // `ws:` only from the dev server on localhost (scripts/dev-browser.mjs).
         const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/rpc`);
         let open = false;
+        // A socket can stay "connecting" without ever failing (a core that stopped
+        // answering); give up after 10 s so the reconnect backoff keeps going.
+        const timer = setTimeout(() => {
+          if (!open) ws.close();
+        }, 10_000);
         ws.onopen = () => {
+          clearTimeout(timer);
           open = true;
           resolve({ send: async (line) => ws.send(line), close: () => ws.close() });
         };
         ws.onmessage = (e) => on({ type: 'line', line: String(e.data) });
         ws.onclose = (e) => {
+          clearTimeout(timer);
           if (open) {
             on({ type: 'closed', reason: e.code === 4001 ? 'this device was revoked' : 'the core closed the connection' });
             return;

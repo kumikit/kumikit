@@ -136,6 +136,7 @@ pub async fn serve_messages<R, W>(
         let received = tokio::select! {
             biased;
             close = &mut stop => {
+                tracing::debug!(device = ?conn.device, code = close.code, "closing the connection");
                 if let Some(tx) = close_tx.take() {
                     let _ = tx.send(close);
                 }
@@ -145,8 +146,12 @@ pub async fn serve_messages<R, W>(
         };
         let message = match received {
             Ok(Received::Message(m)) => m,
-            Ok(Received::Eof) => break,
+            Ok(Received::Eof) => {
+                tracing::debug!(device = ?conn.device, "the client closed the connection");
+                break;
+            }
             Ok(Received::Refused(why)) => {
+                tracing::debug!(device = ?conn.device, why, "closing the connection");
                 let err = RpcError::new(ErrorCode::InvalidRequest, why);
                 let _ = conn.tx.send(encode(&Response::error(None, err))).await;
                 break;
