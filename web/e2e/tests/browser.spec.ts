@@ -115,6 +115,8 @@ test('pair a browser, then the M2 flow through the core it came from', async ({ 
   await (await chooser).setFiles(kkp);
   await page.getByRole('dialog', { name: /Enable Recorded Claude Code/ }).getByRole('button', { name: 'Grant and enable' }).click();
   await expect(region.getByRole('listitem').filter({ hasText: 'test.recorded' })).toContainText('Enabled');
+  // The recorded provider runs on provider-acp, which the core seeds after it is ready.
+  await expect(region.getByRole('listitem').filter({ hasText: 'kumikit.provider-acp' })).toContainText('Enabled');
 
   // A folder on the core's machine is typed.
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();

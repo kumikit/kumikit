@@ -782,4 +782,9 @@ Q11 take the recommendation unless you say otherwise.
   reference (message loop, gate, test tools, several connections), and the README privacy
   section (remote access only with `--listen`; connections and keepalive only to cores
   the user added) are updated. ADRs 0016 and 0017 stay Proposed until the PR merges.
+- CI on the third push: macOS Chromium failed the browser-client test at "New thread": no
+  provider yet. The core seeds provider-acp (the recorded providers' backend) after it is
+  ready, and compiling it took longer on the runner than the test took to get there. The
+  browser, multi-core and desktop M3 tests now wait for provider-acp to be enabled before
+  they rely on it.
 

@@ -51,6 +51,8 @@ async function installProvider(page: Page, kk: Kumikit, core: 'This computer' | 
   const grant = page.getByRole('dialog', { name: new RegExp(`Enable Recorded .* on ${core}`) });
   await grant.getByRole('button', { name: 'Grant and enable' }).click();
   await expect(region.getByRole('listitem').filter({ hasText: 'test.recorded' }).last()).toContainText('Enabled');
+  // The recorded provider runs on provider-acp, which the core seeds after it is ready.
+  await expect(region.getByRole('listitem').filter({ hasText: 'kumikit.provider-acp' })).toContainText('Enabled');
 }
 
 /** Opens a project on a core and starts a thread with its only recorded provider. */

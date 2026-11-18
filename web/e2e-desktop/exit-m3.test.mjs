@@ -60,6 +60,17 @@ function started(child, match, what) {
 }
 
 /** A declarative provider replaying a transcript, packed and installed with the CLI. */
+/** Waits until a core has seeded and enabled provider-acp, which the recorded providers
+ * run on (bundled plugins are seeded after the core is ready). */
+async function providerAcpReady(onSocket) {
+  for (let i = 0; i < 600; i++) {
+    const out = execFileSync(core, ['plugin', 'list', '--socket', onSocket], { encoding: 'utf8' });
+    if (/kumikit\.provider-acp \S+\s+enabled/.test(out)) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error('provider-acp was not seeded');
+}
+
 function installProvider(onSocket, name) {
   const dir = join(work, name);
   mkdirSync(dir, { recursive: true });
@@ -120,6 +131,7 @@ before(async () => {
   cutLines = lines;
   process.env.KK_PROXY = line.slice(6);
   installProvider(remoteSocket, 'remote');
+  await providerAcpReady(remoteSocket);
 
   const env = {
     ...process.env,
@@ -213,6 +225,7 @@ async function flow(b) {
   await b.wait('footer', 'Connected');
   // The local core is the one the app started; give it the same recorded provider.
   installProvider(socket, 'local');
+  await providerAcpReady(socket);
 
   step('adding the remote core');
   const printed = JSON.parse(execFileSync(core, ['pair', '--json', '--socket', remoteSocket], { encoding: 'utf8' }));
