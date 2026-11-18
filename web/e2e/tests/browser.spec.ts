@@ -35,10 +35,29 @@ interface WebCore {
   code(): { code: string; fingerprint: string };
 }
 
+/** Writes the page's WebSocket events and console problems to the test output, next to
+ * the core's debug log, so a CI failure shows both sides of the connection. */
+function watch(page: Page): void {
+  const at = () => new Date().toISOString();
+  page.on('websocket', (ws) => {
+    console.log(`${at()} PAGE websocket open ${ws.url()}`);
+    ws.on('socketerror', (e) => console.log(`${at()} PAGE websocket error ${e}`));
+    ws.on('close', () => console.log(`${at()} PAGE websocket closed`));
+  });
+  page.on('console', (m) => {
+    if (m.type() === 'error' || m.type() === 'warning') console.log(`${at()} PAGE console ${m.type()}: ${m.text()}`);
+  });
+  page.on('pageerror', (e) => console.log(`${at()} PAGE error: ${e.message}`));
+}
+
 const test = base.extend<{ core: WebCore }>({
   // The core's certificate is self-signed: the browser is told to accept it, as a user
   // would after comparing the fingerprint.
   ignoreHTTPSErrors: true,
+  page: async ({ page }, use) => {
+    watch(page);
+    await use(page);
+  },
   core: async ({}, use) => {
     const work = mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'kkb-'));
     if (process.platform !== 'win32') chmodSync(work, 0o700);
@@ -124,6 +143,9 @@ test('pair a browser, then the M2 flow through the core it came from', async ({ 
   const open = page.getByRole('dialog', { name: /Open a project folder/ });
   await open.getByLabel(/Path on/).fill(core.project);
   await open.getByRole('button', { name: 'Open' }).click();
+  // "New thread" needs an open tab; pressing it from the palette before the tab exists
+  // matches nothing (this raced on the macOS runner).
+  await expect(page.getByRole('navigation', { name: 'Open workspaces' }).getByRole('button', { name: 'proj', exact: true })).toBeVisible();
   await command(page, 'New thread');
   const dialog = page.getByRole('dialog', { name: 'New thread' });
   await dialog.getByLabel('Agent').selectOption({ label: 'Recorded Claude Code' });

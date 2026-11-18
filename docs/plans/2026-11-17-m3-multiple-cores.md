@@ -798,4 +798,14 @@ Q11 take the recommendation unless you say otherwise.
   core's side. Locally it passed 30 of 30, and 12 of 12 pinned to one CPU. Chromium
   aborts many TLS handshakes to the self-signed core with "certificate unknown" before
   Playwright's ignore applies, even in passing runs; that is the first thing to look at.
+- **Root cause found (2026-11-18, after the merge):** a race in the test, not a lost
+  connection. With per-request debug logs in the core and Chromium's net-log on the macOS
+  runner, the failing run showed the WebSocket CONNECTED until teardown and every request
+  answered. After opening the folder the test pressed Enter on "New thread" about 45 ms
+  before the tab existed, so the palette matched nothing and no dialog opened. The
+  "reconnecting" in the failure snapshots came from the context closing at the timeout.
+  The test now waits for the tab, as the other specs did. The debug logs, the page's
+  WebSocket and console logging in the spec, and `KK_NETLOG=<file>` (Chromium's net-log)
+  stay. The browser adapter's 10 s connect timeout stays too: a socket stuck connecting
+  would block reconnects.
 

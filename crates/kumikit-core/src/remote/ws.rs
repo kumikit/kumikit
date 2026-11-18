@@ -92,19 +92,22 @@ where
             tokio::select! {
                 m = rx.recv() => match m {
                     Some(text) => {
-                        if self.sink.send(Message::text(text)).await.is_err() {
+                        if let Err(e) = self.sink.send(Message::text(text)).await {
+                            tracing::debug!(error = %e, "WebSocket write failed");
                             return;
                         }
                     }
                     None => break,
                 },
                 _ = ping.tick() => {
-                    if self.sink.send(Message::Ping(Bytes::new())).await.is_err() {
+                    if let Err(e) = self.sink.send(Message::Ping(Bytes::new())).await {
+                        tracing::debug!(error = %e, "WebSocket ping failed");
                         return;
                     }
                 }
             }
         }
+        tracing::debug!("WebSocket writer closing");
         let frame = close.try_recv().ok().map(|c| CloseFrame {
             code: CloseCode::from(c.code),
             reason: c.reason.into(),

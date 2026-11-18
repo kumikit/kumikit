@@ -158,6 +158,11 @@ is about the code.
   code written for one core follows the tab. Threads are keyed by the whole address.
   `requires.core` gating goes through `kernel.slotsIn`, `rendererFor` and
   `commandAllowed`; use those, not `slots.in`, for anything a plugin contributes.
+- **Playwright failure snapshots are taken during teardown.** The page may already show
+  the connection closing; check the core's debug log (`KUMIKIT_LOG=kumikit_core=debug`
+  logs each request's method and duration) and, for Chromium, `KK_NETLOG=<file>` before
+  concluding a connection dropped. A palette command whose `when` is not yet true (for
+  example "New thread" before a tab exists) matches nothing: wait for the state first.
 - **Read props before closing a dialog.** A component's props are gone once it unmounts,
   so a dialog that closes itself and then acts must copy them first (`OpenFolder`).
 - **`props` is a reserved name in components**: `$props` would read as a store
