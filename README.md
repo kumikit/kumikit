@@ -15,8 +15,10 @@ A small, pluggable framework for working with coding agents.
 The name comes from *kumiko*, Japanese woodwork in which a lattice is assembled from many
 small pieces without nails.
 
-> **Status:** early. The headless core (`kumikit serve`: protocol, kernel, event log)
-> exists; plugins and the desktop client do not yet. The specification is in
+> **Status:** early, not yet released. The core, WebAssembly plugins, the desktop app,
+> remote cores and the browser client are built (milestones M0–M3); the plugin registry
+> and package signing (M4) are not. There are no published installers yet:
+> [build from source](docs/building.md). The specification is in
 > [docs/spec/](docs/spec/README.md).
 
 ## Privacy
@@ -38,6 +40,8 @@ runtime only if it is missing when you install.
 
 ## Documentation
 
+- [Building from source](docs/building.md): prerequisites and steps for Linux, macOS and
+  Windows.
 - [Specification](docs/spec/README.md): how Kumikit works.
 - [Decisions](docs/decisions/README.md): why it works that way.
 - [Contributing](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) (rules for humans and coding agents).
