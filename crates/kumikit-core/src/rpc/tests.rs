@@ -384,56 +384,63 @@ async fn auth_on_a_local_connection() {
 
 #[tokio::test]
 async fn approvals_record_the_answering_device() {
-    for (peer, by) in [
-        (
-            Peer::Device("01JCDV00000000000000000001".into()),
-            Some("01JCDV00000000000000000001"),
-        ),
-        (Peer::Local, None),
-    ] {
-        let mut c = client_as(peer).await;
-        c.hello().await;
-        let dir = tempfile::tempdir().unwrap();
-        let ws = c
-            .call(
-                "workspace.open",
-                json!({"path": dir.path().to_str().unwrap()}),
+    // `call` skips notifications while it waits for its answer, so this test does not
+    // subscribe until it needs events: it polls the snapshot for the approval, then
+    // replays the log (the subscribe result always comes before the replay).
+    let run = async {
+        for (peer, by) in [
+            (
+                Peer::Device("01JCDV00000000000000000001".into()),
+                Some("01JCDV00000000000000000001"),
+            ),
+            (Peer::Local, None),
+        ] {
+            let mut c = client_as(peer).await;
+            c.hello().await;
+            let dir = tempfile::tempdir().unwrap();
+            let ws = c
+                .call(
+                    "workspace.open",
+                    json!({"path": dir.path().to_str().unwrap()}),
+                )
+                .await;
+            let t = c
+                .call(
+                    "thread.create",
+                    json!({"workspace": ws["result"]["workspace"]["id"]}),
+                )
+                .await;
+            let thread = t["result"]["thread"]["id"].clone();
+            c.call(
+                "thread.send",
+                json!({"thread": thread, "input": {"text": "ask"}}),
             )
             .await;
-        let t = c
-            .call(
-                "thread.create",
-                json!({"workspace": ws["result"]["workspace"]["id"]}),
+            let approval = loop {
+                let snap = c.call("thread.get", json!({"thread": thread})).await;
+                if let Some(a) = snap["result"]["pendingApprovals"].get(0) {
+                    break a["id"].clone();
+                }
+                tokio::task::yield_now().await;
+            };
+            c.call(
+                "thread.respondApproval",
+                json!({"approval": approval, "decision": "allow"}),
             )
             .await;
-        let thread = t["result"]["thread"]["id"].clone();
-        c.call(
-            "events.subscribe",
-            json!({"topic": format!("thread:{}", thread.as_str().unwrap()), "after": 0}),
-        )
-        .await;
-        c.call(
-            "thread.send",
-            json!({"thread": thread, "input": {"text": "ask"}}),
-        )
-        .await;
-        let approval = loop {
-            let m = c.recv().await.unwrap();
-            if m["params"]["kind"] == "approval.requested" {
-                break m["params"]["data"]["approval"]["id"].clone();
-            }
-        };
-        c.call(
-            "thread.respondApproval",
-            json!({"approval": approval, "decision": "allow"}),
-        )
-        .await;
-        let resolved = loop {
-            let m = c.recv().await.unwrap();
-            if m["params"]["kind"] == "approval.resolved" {
-                break m["params"]["data"].clone();
-            }
-        };
-        assert_eq!(resolved["by"].as_str(), by, "{resolved}");
-    }
+            let topic = format!("thread:{}", thread.as_str().unwrap());
+            c.call("events.subscribe", json!({"topic": topic, "after": 0}))
+                .await;
+            let resolved = loop {
+                let m = c.recv().await.unwrap();
+                if m["params"]["kind"] == "approval.resolved" {
+                    break m["params"]["data"].clone();
+                }
+            };
+            assert_eq!(resolved["by"].as_str(), by, "{resolved}");
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(60), run)
+        .await
+        .expect("the test exceeded its deadline");
 }
