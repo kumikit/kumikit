@@ -143,6 +143,9 @@ test('pair a browser, then the M2 flow through the core it came from', async ({ 
   const open = page.getByRole('dialog', { name: /Open a project folder/ });
   await open.getByLabel(/Path on/).fill(core.project);
   await open.getByRole('button', { name: 'Open' }).click();
+  // "New thread" needs an open tab; pressing it from the palette before the tab exists
+  // matches nothing (this raced on the macOS runner).
+  await expect(page.getByRole('navigation', { name: 'Open workspaces' }).getByRole('button', { name: 'proj', exact: true })).toBeVisible();
   await command(page, 'New thread');
   const dialog = page.getByRole('dialog', { name: 'New thread' });
   await dialog.getByLabel('Agent').selectOption({ label: 'Recorded Claude Code' });
