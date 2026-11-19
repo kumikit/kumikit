@@ -1,0 +1,49 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 75,
+    "method": "settings.schema",
+    "params": {
+      "plugin": "kumikit.bot-telegram"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 75,
+    "result": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Bot token",
+            "x-secret": "telegram-bot-token"
+          },
+          "replyInGroups": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 76,
+    "method": "settings.schema",
+    "params": {
+      "plugin": "acme.probe"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 76,
+    "error": {
+      "code": -32000,
+      "message": "plugin acme.probe has no settings",
+      "data": {
+        "code": "not_found"
+      }
+    }
+  }
+]

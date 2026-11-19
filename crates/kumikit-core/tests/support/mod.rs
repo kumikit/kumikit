@@ -59,6 +59,11 @@ impl Dirs {
         self.root.path()
     }
 
+    /// What a core started with [`Core::start_logged`] has logged so far.
+    pub fn log(&self) -> String {
+        std::fs::read_to_string(self.root().join("core.log")).unwrap_or_default()
+    }
+
     pub fn data(&self) -> PathBuf {
         self.root.path().join("data")
     }
@@ -147,6 +152,40 @@ impl Core {
         let elapsed = started.elapsed();
         assert_eq!(line, format!("ready {}", dirs.address));
         (Core { child }, elapsed)
+    }
+
+    /// Starts the core with its log at debug level in `<root>/core.log` (read it with
+    /// [`Dirs::log`]), with `dir` first on its `PATH`.
+    pub async fn start_logged(dirs: &Dirs, dir: Option<&Path>) -> Core {
+        let file = std::fs::File::create(dirs.root().join("core.log")).unwrap();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_kumikit"));
+        if let Some(dir) = dir {
+            let mut paths = vec![dir.to_path_buf()];
+            if let Some(p) = std::env::var_os("PATH") {
+                paths.extend(std::env::split_paths(&p));
+            }
+            command.env("PATH", std::env::join_paths(paths).unwrap());
+        }
+        let mut child = command
+            .env("KUMIKIT_LOG", "debug")
+            .arg("serve")
+            .arg("--socket")
+            .arg(&dirs.address)
+            .arg("--data-dir")
+            .arg(dirs.data())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::from(file))
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn kumikit");
+        let line = BufReader::new(child.stdout.take().unwrap())
+            .lines()
+            .next_line()
+            .await
+            .unwrap()
+            .expect("kumikit exited before it was ready");
+        assert_eq!(line, format!("ready {}", dirs.address));
+        Core { child }
     }
 
     /// Starts the core with remote access on loopback (`--listen 127.0.0.1:0`) plus `args`,
@@ -270,7 +309,7 @@ impl Client {
         let mut c = Client::connect(address).await;
         c.call(
             "core.hello",
-            json!({"protocol": "0.5", "client": {"name": "kumikit-test", "version": "0.0.0"}}),
+            json!({"protocol":"0.6", "client": {"name": "kumikit-test", "version": "0.0.0"}}),
         )
         .await;
         c

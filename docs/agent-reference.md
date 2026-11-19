@@ -71,6 +71,13 @@ is about the code.
 - **Devices** (`devices.rs`) store only the token's hash. Revocation deletes the row, then
   broadcasts the id; a listener that lags must check `device_exists`, not trust the
   broadcast.
+- **Secret redaction is process-wide** (`redact.rs`): the secret store remembers every
+  value it loads or stores (8 characters or more), and the core's log writer
+  (`kumikit-core/src/logwriter.rs`) replaces them in each formatted line. The kernel
+  preloads the store when it opens, so values are known before anything logs them.
+- **Plugin settings** live in `plugin_settings` (migration 6), one JSON object per plugin;
+  the plugin host validates them against the schema (`kumikit-plugin-host/src/settings.rs`)
+  with the `x-secret` fields removed, and fills defaults on read.
 - **Time and ids are injected** (`KernelConfig { clock, ids }`); tests use `StepClock`
   and `SequentialIds`.
 

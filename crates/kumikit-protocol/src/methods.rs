@@ -147,6 +147,18 @@ methods! {
         RegistryRemove = "registry.remove" (RegistryUrl) -> Empty;
         /// `registry.search`: core plugins the registries offer.
         RegistrySearch = "registry.search" (RegistrySearchParams) -> RegistrySearchResult;
+        /// `secret.set`: stores a secret; values are never returned.
+        SecretSet = "secret.set" (SecretSetParams) -> Empty;
+        /// `secret.delete`: removes a secret.
+        SecretDelete = "secret.delete" (SecretRef) -> Empty;
+        /// `secret.list`: secret names, whether each is set, and who may read it.
+        SecretList = "secret.list" (Empty) -> SecretListResult;
+        /// `settings.schema`: a plugin's settings schema.
+        SettingsSchema = "settings.schema" (PluginRef) -> SettingsSchemaResult;
+        /// `settings.get`: a plugin's settings values.
+        SettingsGet = "settings.get" (PluginRef) -> SettingsGetResult;
+        /// `settings.set`: replaces a plugin's settings, validated against its schema.
+        SettingsSet = "settings.set" (SettingsSetParams) -> Empty;
     }
     notifications {
         /// `events.event`: one event on a subscribed topic.
@@ -902,9 +914,93 @@ pub struct UnsubscribeParams {
     pub topic: String,
 }
 
+/// Params of `secret.set`. The value is never returned, logged or echoed.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretSetParams {
+    /// Secret name (`[a-z0-9-]`, as in `permissions.secrets`).
+    pub name: String,
+    /// The value.
+    pub value: String,
+}
+
+impl std::fmt::Debug for SecretSetParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SecretSetParams")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Params naming one secret.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretRef {
+    /// Secret name.
+    pub name: String,
+}
+
+/// One secret name as `secret.list` shows it: never its value.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretInfo {
+    /// Secret name.
+    pub name: String,
+    /// Whether a value is stored.
+    pub set: bool,
+    /// Installed plugins whose `permissions.secrets` lists it.
+    pub plugins: Vec<String>,
+}
+
+/// Result of `secret.list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretListResult {
+    /// Every name a plugin declares or that is set, sorted.
+    pub secrets: Vec<SecretInfo>,
+}
+
+/// Result of `settings.schema`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsSchemaResult {
+    /// The plugin's settings JSON Schema.
+    #[ts(type = "Record<string, unknown>")]
+    pub schema: serde_json::Value,
+}
+
+/// Result of `settings.get`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsGetResult {
+    /// The stored values, with the schema's defaults for the rest; no secret fields.
+    #[ts(type = "Record<string, unknown>")]
+    pub values: serde_json::Value,
+}
+
+/// Params of `settings.set`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsSetParams {
+    /// Plugin id.
+    pub plugin: String,
+    /// Every value (they replace the stored ones); secret fields are refused.
+    #[ts(type = "Record<string, unknown>")]
+    pub values: serde_json::Value,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn secret_values_stay_out_of_debug_output() {
+        let p = SecretSetParams {
+            name: "bot-token".into(),
+            value: "123:abc".into(),
+        };
+        assert!(!format!("{p:?}").contains("123:abc"));
+    }
 
     #[test]
     fn names_are_unique() {

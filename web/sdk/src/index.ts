@@ -169,8 +169,11 @@ export interface SettingsProperty {
   properties?: Record<string, SettingsProperty>;
   /** `textarea` for long text, `select` or `radio` for enums. */
   'x-widget'?: 'textarea' | 'select' | 'radio';
-  /** A secret: never stored on the client; set on the core. */
-  'x-secret'?: boolean;
+  /**
+   * A secret: never stored with the settings. For a core plugin, the name of the secret
+   * (one of its `permissions.secrets`) that the field sets with `secret.set` (0.1.2).
+   */
+  'x-secret'?: boolean | string;
   /** Sort key; lower first. */
   'x-order'?: number;
 }

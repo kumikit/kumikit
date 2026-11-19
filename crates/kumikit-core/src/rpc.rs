@@ -37,6 +37,8 @@ pub const CAPABILITIES: &[&str] = &[
     "plugins",
     "providers",
     "workspace_events",
+    "secrets",
+    "settings",
 ];
 
 /// What `core.hello` says about this core.
@@ -280,6 +282,17 @@ fn device_info(d: kumikit_kernel::devices::DeviceRecord, current: Option<&str>) 
         name: d.name,
         created: d.created,
         last_seen: d.last_seen,
+    }
+}
+
+fn check_secret_name(name: &str) -> Result<(), RpcError> {
+    if kumikit_plugin_host::manifest::is_secret_name(name) {
+        Ok(())
+    } else {
+        Err(RpcError::new(
+            ErrorCode::InvalidParams,
+            format!("secret name `{name}` is not valid"),
+        ))
     }
 }
 
@@ -583,6 +596,71 @@ impl Conn {
                 reply::<m::PluginLock>(m::PluginLockResult {
                     lock: self.host.manager().lock_text(),
                 })
+            }
+            m::SecretSet::NAME => {
+                let p = parse::<m::SecretSet>(params)?;
+                check_secret_name(&p.name)?;
+                if p.value.is_empty() {
+                    return Err(RpcError::new(
+                        ErrorCode::InvalidParams,
+                        "a secret cannot be empty",
+                    ));
+                }
+                k.secrets()
+                    .set(&p.name, &p.value)
+                    .await
+                    .map_err(kernel_err)?;
+                tracing::info!(device = ?self.device, name = %p.name, "secret set");
+                reply::<m::SecretSet>(Empty {})
+            }
+            m::SecretDelete::NAME => {
+                let p = parse::<m::SecretDelete>(params)?;
+                check_secret_name(&p.name)?;
+                k.secrets().delete(&p.name).await.map_err(kernel_err)?;
+                tracing::info!(device = ?self.device, name = %p.name, "secret deleted");
+                reply::<m::SecretDelete>(Empty {})
+            }
+            m::SecretList::NAME => {
+                parse::<m::SecretList>(params)?;
+                let secrets = self
+                    .host
+                    .manager()
+                    .secret_list()
+                    .await
+                    .map_err(crate::plugins::host_err)?
+                    .into_iter()
+                    .map(|(name, set, plugins)| m::SecretInfo { name, set, plugins })
+                    .collect();
+                reply::<m::SecretList>(m::SecretListResult { secrets })
+            }
+            m::SettingsSchema::NAME => {
+                let p = parse::<m::SettingsSchema>(params)?;
+                let schema = self
+                    .host
+                    .manager()
+                    .settings_schema(&p.plugin)
+                    .await
+                    .map_err(crate::plugins::host_err)?;
+                reply::<m::SettingsSchema>(m::SettingsSchemaResult { schema })
+            }
+            m::SettingsGet::NAME => {
+                let p = parse::<m::SettingsGet>(params)?;
+                let values = self
+                    .host
+                    .manager()
+                    .settings_get(&p.plugin)
+                    .await
+                    .map_err(crate::plugins::host_err)?;
+                reply::<m::SettingsGet>(m::SettingsGetResult { values })
+            }
+            m::SettingsSet::NAME => {
+                let p = parse::<m::SettingsSet>(params)?;
+                self.host
+                    .manager()
+                    .settings_set(&p.plugin, &p.values)
+                    .await
+                    .map_err(crate::plugins::host_err)?;
+                reply::<m::SettingsSet>(Empty {})
             }
             m::RegistryList::NAME => {
                 parse::<m::RegistryList>(params)?;

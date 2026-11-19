@@ -30,6 +30,12 @@ import type { RegistrySearchParams } from "./RegistrySearchParams";
 import type { RegistrySearchResult } from "./RegistrySearchResult";
 import type { RegistryUrl } from "./RegistryUrl";
 import type { RespondApprovalParams } from "./RespondApprovalParams";
+import type { SecretListResult } from "./SecretListResult";
+import type { SecretRef } from "./SecretRef";
+import type { SecretSetParams } from "./SecretSetParams";
+import type { SettingsGetResult } from "./SettingsGetResult";
+import type { SettingsSchemaResult } from "./SettingsSchemaResult";
+import type { SettingsSetParams } from "./SettingsSetParams";
 import type { SubscribeParams } from "./SubscribeParams";
 import type { SubscribeResult } from "./SubscribeResult";
 import type { ThreadCreateParams } from "./ThreadCreateParams";
@@ -47,7 +53,7 @@ import type { WorkspaceOpenResult } from "./WorkspaceOpenResult";
 import type { WorkspaceRef } from "./WorkspaceRef";
 
 /** Protocol version spoken by this package, `MAJOR.MINOR`. */
-export const PROTOCOL_VERSION = "0.5";
+export const PROTOCOL_VERSION = "0.6";
 
 /** Every request method with its params and result types. */
 export type Methods = {
@@ -84,6 +90,12 @@ export type Methods = {
   "registry.add": { params: RegistryUrl; result: Empty };
   "registry.remove": { params: RegistryUrl; result: Empty };
   "registry.search": { params: RegistrySearchParams; result: RegistrySearchResult };
+  "secret.set": { params: SecretSetParams; result: Empty };
+  "secret.delete": { params: SecretRef; result: Empty };
+  "secret.list": { params: Empty; result: SecretListResult };
+  "settings.schema": { params: PluginRef; result: SettingsSchemaResult };
+  "settings.get": { params: PluginRef; result: SettingsGetResult };
+  "settings.set": { params: SettingsSetParams; result: Empty };
 };
 
 /** Every notification the core sends, with its params type. */

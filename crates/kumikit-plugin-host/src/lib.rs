@@ -8,3 +8,4 @@ pub mod manifest;
 /// `.kkp` packages, from the shared `kumikit-package` crate.
 pub use kumikit_package as package;
 pub mod runtime;
+pub mod settings;

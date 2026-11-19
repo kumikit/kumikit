@@ -10,6 +10,7 @@ mod kernel;
 pub mod plugins;
 pub mod process;
 pub mod provider;
+pub mod redact;
 pub mod repo;
 pub mod secrets;
 pub mod store;

@@ -313,7 +313,8 @@ pub fn is_plugin_id(id: &str) -> bool {
     }
 }
 
-fn is_secret_name(s: &str) -> bool {
+/// Whether `s` is a valid secret name (`[A-Za-z0-9._-]`, not empty).
+pub fn is_secret_name(s: &str) -> bool {
     !s.is_empty()
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
@@ -570,6 +571,15 @@ impl Manifest {
         }
         if let Some(settings) = &self.contributes.settings {
             check_file(&mut p, package, "settings schema", settings);
+            if let Some(dir) = package
+                && is_package_path(settings)
+                && let Ok(text) = std::fs::read_to_string(dir.join(settings))
+            {
+                p.extend(crate::settings::schema_file_problems(
+                    &text,
+                    &self.permissions.secrets,
+                ));
+            }
         }
         if self.runtime.is_none() && !self.contributes.provider_backends.is_empty() {
             p.push("provider backends need a runtime".into());

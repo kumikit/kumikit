@@ -15,7 +15,7 @@
 //! - `run <args…>`: starts `fake-acp-agent <args…>` and waits for it.
 //! - `report <program>`: starts `<program> cwd` in a turn and replies with its output.
 //! - `spawn-secret <var> <secret>`: starts `fake-acp-agent env` with a secret variable.
-//! - `secret <name>`: reads a secret.
+//! - `secret <name>`: reads a secret. `log-secret <name>`: reads one and logs its value.
 //! - `kv`: a set/get/list/delete round trip in its own store.
 //! - `fs-own`: writes and reads a file in its data directory.
 //! - `fs-escape <path>`: tries to read a file outside the sandbox.
@@ -27,7 +27,7 @@
 
 use kumikit_provider::{
     Error, ErrorCode, Event, Lifecycle, Model, Provider, ProviderRef, SessionConfig, SpawnRequest,
-    UserInput, events, kv, process, secrets,
+    UserInput, events, kv, log, process, secrets,
 };
 
 struct Probe;
@@ -179,6 +179,12 @@ fn probe(command: &str) -> Result<(), Error> {
             spawn(req, false)
         }
         ["secret", name] => secrets::get(name).map(|_| ()),
+        // Logs a secret's value, so a test can prove the core's log redacts it.
+        ["log-secret", name] => {
+            let value = secrets::get(name)?.unwrap_or_default();
+            log::log(log::Level::Warn, &format!("probe read {value}"));
+            Ok(())
+        }
         ["kv"] => {
             kv::set("a/1", b"one")?;
             kv::set("a/2", b"two")?;

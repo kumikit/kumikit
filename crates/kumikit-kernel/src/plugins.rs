@@ -307,7 +307,56 @@ impl Kernel {
                 }
                 if delete_data {
                     c.execute("DELETE FROM plugin_kv WHERE plugin = ?1", [&id])?;
+                    c.execute("DELETE FROM plugin_settings WHERE plugin = ?1", [&id])?;
                 }
+                Ok(())
+            })
+            .await
+    }
+
+    // ---- settings ----
+
+    /// `plugin`'s stored settings (a JSON object), if any were set.
+    pub async fn settings_get(&self, plugin: &str) -> KernelResult<Option<serde_json::Value>> {
+        let plugin = plugin.to_owned();
+        let text: Option<String> = self
+            .inner
+            .store
+            .read(move |c| {
+                Ok::<_, KernelError>(
+                    c.query_row(
+                        "SELECT value FROM plugin_settings WHERE plugin = ?1",
+                        [&plugin],
+                        |r| r.get(0),
+                    )
+                    .optional()?,
+                )
+            })
+            .await?;
+        text.map(|t| {
+            serde_json::from_str(&t)
+                .map_err(|e| KernelError::Io(format!("stored settings are not JSON: {e}")))
+        })
+        .transpose()
+    }
+
+    /// Replaces `plugin`'s settings. The caller has validated them against the schema.
+    pub async fn settings_set(&self, plugin: &str, values: &serde_json::Value) -> KernelResult<()> {
+        let text = values.to_string();
+        if text.len() > KV_VALUE_MAX {
+            return Err(KernelError::Limit(format!(
+                "settings are at most {KV_VALUE_MAX} bytes"
+            )));
+        }
+        let plugin = plugin.to_owned();
+        self.inner
+            .store
+            .write(move |c| {
+                c.execute(
+                    "INSERT INTO plugin_settings (plugin, value) VALUES (?1, ?2)
+                     ON CONFLICT (plugin) DO UPDATE SET value = excluded.value",
+                    params![plugin, text],
+                )?;
                 Ok(())
             })
             .await

@@ -127,6 +127,9 @@ impl Kernel {
             }),
         };
         kernel.recover().await?;
+        if let Err(e) = kernel.inner.secrets.preload().await {
+            tracing::warn!(error = %e, "cannot read the secret store");
+        }
         Ok(kernel)
     }
 

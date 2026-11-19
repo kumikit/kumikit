@@ -2,13 +2,47 @@
      checked and reported field by field; valid values are passed on at once. -->
 <script lang="ts">
   import type { SettingsSchema } from '@kumikit/ui-sdk';
-  import { checkValue, fields, getPath, setPath, type Field } from './schema';
+  import { checkValue, fields, getPath, setPath, type Field, type SecretAccess } from './schema';
 
   let {
     schema,
     values,
     onchange,
-  }: { schema: SettingsSchema; values: Record<string, unknown>; onchange: (v: Record<string, unknown>) => void } = $props();
+    secrets,
+  }: {
+    schema: SettingsSchema;
+    values: Record<string, unknown>;
+    onchange: (v: Record<string, unknown>) => void;
+    secrets?: SecretAccess;
+  } = $props();
+  let drafts = $state<Record<string, string>>({});
+  let busy = $state(false);
+
+  async function saveSecret(f: Field) {
+    if (!secrets || !f.secret || !drafts[f.key]) return;
+    busy = true;
+    try {
+      await secrets.set(f.secret, drafts[f.key]!);
+      drafts = { ...drafts, [f.key]: '' };
+      errors = { ...errors, [f.key]: '' };
+    } catch (e) {
+      errors = { ...errors, [f.key]: e instanceof Error ? e.message : String(e) };
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function clearSecret(f: Field) {
+    if (!secrets || !f.secret) return;
+    busy = true;
+    try {
+      await secrets.clear(f.secret);
+    } catch (e) {
+      errors = { ...errors, [f.key]: e instanceof Error ? e.message : String(e) };
+    } finally {
+      busy = false;
+    }
+  }
 
   const parsed = $derived(fields(schema));
   let errors = $state<Record<string, string>>({});
@@ -60,6 +94,23 @@
           </select>
         {:else if f.kind === 'textarea'}
           <textarea id={id(f)} class="kk-input" rows="4" value={String(value(f) ?? '')} onchange={(e) => set(f, e.currentTarget.value)}></textarea>
+        {:else if f.kind === 'secret' && secrets && f.secret}
+          <div class="secret">
+            <input
+              id={id(f)}
+              class="kk-input"
+              type="password"
+              autocomplete="off"
+              placeholder={secrets.isSet(f.secret) ? 'Set (enter a new value to replace it)' : 'Not set'}
+              value={drafts[f.key] ?? ''}
+              oninput={(e) => (drafts = { ...drafts, [f.key]: e.currentTarget.value })}
+            />
+            <button type="button" class="kk-button" disabled={busy || !drafts[f.key]} onclick={() => saveSecret(f)}>Save</button>
+            {#if secrets.isSet(f.secret)}
+              <button type="button" class="kk-button" disabled={busy} onclick={() => clearSecret(f)}>Clear</button>
+            {/if}
+          </div>
+          <p class="kk-muted desc">{secrets.isSet(f.secret) ? 'Set' : 'Not set'}. Stored on the core; it is never shown again.</p>
         {:else if f.kind === 'secret'}
           <input id={id(f)} class="kk-input" type="password" disabled placeholder="Set on the core" />
         {:else}
@@ -92,6 +143,13 @@
   .field {
     display: grid;
     gap: 4px;
+  }
+  .secret {
+    display: flex;
+    gap: 6px;
+  }
+  .secret input {
+    flex: 1;
   }
   .check {
     display: flex;

@@ -34,11 +34,14 @@ fn io(e: impl std::fmt::Display) -> KernelError {
 }
 
 fn load(path: &Path) -> KernelResult<BTreeMap<String, String>> {
-    match std::fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes).map_err(io),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
-        Err(e) => Err(io(e)),
-    }
+    let map: BTreeMap<String, String> = match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(io)?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
+        Err(e) => return Err(io(e)),
+    };
+    // Every value the store has seen is hidden from the log from now on.
+    crate::redact::remember(map.values().map(String::as_str));
+    Ok(map)
 }
 
 fn save(path: &Path, map: &BTreeMap<String, String>) -> KernelResult<()> {
@@ -69,6 +72,12 @@ impl SecretStore {
         }
     }
 
+    /// Reads the store once, so the values already in it are redacted from the log before
+    /// anything is logged about them. Called when the kernel opens.
+    pub async fn preload(&self) -> KernelResult<()> {
+        self.names().await.map(|_| ())
+    }
+
     /// The value of `name`, if set.
     pub async fn get(&self, name: &str) -> KernelResult<Option<String>> {
         let (path, name) = (Arc::clone(&self.path), name.to_owned());
@@ -91,6 +100,7 @@ impl SecretStore {
         let (path, name, value) = (Arc::clone(&self.path), name.to_owned(), value.to_owned());
         tokio::task::spawn_blocking(move || {
             let mut map = load(&path)?;
+            crate::redact::remember([value.as_str()]);
             map.insert(name, value);
             save(&path, &map)
         })

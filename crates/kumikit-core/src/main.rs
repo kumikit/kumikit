@@ -534,7 +534,9 @@ fn init_logging() {
         .and_then(|v| v.parse().ok())
         .unwrap_or_else(|| Targets::new().with_default(tracing::Level::WARN));
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+        .with(
+            tracing_subscriber::fmt::layer().with_writer(kumikit_core::logwriter::RedactingStderr),
+        )
         .with(filter)
         .init();
 }
