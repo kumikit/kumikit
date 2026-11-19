@@ -2480,7 +2480,11 @@ dependencies = [
 name = "kumikit-assets"
 version = "0.1.0"
 dependencies = [
+ "semver",
+ "serde",
+ "serde_json",
  "tempfile",
+ "toml 1.2.1+spec-1.1.0",
 ]
 
 [[package]]

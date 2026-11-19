@@ -7,6 +7,8 @@
 
 use std::path::{Component, Path, PathBuf};
 
+pub mod ui_manifest;
+
 /// The scheme the UI kernel is served from.
 pub const APP_SCHEME: &str = "kumikit-app";
 /// The scheme UI plugins are served from.

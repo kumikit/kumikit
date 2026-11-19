@@ -39,7 +39,7 @@ connect catches up from the event log.
 crates/
   kumikit-protocol/      # protocol types, method table, local address; generates TypeScript
   kumikit-package/       # .kkp packing and defensive unpacking, shared by core and shell
-  kumikit-assets/        # serving UI files: path checks, MIME types, CSP; shared by shell and core
+  kumikit-assets/        # UI files: path checks, MIME types, CSPs, UI manifest structure; shell, core, registry checker
   kumikit-registry/      # registry index, fetching, resolution, install-time checks
   kumikit-registry-tool/ # `kumikit-registry check | build-index`, run by a registry's CI
   kumikit-theme/         # theme checks (token types, contrast, fonts) for `kumikit theme check`
@@ -80,7 +80,7 @@ kumikit-package   ←  kumikit-plugin-host, kumikit-registry, kumikit-core, kumi
 kumikit-registry  ←  kumikit-core, kumikit-shell, kumikit-registry-tool
 kumikit-plugin-host ← kumikit-registry-tool (to validate core manifests as install does)
 kumikit-theme     ←  kumikit-core
-kumikit-assets    ←  kumikit-core, kumikit-shell
+kumikit-assets    ←  kumikit-core, kumikit-shell, kumikit-registry-tool
 @kumikit/protocol ←  web/kernel, web/sdk
 @kumikit/ui-sdk   ←  web/kernel, plugins/ui-*
 wit/              ←  kumikit-plugin-host, sdk/rust*, plugins/*, test-plugins/*
