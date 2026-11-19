@@ -66,11 +66,11 @@ description = "Run Claude Code as a Kumikit provider."
 license = "MIT"
 repository = "https://github.com/kumikit/provider-claude"
 kind = ["provider"]                    # provider | tool | bot | integration | ui | theme
-api = "^0.1"                           # kernel plugin API it targets
+api = "^0.2"                           # kernel plugin API it targets
 
 [runtime]
 wasm = "plugin.wasm"                   # or: sidecar = { command = "node", args = ["main.js"] }
-worlds = ["kumikit:provider/plugin@0.1.0"]
+worlds = ["kumikit:provider/plugin@0.2.0"]
 
 [activation]                           # extra triggers; contributions activate implicitly
 on = ["startup"]
@@ -80,7 +80,10 @@ spawn = ["claude"]                     # executables it may start
 network = []                           # outbound hosts, e.g. ["api.telegram.org"]
 files = "workspace"                    # none | read-workspace | workspace
 secrets = ["anthropic-api-key"]        # secret names it may read
-tools = false                          # may call tools contributed by other plugins
+tools = false                          # may hand tools contributed by other plugins to its agent
+client = []                            # client operations, e.g. ["threads.read", "threads.send"]
+workspaces = "none"                    # none | linked | all: where client operations may act
+schedules = false                      # may run on a schedule
 
 [limits]                               # optional; defaults below, capped by the core
 memory-mb = 64
@@ -88,26 +91,40 @@ call-timeout-s = 10
 
 [contributes]
 providers = [{ id = "claude", name = "Claude Code" }]
-commands = [{ id = "claude.login", title = "Sign in to Claude Code" }]
+commands = [{ id = "login", title = "Sign in to Claude Code", scope = "core" }]
 settings = "settings.schema.json"
+methods = [{ name = "status", scope = "workspace" }]   # routed as <plugin id>/status
+tools = [{ name = "status", title = "Status", description = "…", input = "status.schema.json", effect = "read" }]
 ```
+
+- `commands`: `scope` is `core` (default) or `workspace` (the command acts for the
+  workspace it is run in); an optional `when` is a UI condition
+  ([07](07-ui-plugins.md#level-1-declarative-contributions)).
+- `methods`: plugin methods clients call as `<plugin id>/<name>`; `scope` as for
+  commands. A `workspace` method gets the workspace in its call context, and the plugin
+  acts for it.
+- `tools`: tools for the tool gateway ([03](03-kernel.md#tool-gateway)).
 
 The manifest is validated at install against the JSON Schema published with the SDK
 (`sdk/schema/plugin-manifest.schema.json`), then checked for what a schema cannot express:
 the `api` range is satisfied by the kernel, every world is one the host supports, the
 runtime file exists in the package, provider ids are unique within the plugin, `spawn`
 entries are bare program names (no path separators), limits are within the caps, and
-activation triggers are well formed.
+activation triggers are well formed, names (commands, methods, tools) are unique and well
+formed, files they name exist, a `schedule:` trigger comes with `schedules = true`, and a
+settings field's `x-secret` names a secret in `permissions.secrets`.
 
 `[runtime]` is optional: a plugin without one contributes only delegated providers
-(below). The kernel plugin API version is `0.1`.
+(below). The kernel plugin API version is `0.2` ([ADR 0022](../decisions/0022-wit-0-2-and-dropping-0-1.md)).
 
 ## Interfaces (WIT)
 
 WIT packages live in `wit/`, one directory per published version
-(`wit/kumikit-host@0.1.0/`). They are versioned independently. A published version is
-never changed in place; changes ship as a new version and the host supports the previous
-major version for at least one kernel major release. `wit/PUBLISHED` records a hash of
+(`wit/kumikit-host@0.2.0/`). They are versioned independently. A published version is
+never changed in place; changes ship as a new version. From 1.0 the host supports the
+previous major version for at least one kernel major release; before 1.0 it links only the
+current 0.x versions (0.2.0 since M5; 0.1.0 plugins must be rebuilt,
+[ADR 0022](../decisions/0022-wit-0-2-and-dropping-0-1.md)). `wit/PUBLISHED` records a hash of
 each published directory, and a test fails if one changes. The packages stay `0.x`
 through M5 and freeze at 1.0.0 after it, before the official registry opens to third
 parties ([ADR 0020](../decisions/0020-interface-freeze-after-m5.md)).
@@ -118,16 +135,16 @@ types). A component imports only the interfaces its code calls.
 
 | Package | What it is |
 |---|---|
-| `kumikit:host` | Host imports, each gated by permissions: `types`, `log`, `kv`, `secrets`, `events`, `process`. Later versions add `settings`, `http`, `files`, `timers`. |
-| `kumikit:plugin` | Exports every plugin implements: `lifecycle` (`activate`, `deactivate`). Later versions add `run-command`, `handle-rpc`. |
-| `kumikit:provider` | The provider world ([05](05-providers.md)) |
-| `kumikit:bot` | The bot world ([09](09-bots.md)), later |
-| `kumikit:tool` | Tool contribution: `list-tools`, `call-tool`, later |
+| `kumikit:host@0.2.0` | Host imports, each gated by permissions: `types`, `log`, `kv`, `secrets`, `events`, `process` (as in 0.1.0), and `settings` (own settings), `timers` (`permissions.schedules`), `client` (`permissions.client` and `workspaces`). `files` comes later. |
+| `kumikit:plugin@0.2.0` | Exports: `lifecycle` (`activate`, `deactivate`), and the optional `rpc` (`handle`), `commands` (`run`) and `timers` (`fire`). A component must export those its manifest needs (methods, commands, schedules); the host checks it at enable. |
+| `kumikit:provider@0.2.0` | The provider world ([05](05-providers.md)) |
+| `kumikit:tool@0.1.0` | Tool contribution: `tool.call` ([03](03-kernel.md#tool-gateway)) |
+| `kumikit:bot@0.1.0` | The bot world ([09](09-bots.md)): the base imports, `client` and `wasi:http`, and `bot.run` |
 
 Shape of the host interface (abridged; `wit/` is the source):
 
 ```wit
-package kumikit:host@0.1.0;
+package kumikit:host@0.2.0;
 
 interface types {
   enum error-code { permission-denied, not-found, invalid-argument, conflict, cancelled, limit, io, internal }
@@ -169,17 +186,38 @@ the grants of the plugin, or of the contributing plugin for a delegated session.
 Plugins get WASI 0.2 with no arguments, no environment variables and no stdin; their
 stdout and stderr go to the core's log at debug level, tagged with the plugin id. Clocks
 and random numbers are available. Sockets are disabled. The only filesystem preopen is the
-plugin's own data directory, which the guest sees as `/data`; workspace access will go through `kumikit:host/files`, which
-enforces `permissions.files`. Outgoing HTTP will use `wasi:http` with the host enforcing
-`permissions.network`; until it is supported, a component that imports it is refused when
-it is enabled.
+plugin's own data directory, which the guest sees as `/data`; workspace access will go
+through `kumikit:host/files`, which enforces `permissions.files`.
+
+### Outgoing HTTP
+
+Decided in [ADR 0023](../decisions/0023-outgoing-http-for-plugins.md). Plugins send requests
+with `wasi:http/outgoing-handler` (WASI 0.2); the host sends them itself, after checking:
+- the scheme is `https` (verified with the OS trust store);
+- the host, and the port when it is not 443, is in `permissions.network` (`host` or
+  `host:port`; no wildcards);
+- every address the name resolves to is public, unless the entry is itself a loopback or
+  private IP literal;
+- redirects are not followed (a guest that follows one sends a new, checked request);
+- per plugin: at most 8 requests in flight, request bodies up to 8 MiB, responses up to
+  16 MiB, 10 s to connect, and a guest-chosen timeout up to 120 s.
+
+A refused request fails with a wasi:http error and is logged with the plugin id. Logs give
+only the scheme and host of a request, never its path, headers or body. In debug builds
+only, `KUMIKIT_TEST_HTTP_ROUTES=<host>=<http://127.0.0.1:port>,…` sends requests for a
+granted host to a loopback test server after the checks; release builds ignore it.
 
 ## Execution model
 
 - An activated plugin runs as one or more component instances. Each instance is driven by
   its own task and handles one call at a time. A provider plugin has a control instance
   (calls outside a session) and one instance per provider session
-  ([ADR 0010](../decisions/0010-wasi-p2-and-session-instances.md)).
+  ([ADR 0010](../decisions/0010-wasi-p2-and-session-instances.md)). A tool plugin gets one
+  instance per calling thread for gateway calls; a bot one more for `bot.run`. Method,
+  command and timer calls use the control instance.
+- **Acting workspace.** A call acts for at most one workspace: a session's or a gateway
+  call's thread workspace, or the workspace of a `workspace`-scoped method or command.
+  `process.spawn` needs one (its working directory must be inside it).
 - Something that must reach a plugin during a call does so through the host import it is
   blocked in: approval answers return from `events.request-approval`; a cancel makes the
   blocked import return `cancelled` once.
@@ -214,8 +252,11 @@ installed → enabled → active ⇄ idle → unloaded
 - **enabled**: the user granted the permissions. The manifest's contributions are visible
   to clients (a provider appears in the model picker) without instantiating anything.
 - **active**: instantiated because an activation trigger fired. A contribution activates
-  its plugin when it is used (a thread uses one of its providers); `activation.on` adds
-  `startup` and, later, `command:<id>`, `workspace`, `rpc` and `schedule:<cron>`.
+  its plugin when it is used (a thread uses one of its providers, a client calls one of its
+  methods or commands, an agent calls one of its tools, one of its schedules is due);
+  `activation.on` adds `startup` and `schedule:<cron>` ([03](03-kernel.md#schedules));
+  `command:<id>`, `rpc` and `workspace` are accepted and add nothing beyond the implicit
+  triggers.
   `activate` runs once per instance. `startup` activation runs in the background, so it
   never delays the core accepting connections.
 - **idle → unloaded**: an instance with no call in progress, no running turn and no call
@@ -239,8 +280,15 @@ installed → enabled → active ⇄ idle → unloaded
   permissions at runtime.
 - `spawn` is the widest permission: a spawned CLI is outside the WASM sandbox. The UI says
   so at install and in the plugin's detail page.
-- `files`, `network` and `tools` are shown and stored as granted, and enforced by the
-  interfaces that use them when those arrive.
+- `network` is enforced on every outgoing request (above).
+- `tools` lets a provider's sessions get the tool gateway; without it they get none.
+- `client` lists the operations of `kumikit:host/client` the plugin may use:
+  `workspaces.list`, `threads.read` (list, get, subscribe), `threads.create`,
+  `threads.send`, `threads.cancel`, `approvals.respond`. `workspaces` limits where:
+  `none`, `linked` (the workspaces the user linked to it) or `all`.
+- `schedules` lets a plugin run on a schedule (manifest triggers and `timers`).
+- `files` is shown and stored as granted, and enforced by `kumikit:host/files` when it
+  arrives.
 
 ## Delegated providers
 

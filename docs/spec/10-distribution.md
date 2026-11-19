@@ -22,6 +22,11 @@ enables a seeded plugin only if it requests no permissions; any other stays inst
 until the user grants it. The core names no plugin: the directory decides. A core started
 without the flag (for example from the CLI) preinstalls nothing.
 
+A bundled package whose version is higher than the installed copy, when that copy came
+from the bundle (`source = bundled`), replaces it at start like an update
+([Updates](#updates)): it keeps the grant if it asks for no more, otherwise it waits on the
+old version for the user's grant. A copy the user installed from elsewhere is left alone.
+
 ### Starter pack
 
 On a client's first run, a welcome screen offers the registry's **starter pack**: common

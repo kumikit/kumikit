@@ -85,9 +85,3 @@ The theme engine adds rules on top of any theme, so themes cannot break them:
 - Reduced transparency: overlays become opaque.
 - Forced colors: system colors replace tokens.
 - Reduced motion: motion tokens become zero.
-
-## Importing VS Code themes
-
-An optional plugin, `kumikit.theme-import-vscode`, converts a VS Code color theme into a
-Kumikit theme package (colors only; nothing from the extension is executed). It is a plugin
-so that the kernel does not depend on another editor's theme format.
