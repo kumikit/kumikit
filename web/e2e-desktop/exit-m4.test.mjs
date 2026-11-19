@@ -14,7 +14,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { basename, delimiter, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { after, before, test } from 'node:test';
 
@@ -177,7 +177,9 @@ async function flow(b) {
 
   step('what was granted works');
   await send('report fake-acp-agent');
-  await b.wait('main', project);
+  // The reply is the agent's working directory as the core canonicalized it (on Windows
+  // the long form of a short temp path), so look for the test directory's own name.
+  await b.wait('main', basename(work));
 
   step('anything else is refused with permission_denied');
   await send('spawn sh');
