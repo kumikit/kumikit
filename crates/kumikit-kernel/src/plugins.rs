@@ -27,7 +27,8 @@ pub enum PluginState {
 }
 
 impl PluginState {
-    fn as_str(self) -> &'static str {
+    /// The stored form: `installed`, `enabled` or `disabled`.
+    pub fn as_str(self) -> &'static str {
         match self {
             PluginState::Installed => "installed",
             PluginState::Enabled => "enabled",
@@ -232,6 +233,39 @@ impl Kernel {
                         record.source.as_stored()
                     ],
                 )?;
+                Ok(())
+            })
+            .await
+    }
+
+    /// Replaces an installed plugin's record with another version's (an update): version,
+    /// hash, key, source, state and grants change; the install time and its data stay.
+    pub async fn plugin_replace(&self, record: PluginRecord) -> KernelResult<()> {
+        let granted = record
+            .granted
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
+        self.inner
+            .store
+            .write(move |c| {
+                let n = c.execute(
+                    "UPDATE plugins SET version = ?2, state = ?3, sha256 = ?4, granted = ?5,
+                       publisher_key = ?6, source = ?7
+                     WHERE id = ?1",
+                    params![
+                        record.id,
+                        record.version,
+                        record.state.as_str(),
+                        record.sha256,
+                        granted,
+                        record.publisher_key,
+                        record.source.as_stored()
+                    ],
+                )?;
+                if n == 0 {
+                    return Err(KernelError::NotFound(format!("no plugin {}", record.id)));
+                }
                 Ok(())
             })
             .await

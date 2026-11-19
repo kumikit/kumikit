@@ -7,6 +7,7 @@ pub mod lock;
 pub mod messages;
 pub mod paths;
 pub mod plugins;
+pub mod registry;
 pub mod remote;
 pub mod rpc;
 pub mod serve;

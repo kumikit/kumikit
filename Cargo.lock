@@ -2500,10 +2500,13 @@ dependencies = [
  "kumikit-kernel",
  "kumikit-plugin-host",
  "kumikit-protocol",
+ "kumikit-registry",
  "kumikit-test-plugins",
+ "kumikit-test-registry-fixture",
  "rcgen",
  "rustix",
  "rustls",
+ "semver",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2594,6 +2597,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "toml 1.2.1+spec-1.1.0",
  "ts-rs",
 ]
 

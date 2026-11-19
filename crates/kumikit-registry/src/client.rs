@@ -216,6 +216,22 @@ impl RegistryClient {
         self.cache.join(hex(&Sha256::digest(url.as_bytes())))
     }
 
+    /// The cached copy of the index at `url`, without asking the registry.
+    pub async fn cached_index(&self, url: &str) -> Option<FetchedIndex> {
+        let base = self.cached(url);
+        let bytes = tokio::fs::read(base.with_extension("json")).await.ok()?;
+        let fetched = tokio::fs::read_to_string(base.with_extension("time"))
+            .await
+            .ok()
+            .and_then(|t| t.trim().parse::<u64>().ok())
+            .map(|s| SystemTime::UNIX_EPOCH + Duration::from_secs(s))?;
+        Some(FetchedIndex {
+            url: url.to_owned(),
+            index: parse_index(&bytes).ok()?,
+            fetched,
+        })
+    }
+
     /// The index at `url`.
     pub async fn index(
         &self,

@@ -257,7 +257,13 @@ All take `--socket` (and the device commands `--data-dir`).
   source = "registry+https://kumikit.github.io/registry/index.json"   # or "file", "bundled"
   key = "ed25519:…"                                                    # when signed
   state = "enabled"
-  granted = { spawn = ["fake-acp-agent"] }
+
+  [plugin.granted]                       # the protocol's permission words
+  spawn = ["fake-acp-agent"]
+  network = []
+  files = "none"                         # none, read_workspace or workspace
+  secrets = []
+  tools = false
   ```
 
   The client's lock has no `granted`; when the UI kernel exports it, it adds `enabled` and

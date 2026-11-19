@@ -15,4 +15,8 @@ version?: string,
 /**
  * The SHA-256 the package must have (from a lockfile).
  */
-sha256?: string, };
+sha256?: string, 
+/**
+ * A registry's index URL to use instead of the core's list.
+ */
+registry?: string, };

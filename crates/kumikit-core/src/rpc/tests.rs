@@ -119,6 +119,7 @@ async fn client_as(peer: Peer) -> Client {
         os: "test".into(),
         shutdown: Arc::new(tokio::sync::Notify::new()),
         remote: None,
+        registry: None,
     });
     let (read, write) = tokio::io::split(theirs);
     tokio::spawn(serve_messages(

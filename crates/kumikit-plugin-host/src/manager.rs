@@ -17,6 +17,7 @@ use kumikit_kernel::grants::Grants;
 use kumikit_kernel::plugins::{PluginRecord, PluginSource, PluginState};
 use kumikit_kernel::{Kernel, KernelError};
 use kumikit_protocol::ErrorCode;
+use kumikit_protocol::lockfile::{self, LockEntry, LockFile};
 use tokio::sync::watch;
 
 use crate::manifest::{MANIFEST_FILE, Manifest, ManifestError};
@@ -94,6 +95,8 @@ pub struct Dirs {
     pub data: PathBuf,
     /// Compiled components.
     pub cache: PathBuf,
+    /// `plugins.lock`, rewritten after every change.
+    pub lock: PathBuf,
 }
 
 impl Dirs {
@@ -103,6 +106,7 @@ impl Dirs {
             plugins: data_dir.join("plugins"),
             data: data_dir.join("plugin-data"),
             cache: data_dir.join("cache").join("wasmtime"),
+            lock: data_dir.join("plugins.lock"),
         }
     }
 
@@ -135,6 +139,95 @@ impl PluginView {
             .as_ref()
             .map(|m| m.permissions.to_grants())
             .unwrap_or_default()
+    }
+}
+
+/// A package unpacked into staging, verified and with its manifest read.
+struct Staged {
+    sha256: String,
+    staging: tempfile::TempDir,
+    manifest: Manifest,
+    key: Option<package::PublicKey>,
+}
+
+/// What a registry's entry says a package is (10-distribution, Install): checked after
+/// the package is unpacked, before anything is put in place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Expected {
+    /// The publisher's key id, which must have signed it.
+    pub key: String,
+    /// `id`.
+    pub id: String,
+    /// `version`.
+    pub version: String,
+    /// `api`.
+    pub api: String,
+    /// The requested permissions the entry copies.
+    pub requested: Option<kumikit_protocol::methods::Permissions>,
+}
+
+impl Expected {
+    fn check(
+        &self,
+        manifest: &Manifest,
+        key: Option<&package::PublicKey>,
+    ) -> Result<(), HostError> {
+        let untrusted = |why: String| {
+            HostError::Untrusted(format!(
+                "untrusted package: {} {}: {why}",
+                self.id, self.version
+            ))
+        };
+        match key {
+            None => return Err(untrusted("it is not signed".into())),
+            Some(k) if k.to_string() != self.key => {
+                return Err(untrusted(format!(
+                    "it is signed by {k}, not by the publisher's key {}",
+                    self.key
+                )));
+            }
+            Some(_) => {}
+        }
+        if manifest.id != self.id || manifest.version != self.version || manifest.api != self.api {
+            return Err(untrusted(format!(
+                "its manifest says {} {} (api {}), which differs from the registry's entry",
+                manifest.id, manifest.version, manifest.api
+            )));
+        }
+        if let Some(requested) = &self.requested {
+            let mut want = requested.clone();
+            for v in [&mut want.spawn, &mut want.network, &mut want.secrets] {
+                v.sort();
+                v.dedup();
+            }
+            if manifest.requested() != want {
+                return Err(untrusted(
+                    "its permissions differ from the ones the registry lists".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Granted permissions in protocol form, with the manifest's raised limits.
+pub fn protocol_permissions(
+    g: &Grants,
+    manifest: Option<&Manifest>,
+) -> kumikit_protocol::methods::Permissions {
+    use kumikit_kernel::grants::FilesGrant;
+    use kumikit_protocol::methods::{FilesAccess, Permissions};
+    Permissions {
+        spawn: g.spawn.iter().cloned().collect(),
+        network: g.network.iter().cloned().collect(),
+        files: match g.files {
+            FilesGrant::None => FilesAccess::None,
+            FilesGrant::ReadWorkspace => FilesAccess::ReadWorkspace,
+            FilesGrant::Workspace => FilesAccess::Workspace,
+        },
+        secrets: g.secrets.iter().cloned().collect(),
+        tools: g.tools,
+        limits: manifest.and_then(|m| m.requested().limits),
     }
 }
 
@@ -307,18 +400,12 @@ impl Manager {
         self.inner.changed.send_modify(|v| *v += 1);
     }
 
-    /// Installs a `.kkp` file: unpacks, verifies its signature if it has one, validates,
-    /// records it as `installed` with its source and signing key. Nothing is granted or
-    /// enabled.
-    pub async fn install(
-        &self,
-        package: &Path,
-        source: PluginSource,
-    ) -> Result<PluginView, HostError> {
-        let _op = self.inner.ops.lock().await;
+    /// Unpacks a package into a staging directory under `plugins/`, verifies its
+    /// signature if it has one and reads its manifest.
+    async fn stage(&self, package: &Path) -> Result<Staged, HostError> {
         let package = package.to_path_buf();
         let plugins_dir = self.inner.dirs.plugins.clone();
-        let (sha256, staging, manifest, verified) = blocking(move || {
+        blocking(move || {
             let sha256 = package::sha256_file(&package).map_err(|e| {
                 HostError::Invalid(format!("cannot read {}: {e}", package.display()))
             })?;
@@ -335,17 +422,24 @@ impl Manager {
                 )));
             }
             let manifest = Manifest::load(staging.path())?;
-            Ok((sha256, staging, manifest, verified))
+            Ok(Staged {
+                sha256,
+                staging,
+                manifest,
+                key: verified.key(),
+            })
         })
-        .await?;
+        .await
+    }
 
-        if lock(&self.inner.entries).contains_key(&manifest.id) {
-            return Err(HostError::Conflict(format!(
-                "plugin {} is already installed; remove it first",
-                manifest.id
-            )));
-        }
-        let target = self.inner.dirs.package(&manifest.id, &manifest.version);
+    /// Moves a staged package into `plugins/<id>/<version>/`.
+    async fn place(
+        &self,
+        staged: tempfile::TempDir,
+        id: &str,
+        version: &str,
+    ) -> Result<(), HostError> {
+        let target = self.inner.dirs.package(id, version);
         blocking(move || {
             if target.exists() {
                 // Left over from an install that did not finish.
@@ -354,19 +448,54 @@ impl Manager {
             if let Some(parent) = target.parent() {
                 std::fs::create_dir_all(parent).map_err(io)?;
             }
-            let staged = staging.keep();
+            let staged = staged.keep();
             std::fs::rename(&staged, &target).map_err(io)
         })
-        .await?;
+        .await
+    }
 
+    /// Installs a `.kkp` file: unpacks, verifies its signature if it has one, validates,
+    /// records it as `installed` with its source and signing key. Nothing is granted or
+    /// enabled.
+    pub async fn install(
+        &self,
+        package: &Path,
+        source: PluginSource,
+    ) -> Result<PluginView, HostError> {
+        self.install_checked(package, source, None).await
+    }
+
+    /// Installs like [`Manager::install`], and with `expected` (a registry's entry)
+    /// refuses as untrusted a package that is not signed by the expected key or whose
+    /// manifest differs from the entry.
+    pub async fn install_checked(
+        &self,
+        package: &Path,
+        source: PluginSource,
+        expected: Option<&Expected>,
+    ) -> Result<PluginView, HostError> {
+        let _op = self.inner.ops.lock().await;
+        let staged = self.stage(package).await?;
+        if let Some(e) = expected {
+            e.check(&staged.manifest, staged.key.as_ref())?;
+        }
+        let manifest = staged.manifest;
+        if lock(&self.inner.entries).contains_key(&manifest.id) {
+            return Err(HostError::Conflict(format!(
+                "plugin {} is already installed; remove it first",
+                manifest.id
+            )));
+        }
+        self.place(staged.staging, &manifest.id, &manifest.version)
+            .await?;
         let record = PluginRecord {
             id: manifest.id.clone(),
             version: manifest.version.clone(),
             state: PluginState::Installed,
-            sha256,
+            sha256: staged.sha256,
             granted: None,
             installed: self.inner.kernel.now(),
-            publisher_key: verified.key().map(|k| k.to_string()),
+            publisher_key: staged.key.map(|k| k.to_string()),
             source,
         };
         self.inner.kernel.plugin_insert(record.clone()).await?;
@@ -378,7 +507,140 @@ impl Manager {
         };
         let view = entry.view();
         lock(&self.inner.entries).insert(view.record.id.clone(), entry);
+        self.write_lock().await;
         Ok(view)
+    }
+
+    /// Replaces an installed plugin with another version of it (an update). The plugin
+    /// must not be enabled (the host disables it around the swap). A package signed by
+    /// another key than the pinned one, or unsigned where one is pinned, is untrusted.
+    /// `grant` becomes its grant; its state is kept.
+    pub async fn replace(
+        &self,
+        id: &str,
+        package: &Path,
+        source: PluginSource,
+        expected: Option<&Expected>,
+        grant: Option<Grants>,
+    ) -> Result<PluginView, HostError> {
+        let _op = self.inner.ops.lock().await;
+        let current = self.get(id)?;
+        if current.record.state == PluginState::Enabled {
+            return Err(HostError::Conflict(format!(
+                "{id} must be disabled to be replaced"
+            )));
+        }
+        let staged = self.stage(package).await?;
+        if let Some(e) = expected {
+            e.check(&staged.manifest, staged.key.as_ref())?;
+        }
+        if staged.manifest.id != id {
+            return Err(HostError::Invalid(format!(
+                "the package is {}, not {id}",
+                staged.manifest.id
+            )));
+        }
+        if staged.manifest.version == current.record.version {
+            return Err(HostError::Conflict(format!(
+                "{id} {} is already installed",
+                current.record.version
+            )));
+        }
+        let key = staged.key.map(|k| k.to_string());
+        if let Some(pinned) = &current.record.publisher_key {
+            match &key {
+                Some(k) if k == pinned => {}
+                Some(k) => {
+                    return Err(HostError::Untrusted(format!(
+                        "untrusted package: {id} {} is signed by {k}, not by the key of the installed version ({pinned}); if you trust the new key, remove the plugin and install it again",
+                        staged.manifest.version
+                    )));
+                }
+                None => {
+                    return Err(HostError::Untrusted(format!(
+                        "untrusted package: {id} {} is not signed, but the installed version is",
+                        staged.manifest.version
+                    )));
+                }
+            }
+        }
+        let manifest = staged.manifest;
+        self.place(staged.staging, id, &manifest.version).await?;
+        let record = PluginRecord {
+            id: id.to_owned(),
+            version: manifest.version.clone(),
+            state: current.record.state,
+            sha256: staged.sha256,
+            granted: grant,
+            installed: current.record.installed.clone(),
+            publisher_key: key,
+            source,
+        };
+        if let Err(e) = self.inner.kernel.plugin_replace(record.clone()).await {
+            let dir = self.inner.dirs.package(id, &manifest.version);
+            let _ = blocking(move || std::fs::remove_dir_all(dir).map_err(io)).await;
+            return Err(e.into());
+        }
+        let old = self.inner.dirs.package(id, &current.record.version);
+        blocking(move || {
+            if old.exists() {
+                std::fs::remove_dir_all(&old).map_err(io)?;
+            }
+            Ok(())
+        })
+        .await?;
+        tracing::info!(plugin = %id, from = %current.record.version, to = %record.version, "plugin updated");
+        let entry = Entry {
+            record,
+            manifest: Ok(Arc::new(manifest)),
+            prepared: None,
+        };
+        let view = entry.view();
+        lock(&self.inner.entries).insert(id.to_owned(), entry);
+        self.write_lock().await;
+        Ok(view)
+    }
+
+    /// The lockfile's text for what is installed now.
+    pub fn lock_text(&self) -> String {
+        let entries = lock(&self.inner.entries);
+        let plugins =
+            entries
+                .values()
+                .map(|e| LockEntry {
+                    id: e.record.id.clone(),
+                    version: e.record.version.clone(),
+                    sha256: e.record.sha256.clone(),
+                    source: e.record.source.as_stored(),
+                    key: e.record.publisher_key.clone(),
+                    state: Some(e.record.state.as_str().to_owned()),
+                    granted: e.record.granted.as_ref().map(|g| {
+                        protocol_permissions(g, e.manifest.as_ref().ok().map(|m| m.as_ref()))
+                    }),
+                    enabled: None,
+                    trusted: None,
+                })
+                .collect();
+        lockfile::render(&LockFile {
+            format: lockfile::LOCK_FORMAT,
+            plugins,
+        })
+    }
+
+    /// Rewrites `plugins.lock` (atomically). A failure is logged: the kernel's table is
+    /// the record, the lockfile only its export.
+    async fn write_lock(&self) {
+        let text = self.lock_text();
+        let path = self.inner.dirs.lock.clone();
+        let written = blocking(move || {
+            let tmp = path.with_extension("lock.tmp");
+            std::fs::write(&tmp, text).map_err(io)?;
+            std::fs::rename(&tmp, &path).map_err(io)
+        })
+        .await;
+        if let Err(e) = written {
+            tracing::warn!(error = %e, "cannot write plugins.lock");
+        }
     }
 
     /// Grants the plugin's permissions and enables it. `grant` must equal what the
@@ -411,6 +673,7 @@ impl Manager {
             .await?;
         let view = self.set(id, PluginState::Enabled, Some(requested))?;
         tracing::info!(plugin = %id, "plugin enabled");
+        self.write_lock().await;
         self.bump();
         Ok(view)
     }
@@ -429,6 +692,7 @@ impl Manager {
             .await?;
         let view = self.set(id, PluginState::Disabled, granted)?;
         tracing::info!(plugin = %id, "plugin disabled");
+        self.write_lock().await;
         self.bump();
         Ok(view)
     }
@@ -456,6 +720,7 @@ impl Manager {
         })
         .await?;
         tracing::info!(plugin = %id, delete_data, "plugin removed");
+        self.write_lock().await;
         if was_enabled {
             self.bump();
         }

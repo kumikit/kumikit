@@ -790,7 +790,7 @@ Each step ends with the Verify checks that apply and one commit on branch `m4-ec
   regenerated, `tsc` check of `web/protocol`; the core routes the new methods (`unsupported`
   stubs where step 6 fills them). Commit: `feat: add registry and update methods to the
   protocol`.
-- [ ] **6. Core: registry install, updates, lockfile, CLI.** The `registry.*` methods,
+- [x] **6. Core: registry install, updates, lockfile, CLI.** The `registry.*` methods,
   `plugin.install { registry }`, `plugin.updates`/`update`, `plugin.lock`; the registries
   file; `plugins.lock` writing; CLI `add <id>`, `search`, `update`, `registry`, `lock`;
   README privacy sentence. Commit: `feat: install and update core plugins from registries`.
@@ -1030,4 +1030,24 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
   markers already use the name `PluginUpdate`). The new methods answer `unsupported`, and
   `plugin.install { registry }` too, until step 6. Hard-coded `"0.4"` in tests became
   `"0.5"`; the UI kernel's mismatch test still uses `0.4` as the other version.
+- Step 6:
+  - The lockfile format is `kumikit_protocol::lockfile` (pure parse and render), since
+    the core and the shell both use it; `granted` is written in the protocol's words
+    (`files = "read_workspace"`), as a `[plugin.granted]` table.
+  - The plugin manager rewrites `plugins.lock` after every install, update, enable,
+    disable and removal, so the CLI's offline path writes it too.
+  - An update refuses while a turn runs: the kernel answers `turns_running_on(providers)`
+    and the host counts a backend's delegated providers as well as the plugin's own.
+  - An update disables the plugin around the swap and enables it with the new grant; if
+    the swap fails, the old version is enabled again with its old grant.
+  - `RegistryRef` gained an optional `registry` (an index URL used instead of the list),
+    for `kumikit plugin add <id> --registry <url>` and lockfile imports.
+  - `plugin.updates` uses a recent index unless `refresh` is set; the CLI and "Check for
+    updates" pass `refresh: true`.
+  - The `registry` capability is reported by cores started with `serve` (unit-test cores
+    have no registries and answer `unsupported`).
+  - Tests: `tests/registry.rs` (7 tests: no request at startup, install by id with
+    publisher and lockfile, four ways a registry can lie, updates proposed and wider ones
+    waiting, key change and a second registry, an update waiting for a running turn, and
+    the CLI end to end with a lockfile moved to a fresh core).
 

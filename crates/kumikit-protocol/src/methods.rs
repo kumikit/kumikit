@@ -484,6 +484,9 @@ pub struct RegistryRef {
     /// The SHA-256 the package must have (from a lockfile).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
+    /// A registry's index URL to use instead of the core's list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry: Option<String>,
 }
 
 /// Who signed a package.

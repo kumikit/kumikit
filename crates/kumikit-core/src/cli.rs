@@ -22,6 +22,12 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::lock::DataDirLock;
 
+mod registry;
+pub use registry::{
+    add_by_id, is_package_path, lock_export, lock_import, registry_add, registry_list,
+    registry_remove, search, update,
+};
+
 /// Where the core is.
 #[derive(Debug, Clone)]
 pub struct Target {
@@ -70,6 +76,7 @@ enum Backend {
     Remote(Rpc),
     Local {
         host: PluginHost,
+        registry: crate::registry::CoreRegistry,
         _lock: DataDirLock,
     },
 }
@@ -154,7 +161,13 @@ impl Backend {
         crate::serve::prepare_data_dir(&target.data_dir)?;
         let lock = DataDirLock::acquire(&target.data_dir)?;
         let host = crate::serve::open_core(&target.data_dir).await?;
-        Ok(Backend::Local { host, _lock: lock })
+        let registry =
+            crate::registry::CoreRegistry::new(&target.data_dir, &crate::paths::process_env);
+        Ok(Backend::Local {
+            host,
+            registry,
+            _lock: lock,
+        })
     }
 
     async fn list(&mut self) -> Result<Vec<InstalledPlugin>> {
