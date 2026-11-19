@@ -52,6 +52,8 @@ runtime only if it is missing when you install.
 - [Building from source](docs/building.md): prerequisites and steps for Linux, macOS and
   Windows.
 - [Specification](docs/spec/README.md): how Kumikit works.
+- [Plugin templates](templates/README.md): start a core plugin (Rust), a UI plugin (Svelte)
+  or a theme; sign it with `kumikit plugin keygen` and `kumikit plugin pack --key`.
 - [Decisions](docs/decisions/README.md): why it works that way.
 - [Contributing](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) (rules for humans and coding agents).
 - [Security](SECURITY.md).

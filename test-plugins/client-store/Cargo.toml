@@ -1,0 +1,19 @@
+[package]
+name = "kumikit-test-client-store"
+description = "Test only: installs UI plugin and theme packages into a client plugin store, with the shell's own store code"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "client-store"
+path = "src/main.rs"
+
+[dependencies]
+kumikit-shell = { path = "../../crates/kumikit-shell" }

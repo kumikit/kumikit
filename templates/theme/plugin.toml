@@ -1,0 +1,15 @@
+# A theme: tokens and optional fonts, no code (docs/spec/08-themes.md).
+id = "yourname.dusk"
+name = "Dusk"
+version = "0.1.0"
+description = "A calm dark theme with a light companion."
+license = "MIT"
+repository = "https://github.com/yourname/kumikit-dusk"
+kind = ["theme"]
+api = "^0.1"
+
+[theme]
+variants = [
+  { id = "dark", name = "Dark", appearance = "dark", tokens = "dark.json" },
+  { id = "light", name = "Light", appearance = "light", tokens = "light.json" },
+]

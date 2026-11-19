@@ -187,6 +187,22 @@ jobs:
       - if: runner.os == 'Windows'
         run: node scripts/desktop/panel-smoke.mjs target/debug/kumikit-desktop.exe
 
+  templates:
+    # The plugin author templates build, pack, sign, install and run as an author's would
+    # (M4); this job keeps them from rotting.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: sh scripts/check-templates.sh
+
   installers:
     # Installers are built only to check their size; they are not published (M2).
     strategy:

@@ -53,6 +53,8 @@ Now:
   `crates/*/src`
 - `cargo run -p kumikit-core -- theme check --strict plugins/theme-default`: the
   first-party theme passes the theme checks
+- `sh scripts/check-templates.sh`: the plugin templates build, pack, sign, install and
+  run (needs the `wasm32-wasip2` target and `npm ci`)
 - `cargo deny check licenses bans sources` (CI runs it; locally when dependencies change)
 - `cargo test -p kumikit-core --test exit_m1 -- --ignored`: live smoke test of provider-acp
   with real Claude Code (needs `claude-agent-acp` and a Claude login; manual)

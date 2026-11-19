@@ -2701,6 +2701,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumikit-test-client-store"
+version = "0.1.0"
+dependencies = [
+ "kumikit-shell",
+]
+
+[[package]]
 name = "kumikit-test-fake-ssh"
 version = "0.1.0"
 

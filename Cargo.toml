@@ -17,6 +17,7 @@ members = [
   "test-plugins/fake-acp-agent",
   "test-plugins/fake-ssh",
   "test-plugins/net-cut",
+  "test-plugins/client-store",
   "test-plugins/registry-fixture",
   "test-plugins/hello",
   "test-plugins/probe",

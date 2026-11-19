@@ -830,7 +830,7 @@ Each step ends with the Verify checks that apply and one commit on branch `m4-ec
 - [x] **13. Desktop exit test and macOS smoke.** `exit-m4.test.mjs` in `e2e.sh` and the
   Windows step; `panel-smoke` job. Linux in the container; *(CI: Windows, macOS.)* Commit:
   `test: add M4 exit-criteria test`. **Second push.**
-- [ ] **14. Templates.** `templates/*`, `test-plugins/client-store`,
+- [x] **14. Templates.** `templates/*`, `test-plugins/client-store`,
   `scripts/check-templates.sh`, `templates` CI job, README pointers. Commit: `feat: add
   plugin author templates`.
 - [ ] **15. Footprint and installers.** The new phase, the panel run (reported), numbers in
@@ -1136,4 +1136,14 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
   starts inherits it. The `panel-smoke` job (step 2) stays as the WKWebView check: it
   covers the frame, its CSP and IPC on all three webviews with a stand-in page, while the
   real UI kernel's bridge on WebKit is covered by Playwright WebKit on macOS (CI).
+- Step 14: `templates/core-plugin-rust` (an echo provider; git dependency on
+  `kumikit-provider` until it is published), `templates/ui-plugin-svelte` (a sandboxed
+  panel; `KUMIKIT_UI_SDK` points the build at a checkout's `web/sdk` until npm), and
+  `templates/theme` (passes `--strict`). `scripts/check-templates.sh` copies each into
+  `target/template-check/` (inside the repository, so the UI template finds the workspace's
+  Svelte and Vite without the network), points it at this checkout, builds it (the Rust
+  one with clippy), packs and signs with a key made for the run, installs the core plugin
+  into a fresh core and runs one echo turn through the protocol
+  (`scripts/template-turn.mjs`), and installs the UI plugin and theme into a client store
+  with the shell's own code (`test-plugins/client-store`). CI job `templates` (Linux).
 

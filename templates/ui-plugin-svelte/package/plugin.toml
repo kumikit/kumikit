@@ -1,0 +1,18 @@
+# A UI plugin running as a sandboxed panel (docs/spec/07-ui-plugins.md#manifest).
+id = "yourname.panel"
+name = "My panel"
+version = "0.1.0"
+description = "Lists the plugins on the tab's core."
+license = "MIT"
+repository = "https://github.com/yourname/kumikit-panel"
+kind = ["ui"]
+api = "^0.1.1"
+
+[ui]
+entry = "index.html"
+isolation = "iframe"
+# Hosts the panel may contact over https; none by default.
+network = []
+
+[contributes]
+slots = [{ slot = "inspector.tab", id = "panel", title = "My panel" }]
