@@ -4,7 +4,9 @@
   published to the registry by a third party installs on a fresh machine, with its
   permissions shown and enforced. Nothing from M5: no new provider, bot, git or GitHub
   plugin, no tool gateway, no VS Code theme importer, no new WIT host interfaces.
-- **Status:** active (approved 2026-11-18).
+- **Status:** done (2026-11-19), except step R (the real registry, which needs the
+  user's go-ahead) and two findings for the user (the core binary at 30.5 MiB, and idle
+  memory after an in-process enable). CI results are in the Notes.
 
 ## Scope
 
@@ -835,7 +837,7 @@ Each step ends with the Verify checks that apply and one commit on branch `m4-ec
   plugin author templates`.
 - [x] **15. Footprint and installers.** The new phase, the panel run (reported), numbers in
   Notes. Commit: `chore: measure the M4 footprint`.
-- [ ] **16. Close out.** Spec matches the code; roadmap M4 status; AGENTS.md status and
+- [x] **16. Close out.** Spec matches the code; roadmap M4 status; AGENTS.md status and
   Verify; agent reference (signature format pitfalls, the registry cache, the panel
   bridge, the smoke hook); README (privacy, installing plugins); plan `done`. Commit:
   `docs: close M4`. **Last push**; mark the PR ready.
@@ -1166,4 +1168,15 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
     already in the core). No single dependency to drop; the lever measured in M1
     (`opt-level = "s"` for Cranelift and wasmtime) needs the user's approval.
   - Installers: from CI (below).
+- CI on the third push (PR #6, steps 1–13): panel smoke passed on all three OSs; Rust
+  passed on macOS and Windows; the M3 and M2 desktop tests passed on Windows. Installers:
+  NSIS **14.0 MB**, `.dmg` **14.9 MB** (budget 20). Shell anonymous memory 21.2 MB (budget
+  60), UI kernel 66.9 KB, core binary 30.3 MiB (CI's build). The Linux `rust`,
+  `e2e-browser` and `installers` jobs failed before any of our code ran: the Ubuntu
+  mirrors could not be reached (`apt` fetch errors). The Windows M4 desktop test failed on
+  a path form (8.3 short temp path vs the core's canonical long path); fixed in the test.
+- Close-out: the roadmap says M4 is built; AGENTS.md status and Verify, the spec index
+  and the agent reference (signatures, checked installs and updates, lockfiles, the test
+  tools, panels, the SlotHost fix) are updated. ADRs 0018–0021 stay Proposed until the PR
+  merges.
 

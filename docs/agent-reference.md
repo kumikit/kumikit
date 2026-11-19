@@ -36,6 +36,12 @@ is about the code.
   fingerprint format, pairing-code normalising, `host[:port]` parsing, the close code and
   token prefix.
 
+- **Lockfiles** are `kumikit_protocol::lockfile` (pure parse and render), shared by the
+  core's plugin manager and the shell's store. `granted` uses the protocol's words
+  (`files = "read_workspace"`). The UI kernel reads them with its own small parser
+  (`web/kernel/src/plugins/lockfile.ts`), tested against text captured from the renderer:
+  change both if the format changes.
+
 ## Kernel (`crates/kumikit-kernel`)
 
 - **One writer.** `store::Store` sends write closures to a single writer thread, which
@@ -94,6 +100,20 @@ is about the code.
 - **Test components in WAT**: an imported instance with no exports is satisfied
   without a definition; give it a function to test a missing import.
 
+- **Signatures** (`kumikit-package::signature`): verification runs on the unpacked
+  staging directory, after the defensive unpack, and compares the set of files on disk
+  with the `file` lines exactly. The signed message is the text before the `sig` line, so
+  the key line must be canonical (`parse` checks it). A package is pinned to its key in
+  `plugins.publisher_key`; `Manager::replace` refuses another key or an unsigned package.
+- **Checked installs and updates.** `install_checked` compares the manifest with a
+  registry entry (`Expected`) before anything is put in place. `PluginHost::update`
+  disables the plugin around `Manager::replace` and enables it with the new grant; it is
+  refused while `has_running_turns` (the kernel's `turns_running_on`, counting a backend's
+  delegated providers too).
+- **Enabling compiles in the running core**, and the memory Cranelift used stays with the
+  allocator: idle memory after an in-process enable is about 39 MB (footprint phase 5
+  reports it). Phases 1–4 enable plugins offline, before `serve`.
+
 ## Shell (`crates/kumikit-shell`)
 
 - **Logic in the library, wiring in `main.rs`.** Asset serving, the CSP, finding and
@@ -139,6 +159,16 @@ is about the code.
   shell's profile commands with the shell's own `connections` code. Its bridge socket's
   first message is `{"type":"open"}` or `{"type":"error",…}`, like `bridge_connect`.
 
+- **`registry-fixture`** builds fixture registries (a library for Rust tests and a
+  binary driven by stdin lines for Playwright and the desktop test). It makes publisher
+  keys at run time, publishes with the registry checker's own `facts`/`version_entry`, and
+  counts requests so tests can prove nothing was fetched. The shell's own tests do not use
+  it (it pulls in the plugin host and the kernel); they build their index from
+  `kumikit-registry`'s types.
+- **`client-store`** installs packages with the shell's store code
+  (`scripts/check-templates.sh`). **`test-plugins/ui-panel`** is a sandboxed panel built
+  by `bundle.mjs` into `target/bundle/test-ui-plugins/` (never shipped).
+
 ## UI kernel (`web/kernel`)
 
 - **State is `.svelte.ts` classes; logic is plain functions** (`threads/fold.ts`,
@@ -167,6 +197,18 @@ is about the code.
   so a dialog that closes itself and then acts must copy them first (`OpenFolder`).
 - **`props` is a reserved name in components**: `$props` would read as a store
   subscription of a variable called `props`.
+
+- **Slot contributions mount untracked** (`SlotHost` mounts inside `untrack`): what a
+  contribution reads while mounting must not remount it. Without it a panel that wrote to
+  its storage was remounted about 1,200 times in 15 s. Pass slot props that change only
+  when they should (the sidebar's change only with the active core).
+- **Panels** (`plugins/panel.ts`): an iframe plugin's slots come from its manifest; the
+  scope (connection, workspace) is the active tab's at each call; the policy is a pure
+  function (`panelRefusal`, `topicRefusal`). On WebView2 Tauri's script also runs in the
+  frame; its IPC is refused by Tauri's origin check, which `scripts/desktop/panel-smoke.mjs`
+  keeps checking on all three webviews.
+- **The welcome is a card**, not a dialog, so fresh clients in tests are never blocked;
+  it reads only the registry list (no request).
 
 ## Core (`crates/kumikit-core`)
 

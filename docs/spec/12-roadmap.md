@@ -83,7 +83,15 @@ macOS. Plan: [M3 — Multiple cores](../plans/2026-11-17-m3-multiple-cores.md).
 **Exit:** a plugin published to the registry by a third party installs on a fresh machine,
 with its permissions shown and enforced.
 
-**Status:** in progress. Plan: [M4 — Ecosystem](../plans/2026-11-18-m4-ecosystem.md).
+**Status:** built. The exit test runs three ways: on the core through the CLI and the
+protocol (`crates/kumikit-core/tests/exit_m4.rs`), in the browser build
+(`web/e2e/tests/exit-m4.spec.ts`), and on the real desktop app over WebDriver
+(`web/e2e-desktop/exit-m4.test.mjs`, Linux and Windows). Each one uses a third-party
+publisher whose key is made for the test, a fixture registry on loopback that its own
+checker accepts, and a fresh machine; the permissions are shown before the grant, and
+calls outside it fail with `permission_denied`. The official registry
+(`github.com/kumikit/registry`) is not created yet. Plan:
+[M4 — Ecosystem](../plans/2026-11-18-m4-ecosystem.md).
 
 ## M5 — Plugins
 

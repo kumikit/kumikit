@@ -12,15 +12,18 @@ spec, not here.
 
 ## Status
 
-M0 (protocol and kernel), M1 (plugin host), M2 (client) and M3 (multiple cores) are
-built: `kumikit serve`, the kernel, WASM plugins with permissions and a lifecycle,
+M0 (protocol and kernel), M1 (plugin host), M2 (client), M3 (multiple cores) and M4
+(ecosystem) are built: `kumikit serve`, the kernel, WASM plugins with permissions and a lifecycle,
 provider-acp, `kumikit plugin`, the desktop app (Tauri shell, Svelte UI kernel, UI SDK
 0.1, ui-chat, ui-settings, theme-default), remote cores over TLS with pairing and device
-tokens or through SSH, and the browser client served by a core
+tokens or through SSH, the browser client served by a core, signed packages, plugin
+registries with installs by id, updates and lockfiles, sandboxed UI panels, `kumikit theme
+check` and plugin templates
 ([M0 plan](docs/plans/2026-11-15-m0-protocol-and-kernel.md),
 [M1 plan](docs/plans/2026-11-15-m1-plugin-host.md),
 [M2 plan](docs/plans/2026-11-16-m2-client.md),
-[M3 plan](docs/plans/2026-11-17-m3-multiple-cores.md)). M4 (ecosystem) is next. Build
+[M3 plan](docs/plans/2026-11-17-m3-multiple-cores.md),
+[M4 plan](docs/plans/2026-11-18-m4-ecosystem.md)). M5 (plugins) is next. Build
 in milestone order
 ([roadmap](docs/spec/12-roadmap.md)); do not start a later milestone's code before the
 earlier one's exit criteria pass.
