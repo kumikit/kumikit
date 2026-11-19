@@ -11,6 +11,7 @@
 
 pub mod bindings;
 pub mod host;
+pub mod outbound;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -100,6 +101,7 @@ impl std::fmt::Debug for Runtime {
 fn wasi_linker(engine: &wasmtime::Engine) -> wasmtime::Result<Linker<HostState>> {
     let mut linker = Linker::new(engine);
     wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
+    wasmtime_wasi_http::p2::add_only_http_to_linker_async(&mut linker)?;
     Ok(linker)
 }
 
@@ -303,6 +305,10 @@ impl Instance {
         ));
         let state = HostState {
             wasi: wasi.build(),
+            http: wasmtime_wasi_http::WasiHttpCtx::new(),
+            outbound: outbound::Outbound {
+                plugin: config.identity.plugin.clone(),
+            },
             table: ResourceTable::new(),
             limits: Limits::new(config.memory, config.call_timeout),
             kernel: kernel.clone(),

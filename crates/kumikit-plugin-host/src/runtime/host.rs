@@ -153,6 +153,8 @@ pub struct Identity {
 /// The data in each instance's store.
 pub struct HostState {
     pub(crate) wasi: WasiCtx,
+    pub(crate) http: wasmtime_wasi_http::WasiHttpCtx,
+    pub(crate) outbound: super::outbound::Outbound,
     pub(crate) table: ResourceTable,
     pub(crate) limits: Limits,
     pub(crate) kernel: Kernel,
@@ -175,6 +177,16 @@ impl WasiView for HostState {
         WasiCtxView {
             ctx: &mut self.wasi,
             table: &mut self.table,
+        }
+    }
+}
+
+impl wasmtime_wasi_http::WasiHttpView for HostState {
+    fn http(&mut self) -> wasmtime_wasi_http::WasiHttpCtxView<'_> {
+        wasmtime_wasi_http::WasiHttpCtxView {
+            ctx: &mut self.http,
+            table: &mut self.table,
+            hooks: &mut self.outbound,
         }
     }
 }

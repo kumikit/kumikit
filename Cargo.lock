@@ -1862,6 +1862,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "h2"
+version = "0.4.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d29020232d6aa3fb1daca64c1127cf662cf97f254ae16c18c05b8ab635fc118"
+dependencies = [
+ "atomic-waker",
+ "bytes",
+ "fnv",
+ "futures-core",
+ "futures-sink",
+ "http",
+ "indexmap 2.14.2",
+ "slab",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1996,7 +2015,9 @@ checksum = "2c3e324da4c95177d6291d4c8730197c0d1822f8a9766814a4a44fa5ab797c9c"
 dependencies = [
  "atomic-waker",
  "bytes",
+ "futures-channel",
  "futures-core",
+ "h2",
  "http",
  "http-body",
  "httparse",
@@ -2578,6 +2599,7 @@ dependencies = [
 name = "kumikit-plugin-host"
 version = "0.1.0"
 dependencies = [
+ "http",
  "jsonschema",
  "kumikit-kernel",
  "kumikit-package",
@@ -2594,6 +2616,7 @@ dependencies = [
  "tracing",
  "wasmtime",
  "wasmtime-wasi",
+ "wasmtime-wasi-http",
 ]
 
 [[package]]
@@ -5364,6 +5387,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "libc",
  "pin-project-lite",
  "tokio",
 ]
@@ -6207,6 +6231,28 @@ dependencies = [
  "wasmtime",
  "wasmtime-wasi-io",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "wasmtime-wasi-http"
+version = "50.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8dcf39dbdea6ced0c3a727b1815ae163828b01b053e04c0af388429b3961eeb"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "futures",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "pin-project-lite",
+ "rustix",
+ "tokio",
+ "tracing",
+ "wasmtime",
+ "wasmtime-wasi",
+ "wasmtime-wasi-io",
 ]
 
 [[package]]

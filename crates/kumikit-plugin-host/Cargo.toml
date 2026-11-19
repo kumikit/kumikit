@@ -36,6 +36,9 @@ wasmtime = { version = "50.0.1", default-features = false, features = [
   "addr2line",
 ] }
 wasmtime-wasi = { version = "50.0.1", default-features = false, features = ["p2"] }
+# Outgoing HTTP for plugins (ADR 0023); its default sender is off, the host sends requests itself.
+wasmtime-wasi-http = { version = "50.0.1", default-features = false, features = ["p2"] }
+http = "1"
 
 [dev-dependencies]
 sha2 = "0.10.9"
