@@ -9,7 +9,10 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 /// The UI SDK version this Kumikit provides; manifests' `api` ranges must accept it.
-pub const UI_SDK_VERSION: &str = "0.1.0";
+pub const UI_SDK_VERSION: &str = "0.1.1";
+
+/// Slots a sandboxed panel may contribute to (07-ui-plugins, Level 2).
+pub const PANEL_SLOTS: &[&str] = &["sidebar.section", "inspector.tab", "view", "settings.page"];
 
 /// The manifest file name.
 pub const MANIFEST: &str = "plugin.toml";
@@ -237,6 +240,21 @@ pub fn check(dir: &Path) -> Result<(String, String, serde_json::Value), String> 
             }
         }
         _ => {}
+    }
+    let iframe = m.ui.as_ref().is_some_and(|u| u.isolation == "iframe");
+    if iframe && let Some(c) = &m.contributes {
+        for entry in &c.slots {
+            let slot = entry
+                .get("slot")
+                .and_then(toml::Value::as_str)
+                .unwrap_or_default();
+            if !PANEL_SLOTS.contains(&slot) {
+                problems.push(format!(
+                    "a sandboxed panel cannot contribute to `{slot}`; it can use {}",
+                    PANEL_SLOTS.join(", ")
+                ));
+            }
+        }
     }
     if let Some(c) = &m.contributes
         && let Some(s) = &c.settings

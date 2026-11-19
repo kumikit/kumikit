@@ -619,6 +619,15 @@ slots = [{ slot = "inspector.tab", id = "p", title = "P" }]
                 "is not a host name",
             ),
             (
+                "panel-slot",
+                &UI.replace(
+                    "entry = \"dist/index.js\"",
+                    "entry = \"dist/index.html\"\nisolation = \"iframe\"",
+                )
+                .replace("inspector.tab", "transcript.renderer"),
+                "cannot contribute to `transcript.renderer`",
+            ),
+            (
                 "inline-network",
                 &UI.replace(
                     "entry = \"dist/index.js\"",
@@ -630,7 +639,7 @@ slots = [{ slot = "inspector.tab", id = "p", title = "P" }]
             (
                 "api",
                 &UI.replace("^0.1", "^1.0"),
-                "does not accept the UI SDK 0.1.0",
+                "does not accept the UI SDK 0.1.1",
             ),
             (
                 "bundled",

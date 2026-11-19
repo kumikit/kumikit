@@ -43,7 +43,7 @@ use tokio::sync::{broadcast, mpsc};
 
 /// The same strictness as the shell's CSP, for an http origin.
 const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
-    font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'none'; \
+    font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'self'; \
     object-src 'none'";
 
 struct Relay {
@@ -302,11 +302,37 @@ async fn ui_file(State(r): State<Arc<Relay>>, uri: Uri) -> Response {
 async fn plugin_file(
     State(r): State<Arc<Relay>>,
     UrlPath((id, path)): UrlPath<(String, String)>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
-    match r.store.dir(&id) {
-        Some(dir) => asset(assets::load(&dir, &format!("/{path}"))),
-        None => StatusCode::NOT_FOUND.into_response(),
+    let Some(dir) = r.store.dir(&id) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let mut response = asset(assets::load(&dir, &format!("/{path}")));
+    // A sandboxed panel's files get its own CSP, as the shell and the core send them.
+    if let Some(network) = r.store.panel_network(&id) {
+        let host = headers
+            .get(header::HOST)
+            .and_then(|h| h.to_str().ok())
+            .filter(|h| {
+                h.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b".-:[]".contains(&b))
+            })
+            .unwrap_or("localhost");
+        let own = format!("http://{host}");
+        let csp = format!(
+            "{}; frame-ancestors {own}",
+            assets::panel_csp(&format!("{own}/plugins/{id}/"), &network)
+        );
+        let h = response.headers_mut();
+        if let Ok(v) = HeaderValue::from_str(&csp) {
+            h.insert(header::CONTENT_SECURITY_POLICY, v);
+        }
+        h.insert(
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            HeaderValue::from_static("null"),
+        );
     }
+    response
 }
 
 #[derive(Deserialize)]

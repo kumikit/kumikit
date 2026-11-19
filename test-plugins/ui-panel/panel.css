@@ -1,0 +1,3 @@
+/* Colors come from the theme the UI kernel pushes (07-ui-plugins, Level 2). */
+body { margin: 0; color: var(--kk-text-primary); background: var(--kk-surface-panel); }
+pre { white-space: pre-wrap; }

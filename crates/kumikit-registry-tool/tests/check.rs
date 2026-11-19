@@ -27,7 +27,7 @@ id = "acme.graph"
 name = "Graph"
 version = "0.1.0"
 kind = ["ui"]
-api = "^0.1"
+api = "^0.1.1"
 [ui]
 entry = "index.html"
 isolation = "iframe"

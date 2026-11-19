@@ -1,0 +1,12 @@
+# A sandboxed panel for the browser and desktop tests (test only): it uses the panel SDK
+# and reports what it could and could not do.
+id = "test.ui-panel"
+name = "Panel test"
+version = "0.1.0"
+kind = ["ui"]
+api = "^0.1.1"
+[ui]
+entry = "index.html"
+isolation = "iframe"
+[contributes]
+slots = [{ slot = "sidebar.section", id = "probe", title = "Panel test" }]

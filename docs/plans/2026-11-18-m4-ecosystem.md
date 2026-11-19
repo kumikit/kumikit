@@ -815,7 +815,7 @@ Each step ends with the Verify checks that apply and one commit on branch `m4-ec
   - `npm run check`, `npm test`, size.
 
   Commit: `feat: browse, install and update plugins from the app`.
-- [ ] **11. Level-2 panels.**
+- [x] **11. Level-2 panels.**
   - `kumikit-assets` panel CSP and `frame-src`; the shell and the core serve it;
   - the store and the shared manifest check accept `iframe` and `[ui] network`;
   - the UI kernel's panel host, bridge and policy;
@@ -1096,4 +1096,20 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
   - The test relay serves the shell's real client registry code at `/client-registry/*`.
   - UI kernel **65.1 KB** gzip (57.8 before M4; budget 150 KB). Vitest 100 tests;
     Playwright Chromium 15 passed (1 live skipped).
+- Step 11:
+  - The UI kernel registers an iframe plugin's slots from its manifest and mounts a panel
+    (frame + bridge) when a slot is shown; panels act for the active tab at the time of
+    each call. Inline code alone asks for trust.
+  - `@kumikit/ui-sdk/panel` (`connectPanel`, bridge version 1); the SDK is 0.1.1 and
+    the stores accept `^0.1.1`. The shared manifest check refuses a panel in a slot other
+    than `sidebar.section`, `inspector.tab`, `view` or `settings.page`.
+  - `workspace.list` from a panel is filtered to the tab's workspace.
+  - The test relay sends the panel CSP too (it served every file with its own page CSP,
+    `frame-src 'none'`).
+  - **Bug found by the panel spec:** `SlotHost` mounted contributions inside a tracked
+    effect, so a panel writing to its storage was remounted about 1,200 times in 15 s;
+    fixed in its own commit, with a Vitest test that fails without it.
+  - `test-plugins/ui-panel` (built by `bundle.mjs` into `test-ui-plugins/`) and
+    `web/e2e/tests/panels.spec.ts`. Vitest 107, Playwright Chromium 16 passed.
+  - UI kernel 66.7 KB gzip.
 

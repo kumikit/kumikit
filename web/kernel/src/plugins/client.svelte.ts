@@ -13,6 +13,7 @@ import type { ThemeVariant } from '../theme/engine.svelte';
 import { contrastWarnings } from '../theme/contrast';
 import { checkTokens } from '../theme/validate';
 import { createContext } from './context';
+import { PANEL_SLOTS, mountPanel } from './panel';
 
 /** What the UI kernel reads from a UI plugin or theme manifest. */
 export interface ClientManifest {
@@ -22,9 +23,9 @@ export interface ClientManifest {
   description?: string;
   repository?: string;
   kind: ['ui'] | ['theme'];
-  ui?: { entry: string; isolation?: string };
+  ui?: { entry: string; isolation?: string; network?: string[] };
   theme?: { variants: { id: string; name?: string; appearance: 'light' | 'dark'; tokens: string }[] };
-  contributes?: { settings?: string };
+  contributes?: { settings?: string; slots?: { slot?: unknown; id?: unknown; title?: unknown }[] };
   /** Core plugins this UI plugin needs, `<id>@<range>` (07-ui-plugins). */
   requires?: { core?: string[] };
 }
@@ -84,7 +85,9 @@ export class ClientPlugins {
     const manifest = entry.manifest as ClientManifest;
     const kind = manifest.kind[0];
     const s = this.kernel.settings.value;
-    const needsTrust = kind === 'ui' && entry.source === 'installed' && !s.trustedPlugins.includes(entry.id);
+    // Only inline code asks for trust; a sandboxed panel cannot reach the app (ADR 0019).
+    const inline = (manifest.ui?.isolation ?? 'inline') === 'inline';
+    const needsTrust = kind === 'ui' && inline && entry.source === 'installed' && !s.trustedPlugins.includes(entry.id);
     return { entry, manifest, kind, enabled: !s.disabledPlugins.includes(entry.id) && !needsTrust, needsTrust };
   }
 
@@ -133,6 +136,12 @@ export class ClientPlugins {
     try {
       const entry = p.manifest.ui?.entry;
       if (!entry) throw new Error('the manifest names no entry');
+      if (p.manifest.ui?.isolation === 'iframe') {
+        this.#activatePanels(p, entry, dispose);
+        this.#active.set(id, { plugin: { activate() {} }, dispose });
+        this.#update(id, { error: undefined });
+        return;
+      }
       const module = (await import(/* @vite-ignore */ k.platform.pluginUrl(id, entry))) as { default?: Plugin };
       const plugin = module.default;
       if (!plugin || typeof plugin.activate !== 'function') throw new Error('its module exports no plugin');
@@ -147,6 +156,24 @@ export class ClientPlugins {
       this.#update(id, { error: message });
       if (k.slots.fail(id, e)) return;
       k.notify(`The UI plugin ${p.manifest.name} could not start: ${message}`, 'danger');
+    }
+  }
+
+  /** A sandboxed plugin's slots, from its manifest: each mounts a panel when shown. Its
+   * code loads only then, inside the frame. */
+  #activatePanels(p: ClientPlugin, entry: string, dispose: (() => void)[]): void {
+    const k = this.kernel;
+    const id = p.entry.id;
+    const plugin = { id, entry, requires: (this.requiresOf(id) ?? []).map((r) => r.split('@')[0]!) };
+    for (const c of p.manifest.contributes?.slots ?? []) {
+      const slot = String(c.slot);
+      if (!(PANEL_SLOTS as readonly string[]).includes(slot) || typeof c.id !== 'string') {
+        k.notify(`${p.manifest.name}: a sandboxed panel cannot go in ${slot}`, 'warning');
+        continue;
+      }
+      const title = typeof c.title === 'string' ? c.title : c.id;
+      const contribution = { id: c.id, title, mount: (el: HTMLElement) => mountPanel(k, plugin, slot, { id: c.id as string, title }, el) };
+      dispose.push(k.slots.register(id, slot as 'inspector.tab', contribution));
     }
   }
 
@@ -265,6 +292,8 @@ export class ClientPlugins {
     const p = this.#describe(entry);
     this.plugins = [...this.plugins.filter((x) => x.entry.id !== entry.id), p];
     if (p.kind === 'theme') await this.#loadThemes();
+    // A sandboxed panel needs no trust, so it starts at once (inline code waits for trust).
+    else if (p.enabled && !k.platform.safeMode) await this.#activate(p);
     k.notify(`Installed ${p.manifest.name}`, 'success');
     // 08-themes: installing a theme with low contrast is allowed, with a warning.
     const low = this.#contrast.get(entry.id) ?? [];
