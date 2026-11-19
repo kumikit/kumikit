@@ -1179,4 +1179,12 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
   and the agent reference (signatures, checked installs and updates, lockfiles, the test
   tools, panels, the SlotHost fix) are updated. ADRs 0018–0021 stay Proposed until the PR
   merges.
+- CI on the last push (PR #6, run 44524638862, all steps): every job passes on Linux,
+  macOS and Windows, including the three desktop exit tests on Windows (M4's with its
+  path fix), the WebKit suites on macOS, the templates job and the panel smoke on all three
+  webviews. The Linux `e2e-browser`, `panel-smoke` and `templates` jobs first failed in
+  `apt` (Ubuntu mirrors unreachable) and passed when rerun. Installers: `.deb` and `.rpm`
+  **17.1 MB**, `.dmg` 14.9 MB, NSIS 14.0 MB (budget 20 MB). Footprint on CI: idle
+  11.8 / 13.0 / 15.1 MB, after a registry install 17.8 MB, after an in-process enable
+  40.5 MB (reported), core binary 30.3 MiB.
 
