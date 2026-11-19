@@ -1,6 +1,6 @@
 # 0017 — The shell's remote profiles, SSH through the system `ssh`, client secrets
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-17
 
 ## Context

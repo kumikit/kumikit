@@ -1,6 +1,6 @@
 # 0019 — Sandboxed panels: iframes, a CSP per panel, a narrow bridge
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-18
 
 ## Context

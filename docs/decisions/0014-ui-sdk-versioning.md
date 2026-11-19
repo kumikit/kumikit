@@ -1,6 +1,6 @@
 # 0014 — UI SDK 0.1: versioning, published lists, thread views
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-16
 
 ## Context

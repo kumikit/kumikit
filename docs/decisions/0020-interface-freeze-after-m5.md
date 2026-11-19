@@ -1,6 +1,6 @@
 # 0020 — Freeze WIT and the UI SDK after M5; early publishers until then
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-18
 
 ## Context

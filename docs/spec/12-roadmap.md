@@ -90,7 +90,9 @@ protocol (`crates/kumikit-core/tests/exit_m4.rs`), in the browser build
 publisher whose key is made for the test, a fixture registry on loopback that its own
 checker accepts, and a fresh machine; the permissions are shown before the grant, and
 calls outside it fail with `permission_denied`. The official registry
-(`github.com/kumikit/registry`) is not created yet. Plan:
+(`github.com/kumikit/registry`) is live: its CI runs `kumikit-registry check` on pull
+requests and publishes `index.json` to `https://kumikit.github.io/registry/index.json`;
+the `kumikit` publisher is its only (early) publisher so far. Plan:
 [M4 — Ecosystem](../plans/2026-11-18-m4-ecosystem.md).
 
 ## M5 — Plugins

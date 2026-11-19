@@ -1,6 +1,6 @@
 # 0016 — Remote transport: WebSocket over TLS, pinned certificates, device tokens
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-17
 
 ## Context

@@ -1,6 +1,6 @@
 # 0013 — The desktop shell: own asset protocol, raw-line bridge, client plugin store
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-16
 
 ## Context
