@@ -71,7 +71,8 @@ pub fn to_grants(p: &Permissions) -> Grants {
 }
 
 /// What an installed plugin may do now: its grant, or what it asks for if never granted.
-fn current_permissions(view: &PluginView) -> Permissions {
+/// The permissions a plugin holds now: its grant, or what it asks for if not granted.
+pub(crate) fn current_permissions(view: &PluginView) -> Permissions {
     match (&view.record.granted, &view.manifest) {
         (Some(g), m) => protocol_permissions(g, m.as_deref()),
         (None, Some(m)) => m.requested(),

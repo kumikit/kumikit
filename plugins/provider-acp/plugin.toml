@@ -5,11 +5,11 @@ description = "Runs any agent that speaks the Agent Client Protocol, from a mani
 license = "MIT"
 repository = "https://github.com/kumikit/kumikit"
 kind = ["provider"]
-api = "^0.1"
+api = "^0.2"
 
 [runtime]
 wasm = "plugin.wasm"
-worlds = ["kumikit:provider/plugin@0.1.0"]
+worlds = ["kumikit:provider/plugin@0.2.0"]
 
 [contributes]
 provider-backends = [{ key = "acp", schema = "acp.schema.json" }]

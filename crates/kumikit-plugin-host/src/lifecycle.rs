@@ -532,6 +532,13 @@ impl PluginHost {
             memory: manifest.memory_limit(),
             call_timeout: manifest.call_timeout(),
             session,
+            settings_schema: manifest.contributes.settings.as_ref().map(|f| {
+                self.inner
+                    .manager
+                    .dirs()
+                    .package(backend, &code.record.version)
+                    .join(f)
+            }),
         })
     }
 
@@ -850,7 +857,12 @@ impl Provider for WasmProvider {
                 workspace_root: config.workspace_root,
                 model: config.model,
                 resume: config.resume,
-                mcp_endpoint: config.mcp_endpoint,
+                mcp_server: config.mcp_server.map(|m| wit::McpServer {
+                    name: m.name,
+                    command: m.command,
+                    args: m.args,
+                    env: m.env,
+                }),
                 options: config.options,
             };
             let id = self

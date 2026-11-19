@@ -1,5 +1,5 @@
 //! Guest-side SDK for Kumikit provider plugins: the world
-//! `kumikit:provider/plugin@0.1.0` (`docs/spec/05-providers.md`), on top of the
+//! `kumikit:provider/plugin@0.2.0` (`docs/spec/05-providers.md`), on top of the
 //! `kumikit-plugin` crate, whose types it shares.
 //!
 //! Export a type implementing [`Lifecycle`] and [`Provider`] with [`export_provider!`].
@@ -7,7 +7,9 @@
 //! off `wasm32`.
 #![deny(missing_docs)]
 
-pub use kumikit_plugin::{Error, ErrorCode, kv, log};
+pub use kumikit_plugin::{
+    Child, Error, ErrorCode, ExitStatus, SpawnRequest, kv, log, process, secrets, settings,
+};
 
 /// Generated bindings for the provider world. Interfaces it shares with the base world
 /// are the base world's types.
@@ -15,18 +17,21 @@ pub use kumikit_plugin::{Error, ErrorCode, kv, log};
 pub mod bindings {
     wit_bindgen::generate!({
         path: [
-            "../../wit/kumikit-host@0.1.0",
-            "../../wit/kumikit-plugin@0.1.0",
-            "../../wit/kumikit-provider@0.1.0",
+            "../../wit/kumikit-host@0.2.0",
+            "../../wit/kumikit-plugin@0.2.0",
+            "../../wit/kumikit-provider@0.2.0",
         ],
         world: "kumikit:provider/plugin",
         pub_export_macro: true,
         export_macro_name: "__export_provider_world",
         default_bindings_module: "kumikit_provider::bindings",
         with: {
-            "kumikit:host/types@0.1.0": kumikit_plugin::bindings::kumikit::host::types,
-            "kumikit:host/log@0.1.0": kumikit_plugin::bindings::kumikit::host::log,
-            "kumikit:host/kv@0.1.0": kumikit_plugin::bindings::kumikit::host::kv,
+            "kumikit:host/types@0.2.0": kumikit_plugin::bindings::kumikit::host::types,
+            "kumikit:host/log@0.2.0": kumikit_plugin::bindings::kumikit::host::log,
+            "kumikit:host/kv@0.2.0": kumikit_plugin::bindings::kumikit::host::kv,
+            "kumikit:host/process@0.2.0": kumikit_plugin::bindings::kumikit::host::process,
+            "kumikit:host/secrets@0.2.0": kumikit_plugin::bindings::kumikit::host::secrets,
+            "kumikit:host/settings@0.2.0": kumikit_plugin::bindings::kumikit::host::settings,
         },
         generate_all,
     });
@@ -37,9 +42,9 @@ pub use bindings::__export_provider_world;
 pub use bindings::exports::kumikit::plugin::lifecycle::Guest as Lifecycle;
 pub use bindings::exports::kumikit::provider::provider::Guest as Provider;
 pub use bindings::kumikit::host::events::{self, Decision, Event};
-pub use bindings::kumikit::host::process::{self, Child, ExitStatus, SpawnRequest};
-pub use bindings::kumikit::host::secrets;
-pub use bindings::kumikit::provider::types::{Model, ProviderRef, SessionConfig, UserInput};
+pub use bindings::kumikit::provider::types::{
+    McpServer, Model, ProviderRef, SessionConfig, UserInput,
+};
 
 /// Exports a type implementing [`Lifecycle`] and [`Provider`] (both from this crate) as
 /// the plugin's `kumikit:provider/plugin` world. Expands to nothing when not compiling

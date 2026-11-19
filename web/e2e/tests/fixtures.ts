@@ -132,7 +132,7 @@ function manifest(n: number, transcript: string, options: ProviderOptions): stri
     `name = "Recorded ${transcript}"`,
     'version = "0.1.0"',
     'kind = ["provider"]',
-    'api = "^0.1"',
+    'api = "^0.2"',
     '[permissions]',
     `spawn = ["${program}"]`,
     '[contributes]',

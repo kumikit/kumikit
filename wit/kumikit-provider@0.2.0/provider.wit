@@ -1,0 +1,83 @@
+package kumikit:provider@0.2.0;
+
+/// Types of the provider interface.
+interface types {
+  /// A model a provider offers.
+  record model {
+    id: string,
+    label: string,
+    /// Capability strings (`images`, `reasoning`, `tools`, `approvals`, `resume`, …).
+    capabilities: list<string>,
+  }
+
+  /// Which provider a call is for. A plugin can serve several: its own, and (as a
+  /// provider backend) entries declared by other plugins.
+  record provider-ref {
+    /// The local id from the manifest that declares the provider.
+    id: string,
+    /// The plugin whose manifest declares it.
+    plugin: string,
+    /// For a delegated provider, the entry's backend table as JSON.
+    config: option<string>,
+  }
+
+  /// What a session needs.
+  record session-config {
+    thread: string,
+    /// Absolute path of the thread's workspace.
+    workspace-root: string,
+    model: string,
+    /// The provider's own session id from an earlier run, if resuming.
+    resume: option<string>,
+    /// The tool gateway for this session, when the provider's plugin was granted
+    /// `tools`: a stdio MCP server for the agent to start (`docs/spec/03-kernel.md#tool-gateway`).
+    mcp-server: option<mcp-server>,
+    options: list<tuple<string, string>>,
+  }
+
+  /// A stdio MCP server: the agent starts `command` with `args` and `env` and speaks MCP
+  /// on its stdin and stdout.
+  record mcp-server {
+    /// The name the agent shows for it.
+    name: string,
+    /// Absolute path of the program.
+    command: string,
+    args: list<string>,
+    /// Environment variables to set (they hold a session token: never log them).
+    env: list<tuple<string, string>>,
+  }
+
+  /// A user message.
+  record user-input {
+    text: string,
+  }
+}
+
+/// The provider interface. Each session runs in its own instance of the plugin, so
+/// `send` may block for the whole turn.
+interface provider {
+  use types.{model, provider-ref, session-config, user-input};
+  use kumikit:host/types@0.2.0.{error};
+
+  /// Models the provider offers; the first is the default.
+  list-models: func(provider: provider-ref) -> result<list<model>, error>;
+  /// Starts or resumes a session; returns the provider's session id. Called once per
+  /// instance.
+  start-session: func(provider: provider-ref, config: session-config) -> result<string, error>;
+  /// Runs one turn and returns when it ends. Events go out through `kumikit:host/events`.
+  send: func(session: string, input: user-input) -> result<_, error>;
+  /// Ends the session; the instance is dropped afterwards.
+  end-session: func(session: string);
+}
+
+/// The provider world.
+world plugin {
+  import kumikit:host/log@0.2.0;
+  import kumikit:host/kv@0.2.0;
+  import kumikit:host/events@0.2.0;
+  import kumikit:host/process@0.2.0;
+  import kumikit:host/secrets@0.2.0;
+  import kumikit:host/settings@0.2.0;
+  export kumikit:plugin/lifecycle@0.2.0;
+  export provider;
+}

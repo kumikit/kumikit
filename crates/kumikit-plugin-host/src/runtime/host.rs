@@ -22,7 +22,8 @@ use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 
 use super::bindings::base::kumikit::host::types::{Error, ErrorCode};
 use super::bindings::base::kumikit::host::{kv, log, types};
-use super::bindings::provider::kumikit::host::{events, process as wit_process, secrets};
+use super::bindings::base::kumikit::host::{process as wit_process, secrets, settings};
+use super::bindings::provider::kumikit::host::events;
 use crate::engine::{HasLimits, Limits};
 
 fn err(code: ErrorCode, message: impl Into<String>) -> Error {
@@ -161,6 +162,7 @@ pub struct HostState {
     pub(crate) id: Identity,
     pub(crate) owner: OwnerId,
     pub(crate) session: Arc<SessionShared>,
+    pub(crate) settings_schema: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for HostState {
@@ -268,6 +270,33 @@ impl secrets::Host for HostState {
             ));
         }
         self.kernel.secrets().get(&name).await.map_err(kernel_err)
+    }
+}
+
+// ---- settings ----
+
+impl settings::Host for HostState {
+    async fn get(&mut self) -> Result<String, Error> {
+        let Some(path) = self.settings_schema.clone() else {
+            return Ok("{}".into());
+        };
+        let text = tokio::task::spawn_blocking(move || std::fs::read_to_string(path))
+            .await
+            .map_err(|e| err(ErrorCode::Internal, e.to_string()))?
+            .map_err(|e| {
+                err(
+                    ErrorCode::Io,
+                    format!("cannot read the settings schema: {e}"),
+                )
+            })?;
+        let schema: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| err(ErrorCode::Internal, format!("settings schema: {e}")))?;
+        let stored = self
+            .kernel
+            .settings_get(&self.id.plugin)
+            .await
+            .map_err(kernel_err)?;
+        Ok(crate::settings::with_defaults(&schema, stored).to_string())
     }
 }
 

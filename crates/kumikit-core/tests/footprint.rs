@@ -44,7 +44,7 @@ id = "test.footprint"
 name = "Footprint"
 version = "0.1.0"
 kind = ["provider"]
-api = "^0.1"
+api = "^0.2"
 [permissions]
 spawn = ["fake-acp-agent"]
 [contributes]
@@ -258,8 +258,8 @@ async fn sample_registry() -> (Option<u64>, Option<u64>) {
     std::fs::create_dir_all(&src).unwrap();
     std::fs::write(
         src.join("plugin.toml"),
-        "id = \"acme.probe\"\nname = \"Probe\"\nversion = \"0.1.0\"\nkind = [\"provider\"]\napi = \"^0.1\"\n\
-         [runtime]\nwasm = \"plugin.wasm\"\nworlds = [\"kumikit:provider/plugin@0.1.0\"]\n\
+        "id = \"acme.probe\"\nname = \"Probe\"\nversion = \"0.1.0\"\nkind = [\"provider\"]\napi = \"^0.2\"\n\
+         [runtime]\nwasm = \"plugin.wasm\"\nworlds = [\"kumikit:provider/plugin@0.2.0\"]\n\
          [contributes]\nproviders = [{ id = \"probe\", name = \"Probe\" }]\n",
     )
     .unwrap();

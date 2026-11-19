@@ -24,8 +24,9 @@ without the flag (for example from the CLI) preinstalls nothing.
 
 A bundled package whose version is higher than the installed copy, when that copy came
 from the bundle (`source = bundled`), replaces it at start like an update
-([Updates](#updates)): it keeps the grant if it asks for no more, otherwise it waits on the
-old version for the user's grant. A copy the user installed from elsewhere is left alone.
+([Updates](#updates)): it keeps the grant and stays enabled if it asks for no more;
+otherwise it is installed without a grant and waits, disabled, until the user grants the
+new permissions. A copy the user installed from elsewhere is left alone.
 
 ### Starter pack
 

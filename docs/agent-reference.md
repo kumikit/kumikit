@@ -104,6 +104,10 @@ is about the code.
 - **`send` runs in its own task**, so the kernel dropping its future on cancel never
   interrupts the guest; the session's `busy` flag tells the grace-period timer whether
   to discard it.
+- **One set of bindings per WIT version.** `runtime/bindings.rs` generates the shared host
+  interfaces once, in `base`, and maps them into `provider` with `with:`; a new world does
+  the same, so one `HostState` impl serves all. `tests/activation.rs` has its own bindgen
+  of the base world, with stubs for the imports hello does not use.
 - **Test components in WAT**: an imported instance with no exports is satisfied
   without a definition; give it a function to test a missing import.
 
@@ -248,7 +252,10 @@ is about the code.
 - **`core.shutdown`** sets a flag; the connection closes after its reply is written and
   only then notifies the serve loop, so the client always gets the answer.
 - **Bundled plugins** (`bundled.rs`) seed after `ready`, in file-name order; ids are
-  remembered in `seeded_plugins` (migration 3) so removals stick.
+  remembered in `seeded_plugins` (migration 3) so removals stick. A seeded id whose copy
+  is still `bundled` is updated when the bundle holds a higher version. Installing without
+  enabling announces nothing, so tests that wait for seeding put a plugin that is enabled
+  (provider-acp) last.
 - **One message loop for every transport.** `rpc::serve_messages` reads and writes whole
   messages through `messages::{MessageReader, MessageWriter}`: lines (`LineReader`) for
   sockets, pipes and `kumikit bridge`, WebSocket frames (`remote::ws`) for remote clients.

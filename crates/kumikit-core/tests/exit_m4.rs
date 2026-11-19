@@ -55,8 +55,8 @@ fn source(root: &Path, version: &str, extra: &str) -> PathBuf {
         format!(
             "id = \"acme.probe\"\nname = \"Acme Probe\"\nversion = \"{version}\"\n\
              description = \"A third-party provider.\"\nlicense = \"MIT\"\n\
-             repository = \"https://example.com/acme/probe\"\nkind = [\"provider\"]\napi = \"^0.1\"\n\
-             [runtime]\nwasm = \"plugin.wasm\"\nworlds = [\"kumikit:provider/plugin@0.1.0\"]\n\
+             repository = \"https://example.com/acme/probe\"\nkind = [\"provider\"]\napi = \"^0.2\"\n\
+             [runtime]\nwasm = \"plugin.wasm\"\nworlds = [\"kumikit:provider/plugin@0.2.0\"]\n\
              [permissions]\nspawn = [\"fake-acp-agent\"]\n{extra}\n\
              [contributes]\nproviders = [{{ id = \"probe\", name = \"Acme Probe\" }}]\n"
         ),

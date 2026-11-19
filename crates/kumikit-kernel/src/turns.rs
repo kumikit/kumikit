@@ -409,7 +409,7 @@ impl Kernel {
                 workspace_root: workspace.workspace.root,
                 model: meta.model.clone(),
                 resume: row.provider_session,
-                mcp_endpoint: None,
+                mcp_server: None,
                 options: Vec::new(),
             })
             .await

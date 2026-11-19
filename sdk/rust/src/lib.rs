@@ -4,8 +4,8 @@
 //! bindings for Kumikit's WIT packages (`wit/` in the repository) and adds helpers on top.
 //! See `docs/spec/04-plugin-host.md` and `docs/spec/05-providers.md`.
 //!
-//! This crate targets the base world `kumikit:plugin/plugin@0.1.0` (`log`, `kv`,
-//! lifecycle); export a type with [`export_plugin!`]. Provider plugins use the
+//! This crate targets the base world `kumikit:plugin/plugin@0.2.0` (`log`, `kv`,
+//! `process`, `secrets`, `settings`, lifecycle); export a type with [`export_plugin!`]. Provider plugins use the
 //! `kumikit-provider` crate (`sdk/rust-provider`), which builds on this one. (Each world
 //! needs its own crate: wit-bindgen's export macros are crate-global and would collide.)
 //!
@@ -18,7 +18,7 @@
 #[allow(missing_docs, clippy::all, unsafe_code)]
 pub mod bindings {
     wit_bindgen::generate!({
-        path: ["../../wit/kumikit-host@0.1.0", "../../wit/kumikit-plugin@0.1.0"],
+        path: ["../../wit/kumikit-host@0.2.0", "../../wit/kumikit-plugin@0.2.0"],
         world: "kumikit:plugin/plugin",
         pub_export_macro: true,
         export_macro_name: "__export_base_world",
@@ -30,8 +30,9 @@ pub mod bindings {
 #[doc(hidden)]
 pub use bindings::__export_base_world;
 pub use bindings::exports::kumikit::plugin::lifecycle::Guest as Lifecycle;
+pub use bindings::kumikit::host::process::{self, Child, ExitStatus, SpawnRequest};
 pub use bindings::kumikit::host::types::{Error, ErrorCode};
-pub use bindings::kumikit::host::{kv, log};
+pub use bindings::kumikit::host::{kv, log, secrets, settings};
 
 impl Error {
     /// An error with a code and a message.

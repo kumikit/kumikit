@@ -12,7 +12,7 @@ use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 use kumikit::host::types::{Error, ErrorCode};
 
 wasmtime::component::bindgen!({
-    path: ["../../wit/kumikit-host@0.1.0", "../../wit/kumikit-plugin@0.1.0"],
+    path: ["../../wit/kumikit-host@0.2.0", "../../wit/kumikit-plugin@0.2.0"],
     world: "kumikit:plugin/plugin",
     imports: { default: async },
     exports: { default: async },
@@ -61,6 +61,50 @@ impl kumikit::host::kv::Host for State {
     }
     async fn list(&mut self, _prefix: String) -> Result<Vec<String>, Error> {
         Err(unused())
+    }
+}
+impl kumikit::host::secrets::Host for State {
+    async fn get(&mut self, _name: String) -> Result<Option<String>, Error> {
+        Err(unused())
+    }
+}
+impl kumikit::host::settings::Host for State {
+    async fn get(&mut self) -> Result<String, Error> {
+        Err(unused())
+    }
+}
+use kumikit::host::process::{Child, ExitStatus, SpawnRequest};
+use wasmtime::component::Resource;
+impl kumikit::host::process::Host for State {
+    async fn spawn(&mut self, _req: SpawnRequest) -> Result<Resource<Child>, Error> {
+        Err(unused())
+    }
+}
+impl kumikit::host::process::HostChild for State {
+    async fn write_stdin(&mut self, _c: Resource<Child>, _d: Vec<u8>) -> Result<(), Error> {
+        Err(unused())
+    }
+    async fn close_stdin(&mut self, _c: Resource<Child>) {}
+    async fn read_stdout(
+        &mut self,
+        _c: Resource<Child>,
+        _m: u32,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        Err(unused())
+    }
+    async fn read_stderr(
+        &mut self,
+        _c: Resource<Child>,
+        _m: u32,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        Err(unused())
+    }
+    async fn wait(&mut self, _c: Resource<Child>) -> Result<ExitStatus, Error> {
+        Err(unused())
+    }
+    async fn kill(&mut self, _c: Resource<Child>) {}
+    async fn drop(&mut self, _c: Resource<Child>) -> wasmtime::Result<()> {
+        Ok(())
     }
 }
 impl kumikit::host::log::Host for State {

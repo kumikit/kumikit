@@ -25,10 +25,10 @@ id = "test.probe"
 name = "Probe"
 version = "0.1.0"
 kind = ["provider"]
-api = "^0.1"
+api = "^0.2"
 [runtime]
 wasm = "plugin.wasm"
-worlds = ["kumikit:provider/plugin@0.1.0"]
+worlds = ["kumikit:provider/plugin@0.2.0"]
 [permissions]
 spawn = ["fake-acp-agent"]
 [contributes]
@@ -41,10 +41,10 @@ id = "test.backend"
 name = "Backend"
 version = "0.1.0"
 kind = ["provider"]
-api = "^0.1"
+api = "^0.2"
 [runtime]
 wasm = "plugin.wasm"
-worlds = ["kumikit:provider/plugin@0.1.0"]
+worlds = ["kumikit:provider/plugin@0.2.0"]
 [contributes]
 provider-backends = [{ key = "probe-backend", schema = "entry.schema.json" }]
 "#;
@@ -57,7 +57,7 @@ id = "test.declarative"
 name = "Declarative"
 version = "0.1.0"
 kind = ["provider"]
-api = "^0.1"
+api = "^0.2"
 [permissions]
 spawn = ["fake-acp-agent"]
 [contributes]

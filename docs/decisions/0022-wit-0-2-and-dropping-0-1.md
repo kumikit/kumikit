@@ -40,7 +40,7 @@ install that has `provider-acp` built for 0.1.0 would never get the rebuilt one.
   rebuilt.
 - **Bundled plugins update themselves:** at start, a bundled package whose version is
   higher than the installed copy that came from the bundle replaces it, keeping the grant
-  when it asks for no more (otherwise it waits for a grant, like any update).
+  when it asks for no more (otherwise it is installed without a grant and waits for one).
 
 ## Consequences
 

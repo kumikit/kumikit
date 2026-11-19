@@ -207,6 +207,8 @@ pub struct InstanceConfig {
     pub call_timeout: std::time::Duration,
     /// Session state shared with the host side of a provider.
     pub session: Arc<SessionShared>,
+    /// The plugin's settings schema file, if it has one (`kumikit:host/settings`).
+    pub settings_schema: Option<PathBuf>,
 }
 
 enum Bindings {
@@ -315,6 +317,7 @@ impl Instance {
             id: config.identity,
             owner: owner.clone(),
             session: config.session,
+            settings_schema: config.settings_schema,
         };
         let mut store = Store::new(engine.engine(), state);
         engine::apply_limits(&mut store);

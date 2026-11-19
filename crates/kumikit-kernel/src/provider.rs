@@ -58,6 +58,29 @@ pub struct Model {
     pub capabilities: Vec<String>,
 }
 
+/// A stdio MCP server for a provider's agent to start.
+#[derive(Clone, PartialEq, Eq)]
+pub struct McpServer {
+    /// The name the agent shows.
+    pub name: String,
+    /// Absolute path of the program.
+    pub command: String,
+    /// Its arguments.
+    pub args: Vec<String>,
+    /// Environment variables; they hold a session token, so `Debug` leaves them out.
+    pub env: Vec<(String, String)>,
+}
+
+impl fmt::Debug for McpServer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("McpServer")
+            .field("name", &self.name)
+            .field("command", &self.command)
+            .field("args", &self.args)
+            .finish_non_exhaustive()
+    }
+}
+
 /// What a provider needs to start a session for a thread.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionConfig {
@@ -69,8 +92,9 @@ pub struct SessionConfig {
     pub model: String,
     /// The provider's own session id from an earlier run, if any.
     pub resume: Option<String>,
-    /// Tool gateway URL; always `None` until the gateway exists.
-    pub mcp_endpoint: Option<String>,
+    /// The tool gateway for this session, when the provider may hand its agent tools
+    /// (`docs/spec/03-kernel.md#tool-gateway`); always `None` until the gateway exists.
+    pub mcp_server: Option<McpServer>,
     /// Provider-specific options.
     pub options: Vec<(String, String)>,
 }

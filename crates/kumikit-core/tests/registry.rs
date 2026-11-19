@@ -26,8 +26,8 @@ fn probe_src(root: &std::path::Path, version: &str, extra: &str) -> PathBuf {
         dir.join("plugin.toml"),
         format!(
             "id = \"acme.probe\"\nname = \"Probe\"\nversion = \"{version}\"\nkind = [\"provider\"]\n\
-             api = \"^0.1\"\nrepository = \"https://example.com/acme/probe\"\n\
-             [runtime]\nwasm = \"plugin.wasm\"\nworlds = [\"kumikit:provider/plugin@0.1.0\"]\n\
+             api = \"^0.2\"\nrepository = \"https://example.com/acme/probe\"\n\
+             [runtime]\nwasm = \"plugin.wasm\"\nworlds = [\"kumikit:provider/plugin@0.2.0\"]\n\
              [permissions]\nspawn = [\"fake-acp-agent\"]\n{extra}\n\
              [contributes]\nproviders = [{{ id = \"probe\", name = \"Probe\" }}]\n"
         ),

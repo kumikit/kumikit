@@ -6,7 +6,7 @@ name = "Claude Code"
 version = "0.1.0"
 description = "Claude Code, run through kumikit.provider-acp."
 kind = ["provider"]
-api = "^0.1"
+api = "^0.2"
 
 [permissions]
 spawn = ["claude-agent-acp"]

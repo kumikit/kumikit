@@ -142,6 +142,26 @@ async fn settings_are_validated_and_keep_secrets_out() {
             c.call("settings.get", p.clone()).await["values"],
             json!({ "greeting": "hi", "limit": 2 })
         );
+        // The plugin reads the same values through `kumikit:host/settings`.
+        let ws = c.call("workspace.open", json!({ "path": dirs.workspace() })).await;
+        let thread = c
+            .call(
+                "thread.create",
+                json!({ "workspace": ws["workspace"]["id"], "provider": "test.probe/probe", "model": "probe" }),
+            )
+            .await["thread"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        c.call("events.subscribe", json!({ "topic": format!("thread:{thread}"), "after": 0 }))
+            .await;
+        c.call("thread.send", json!({ "thread": thread, "input": { "text": "settings" } }))
+            .await;
+        let events = c.events_until("turn.ended").await;
+        let done = events.iter().find(|e| e["kind"] == "text.done").expect("a reply");
+        let seen: Value = serde_json::from_str(done["data"]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(seen, json!({ "greeting": "hi", "limit": 2 }));
+
         for bad in [json!({ "limit": 0 }), json!({ "token": "x" }), json!([1])] {
             assert_eq!(
                 error_code(

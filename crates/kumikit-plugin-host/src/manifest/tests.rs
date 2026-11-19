@@ -8,11 +8,11 @@ description = "Run Claude Code as a Kumikit provider."
 license = "MIT"
 repository = "https://github.com/kumikit/provider-claude"
 kind = ["provider"]
-api = "^0.1"
+api = "^0.2"
 
 [runtime]
 wasm = "plugin.wasm"
-worlds = ["kumikit:provider/plugin@0.1.0"]
+worlds = ["kumikit:provider/plugin@0.2.0"]
 
 [activation]
 on = ["startup", "provider:claude"]
@@ -35,7 +35,7 @@ id = "community.provider-gemini"
 name = "Gemini CLI"
 version = "0.1.0"
 kind = ["provider"]
-api = "^0.1"
+api = "^0.2"
 [permissions]
 spawn = ["gemini"]
 [contributes]
@@ -102,8 +102,8 @@ fn every_rule_has_a_message() {
             "<publisher>.<name>",
         ),
         ("version = \"0.3.0\"", "version = \"three\"", "not a semver"),
-        ("api = \"^0.1\"", "api = \"^1.0\"", "does not include"),
-        ("api = \"^0.1\"", "api = \"latest\"", "not a version range"),
+        ("api = \"^0.2\"", "api = \"^1.0\"", "does not include"),
+        ("api = \"^0.2\"", "api = \"latest\"", "not a version range"),
         ("kind = [\"provider\"]", "kind = []", "kind is empty"),
         (
             "kind = [\"provider\"]",
@@ -116,13 +116,19 @@ fn every_rule_has_a_message() {
             "inside the package",
         ),
         (
-            "worlds = [\"kumikit:provider/plugin@0.1.0\"]",
+            "worlds = [\"kumikit:provider/plugin@0.2.0\"]",
             "worlds = [\"kumikit:provider/plugin@9.0.0\"]",
             "not supported",
         ),
         (
+            "worlds = [\"kumikit:provider/plugin@0.2.0\"]",
             "worlds = [\"kumikit:provider/plugin@0.1.0\"]",
-            "worlds = [\"kumikit:plugin/plugin@0.1.0\"]",
+            "rebuild the plugin with the 0.2.0 SDK",
+        ),
+        ("api = \"^0.2\"", "api = \"^0.1\"", "does not include"),
+        (
+            "worlds = [\"kumikit:provider/plugin@0.2.0\"]",
+            "worlds = [\"kumikit:plugin/plugin@0.2.0\"]",
             "must implement",
         ),
         (
@@ -193,18 +199,18 @@ id = "kumikit.provider-acp"
 name = "ACP"
 version = "0.1.0"
 kind = ["provider"]
-api = "^0.1"
+api = "^0.2"
 [runtime]
 wasm = "plugin.wasm"
-worlds = ["kumikit:provider/plugin@0.1.0"]
+worlds = ["kumikit:provider/plugin@0.2.0"]
 [contributes]
 provider-backends = [{ key = "acp" }]
 "#;
     assert_eq!(problems(backend), Vec::<String>::new());
     let p = with(
         backend,
-        "kumikit:provider/plugin@0.1.0",
-        "kumikit:plugin/plugin@0.1.0",
+        "kumikit:provider/plugin@0.2.0",
+        "kumikit:plugin/plugin@0.2.0",
     );
     assert!(has(&p, "serves provider backends"), "{p:?}");
     let p = with(backend, "key = \"acp\"", "key = \"name\"");

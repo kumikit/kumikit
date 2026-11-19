@@ -1,0 +1,12 @@
+package kumikit:host@0.2.0;
+
+/// The plugin's own settings (`docs/spec/03-kernel.md#plugin-settings`). Always allowed;
+/// a plugin reads only its own. Secret fields are not in them: read those with
+/// `secrets.get`.
+interface settings {
+  use types.{error};
+
+  /// The settings as a JSON object: the values a client stored, with the schema's
+  /// defaults for the rest. `{}` for a plugin without a settings schema.
+  get: func() -> result<string, error>;
+}

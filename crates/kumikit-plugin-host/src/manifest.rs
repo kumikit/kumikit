@@ -16,12 +16,12 @@ use serde::Deserialize;
 use crate::engine::{CALL_TIMEOUT_CAP, MEMORY_CAP};
 
 /// The kernel plugin API version; a manifest's `api` range must include it.
-pub const PLUGIN_API: semver::Version = semver::Version::new(0, 1, 0);
+pub const PLUGIN_API: semver::Version = semver::Version::new(0, 2, 0);
 
 /// The base world.
-pub const WORLD_PLUGIN: &str = "kumikit:plugin/plugin@0.1.0";
+pub const WORLD_PLUGIN: &str = "kumikit:plugin/plugin@0.2.0";
 /// The provider world.
-pub const WORLD_PROVIDER: &str = "kumikit:provider/plugin@0.1.0";
+pub const WORLD_PROVIDER: &str = "kumikit:provider/plugin@0.2.0";
 /// Worlds this host can run.
 pub const WORLDS: &[&str] = &[WORLD_PLUGIN, WORLD_PROVIDER];
 
@@ -500,6 +500,10 @@ impl Manifest {
                 for w in &rt.worlds {
                     if WORLDS.contains(&w.as_str()) {
                         worlds.insert(w.as_str());
+                    } else if w.starts_with("kumikit:") && w.ends_with("@0.1.0") {
+                        p.push(format!(
+                            "world `{w}` is WIT 0.1.0, which this core no longer runs: rebuild the plugin with the 0.2.0 SDK"
+                        ));
                     } else {
                         p.push(format!(
                             "world `{w}` is not supported (supported: {})",

@@ -76,6 +76,7 @@ impl Env {
             data_dir: self.dir.path().join("plugin-data").join("test.probe"),
             memory: DEFAULT_MEMORY,
             call_timeout: timeout,
+            settings_schema: None,
             session: Arc::new(SessionShared::default()),
         };
         let instance = Instance::start(&self.runtime, &prepared, config, self.kernel.clone())
@@ -322,6 +323,7 @@ async fn cancel_unblocks_a_waiting_import() {
             data_dir: e.dir.path().join("pd"),
             memory: DEFAULT_MEMORY,
             call_timeout: Duration::from_secs(10),
+            settings_schema: None,
             session: Arc::clone(&session),
         },
         e.kernel.clone(),
