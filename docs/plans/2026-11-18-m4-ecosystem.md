@@ -4,8 +4,9 @@
   published to the registry by a third party installs on a fresh machine, with its
   permissions shown and enforced. Nothing from M5: no new provider, bot, git or GitHub
   plugin, no tool gateway, no VS Code theme importer, no new WIT host interfaces.
-- **Status:** done (2026-11-19), with two findings for the user (the core binary at
-  30.5 MiB, and idle memory after an in-process enable). CI results are in the Notes.
+- **Status:** done (2026-11-19). The two findings (the core binary at 30.5 MiB, and idle
+  memory after an in-process enable) are kept as they are, by the user's decision. CI
+  results are in the Notes.
 
 ## Scope
 
@@ -1196,5 +1197,9 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
   cold install, pages 14s); `https://kumikit.github.io/registry/index.json` serves the
   empty index (format 1), and `kumikit plugin search` reads it over https with the OS
   roots. `main` requires the `check` job (not enforced for admins, no required reviews).
-  The registry has no publishers yet: `publishers/kumikit.toml` waits for a key the user
-  generates and keeps.
+  The user generated the `kumikit` publisher key and keeps it; `publishers/kumikit.toml`
+  (`early = true`) was added by pull request (kumikit/registry#1), whose check ran with
+  `--base` and `--author`, and the deployed index lists the publisher.
+- Findings, decided by the user (2026-11-19): the core binary stays at 30.5 MiB (no
+  `opt-level "s"` for wasmtime and Cranelift for now), and idle memory after an
+  in-process enable (about 40 MB, from before M4) is left as it is for now.
