@@ -1,0 +1,22 @@
+[package]
+name = "my-provider"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+# A plugin is its own project, not part of another workspace.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# The provider SDK. Until it is published to crates.io it comes from the Kumikit
+# repository; pin a tag or a commit with `tag = "…"` or `rev = "…"`.
+kumikit-provider = { git = "https://github.com/kumikit/kumikit" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

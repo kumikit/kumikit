@@ -90,6 +90,10 @@ pub async fn serve(
     };
     let kernel = host.manager().kernel().clone();
     let mut info = ServerInfo::current();
+    info.registry = Some(Arc::new(crate::registry::CoreRegistry::new(
+        &options.data_dir,
+        &crate::paths::process_env,
+    )));
     let remote_task = remote.map(|(tcp, tls, state)| {
         let state = Arc::new(state);
         info.remote = Some(Arc::clone(&state));

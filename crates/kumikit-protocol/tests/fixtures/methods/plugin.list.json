@@ -68,6 +68,47 @@
           },
           "description": "Runs any agent that speaks the Agent Client Protocol.",
           "repository": "https://github.com/kumikit/kumikit"
+        },
+        {
+          "id": "acme.probe",
+          "name": "Probe",
+          "version": "0.2.0",
+          "state": "enabled",
+          "requested": {
+            "spawn": [
+              "fake-acp-agent"
+            ],
+            "network": [],
+            "files": "none",
+            "secrets": [
+              "acme-token"
+            ],
+            "tools": false
+          },
+          "granted": {
+            "spawn": [
+              "fake-acp-agent"
+            ],
+            "network": [],
+            "files": "none",
+            "secrets": [
+              "acme-token"
+            ],
+            "tools": false
+          },
+          "contributes": {
+            "providers": [
+              "acme.probe/probe"
+            ],
+            "commands": [],
+            "settings": false
+          },
+          "signed": true,
+          "publisher": {
+            "key": "ed25519:3l2Jc0bFq9cXlYbhQ6vB1t0hZ8Qw4Kc7Wz5Rr2Yp9Ns",
+            "registry": "https://kumikit.github.io/registry/index.json"
+          },
+          "source": "registry"
         }
       ]
     }

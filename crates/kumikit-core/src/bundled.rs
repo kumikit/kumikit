@@ -73,7 +73,10 @@ async fn seed_one(host: &PluginHost, file: &Path) -> Result<Seeded, String> {
             .map_err(|e| e.to_string())?;
         return Ok(Seeded::Skipped(id));
     }
-    let view = host.install(file).await.map_err(|e| e.to_string())?;
+    let view = host
+        .install(file, kumikit_kernel::plugins::PluginSource::Bundled)
+        .await
+        .map_err(|e| e.to_string())?;
     kernel
         .plugin_mark_seeded(&id, &manifest.version)
         .await

@@ -2480,7 +2480,11 @@ dependencies = [
 name = "kumikit-assets"
 version = "0.1.0"
 dependencies = [
+ "semver",
+ "serde",
+ "serde_json",
  "tempfile",
+ "toml 1.2.1+spec-1.1.0",
 ]
 
 [[package]]
@@ -2500,10 +2504,15 @@ dependencies = [
  "kumikit-kernel",
  "kumikit-plugin-host",
  "kumikit-protocol",
+ "kumikit-registry",
+ "kumikit-registry-tool",
  "kumikit-test-plugins",
+ "kumikit-test-registry-fixture",
+ "kumikit-theme",
  "rcgen",
  "rustix",
  "rustls",
+ "semver",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2549,6 +2558,8 @@ dependencies = [
 name = "kumikit-package"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "ring",
  "sha2 0.10.9",
  "tar",
  "tempfile",
@@ -2592,6 +2603,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "toml 1.2.1+spec-1.1.0",
  "ts-rs",
 ]
 
@@ -2613,6 +2625,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumikit-registry"
+version = "0.1.0"
+dependencies = [
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "kumikit-protocol",
+ "rcgen",
+ "rustls",
+ "rustls-native-certs",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "toml 1.2.1+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
+name = "kumikit-registry-tool"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "kumikit-assets",
+ "kumikit-package",
+ "kumikit-plugin-host",
+ "kumikit-protocol",
+ "kumikit-registry",
+ "kumikit-test-registry-fixture",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "toml 1.2.1+spec-1.1.0",
+]
+
+[[package]]
 name = "kumikit-shell"
 version = "0.1.0"
 dependencies = [
@@ -2622,6 +2680,7 @@ dependencies = [
  "kumikit-assets",
  "kumikit-package",
  "kumikit-protocol",
+ "kumikit-registry",
  "kumikit-test-plugins",
  "rustix",
  "rustls",
@@ -2639,6 +2698,13 @@ dependencies = [
  "tokio-tungstenite",
  "toml 1.2.1+spec-1.1.0",
  "windows-native-keyring-store",
+]
+
+[[package]]
+name = "kumikit-test-client-store"
+version = "0.1.0"
+dependencies = [
+ "kumikit-shell",
 ]
 
 [[package]]
@@ -2668,6 +2734,31 @@ name = "kumikit-test-probe"
 version = "0.1.0"
 dependencies = [
  "kumikit-provider",
+]
+
+[[package]]
+name = "kumikit-test-registry-fixture"
+version = "0.1.0"
+dependencies = [
+ "kumikit-package",
+ "kumikit-registry",
+ "kumikit-registry-tool",
+ "kumikit-test-plugins",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "toml 1.2.1+spec-1.1.0",
+]
+
+[[package]]
+name = "kumikit-theme"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml 1.2.1+spec-1.1.0",
 ]
 
 [[package]]
@@ -3276,6 +3367,12 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
+
+[[package]]
+name = "openssl-probe"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e036b411754132fd6b74e94b74e9a13c5cf606fa93d1885c35860d3060820b1"
 
 [[package]]
 name = "option-ext"
@@ -4022,6 +4119,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustls-native-certs"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a073f5dc7469f984c52ad2752b63b0807745133b6de880b7b64c1ac4c48aec4"
+dependencies = [
+ "openssl-probe",
+ "rustls-pki-types",
+ "schannel",
+ "security-framework",
+]
+
+[[package]]
 name = "rustls-pki-types"
 version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4060,6 +4169,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "schannel"
+version = "0.1.30"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cb23c424d8ee841bb4d813677ca237e2a610067d594fec130f87d6093495ab5"
+dependencies = [
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

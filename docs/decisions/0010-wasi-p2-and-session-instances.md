@@ -44,6 +44,7 @@ target, which links a component directly, plus `wit-bindgen`.
   `end-session` only. The kernel's internal `Provider` trait keeps `respond_approval` and
   `cancel`; the WASM adapter implements them on the host side.
 - WIT packages start at **0.1.0** and freeze at 1.0.0 before third parties publish (M4).
+  When that happens is settled in [ADR 0020](0020-interface-freeze-after-m5.md): after M5.
 
 ## Consequences
 

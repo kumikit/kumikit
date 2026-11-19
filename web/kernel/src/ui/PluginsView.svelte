@@ -10,8 +10,9 @@
   import type { ClientPlugin } from '../plugins/client.svelte';
   import { describePermissions, startsPrograms } from '../plugins/permissions';
   import { trapFocus } from './dialog';
+  import RegistryPanel from './RegistryPanel.svelte';
 
-  let { kernel }: { kernel: Kernel } = $props();
+  let { kernel, starter = false }: { kernel: Kernel; starter?: boolean } = $props();
   const core = $derived(kernel.corePlugins);
   const client = $derived(kernel.clientPlugins);
 
@@ -71,6 +72,15 @@
 
 <div class="plugins">
   <h1>Plugins</h1>
+
+  <RegistryPanel
+    {kernel}
+    {starter}
+    onCoreInstalled={(p) => (granting = p)}
+    onClientInstalled={(p) => {
+      if (p.needsTrust) trusting = p;
+    }}
+  />
 
   <section aria-labelledby="kk-core-plugins">
     <div class="head">
@@ -138,6 +148,7 @@
             <span class="badge {p.enabled ? 'enabled' : 'disabled'}">{p.enabled ? 'Enabled' : p.needsTrust ? 'Not trusted' : 'Disabled'}</span>
           </div>
           {#if p.manifest.description}<p>{p.manifest.description}</p>{/if}
+          {#if p.entry.publisher}<p class="kk-muted">Signed with key <span title={p.entry.publisher.key}>{p.entry.publisher.key.slice(0, 20)}…</span>{p.entry.publisher.registry ? ` · from ${p.entry.publisher.registry}` : ''}</p>{/if}
           {#if p.error}<p class="problem" role="alert">{p.error}</p>{/if}
           <div class="actions">
             {#if p.needsTrust}
@@ -166,7 +177,11 @@
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="kk-grant-title" tabindex="-1" use:trapFocus onkeydown={(e) => onKey(e, () => (granting = undefined))}>
     <h2 id="kk-grant-title">Enable {p.name} on {target.label}?</h2>
     <p class="kk-muted">{p.id} {p.version} from <strong>{publisher(p.id)}</strong>{#if p.repository} · {p.repository}{/if}</p>
-    {#if !p.signed}<p class="warning">This package is not signed, so Kumikit cannot check who made it.</p>{/if}
+    {#if p.signed && p.publisher}
+      <p>Signed with key <code class="key">{p.publisher.key}</code>{#if p.publisher.registry}, the publisher’s key in the registry {p.publisher.registry}.{:else}; not checked against a registry.{/if}</p>
+    {:else}
+      <p class="warning">This package is not signed, so Kumikit cannot check who made it.</p>
+    {/if}
     {#if startsPrograms(p.requested)}
       <p class="warning">It starts programs outside the sandbox. They run with your full user access, so they can read and change anything you can.</p>
     {/if}
@@ -310,5 +325,8 @@
   }
   .dialog p {
     margin: 0;
+  }
+  .key {
+    overflow-wrap: anywhere;
   }
 </style>

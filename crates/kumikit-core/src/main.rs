@@ -63,6 +63,11 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Check a theme before publishing it.
+    Theme {
+        #[command(subcommand)]
+        action: ThemeAction,
+    },
     /// List or revoke paired devices.
     Devices {
         /// The core's socket (Linux, macOS) or pipe (Windows). Default: per platform.
@@ -106,14 +111,93 @@ enum DevicesAction {
 }
 
 #[derive(Debug, Subcommand)]
-enum PluginAction {
-    /// Install a .kkp file, show its permissions and, if you agree, enable it.
+enum ThemeAction {
+    /// Token values, WCAG AA contrast and fonts, as the app checks them at install.
+    Check {
+        /// A theme directory (with plugin.toml) or a .kkp.
+        theme: PathBuf,
+        /// Treat contrast warnings as errors.
+        #[arg(long)]
+        strict: bool,
+        /// Print the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum RegistryAction {
+    /// The registries, in the order ids are looked up.
+    List,
+    /// Add a registry by its index URL.
     Add {
-        /// The package.
+        /// `https://…/index.json` (http:// only on this computer, or file:).
+        url: String,
+    },
+    /// Remove a registry.
+    Remove {
+        /// Its index URL.
+        url: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum LockAction {
+    /// Print the lockfile, or write it to a file.
+    Export {
+        /// Write it here.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Install what a lockfile lists and enable what was enabled.
+    Import {
+        /// The lockfile.
         file: PathBuf,
         /// Grant the permissions without asking.
         #[arg(long)]
         yes: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum PluginAction {
+    /// Install a plugin by id from a registry, or a .kkp file; show its permissions and,
+    /// if you agree, enable it.
+    Add {
+        /// A plugin id (`acme.probe`, `acme.probe@0.2.0`) or a .kkp file.
+        target: String,
+        /// Use this registry (an index URL) instead of the configured ones.
+        #[arg(long, value_name = "URL")]
+        registry: Option<String>,
+        /// Grant the permissions without asking.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Search the registries for core plugins.
+    Search {
+        /// Words to look for in ids, names and descriptions.
+        words: Vec<String>,
+    },
+    /// List the updates the registries offer and apply the ones you agree to.
+    Update {
+        /// Only this plugin.
+        id: Option<String>,
+        /// Apply updates that ask for no new permissions without asking.
+        #[arg(long)]
+        yes: bool,
+        /// Also apply updates that ask for more permissions, granting them.
+        #[arg(long)]
+        allow_wider: bool,
+    },
+    /// List, add or remove plugin registries.
+    Registry {
+        #[command(subcommand)]
+        action: RegistryAction,
+    },
+    /// Export or import the lockfile.
+    Lock {
+        #[command(subcommand)]
+        action: LockAction,
     },
     /// List installed plugins.
     List,
@@ -128,13 +212,47 @@ enum PluginAction {
         #[arg(long)]
         keep_data: bool,
     },
-    /// Build a .kkp package from a plugin directory.
+    /// Build a .kkp package from a plugin directory, signed with --key.
     Pack {
         /// Directory with plugin.toml and the files it names.
         dir: PathBuf,
         /// Output file. Default: <id>-<version>.kkp.
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Sign with this private key file (or set KUMIKIT_SIGNING_KEY and pass --sign).
+        #[arg(long, value_name = "FILE")]
+        key: Option<PathBuf>,
+        /// Sign with the key in KUMIKIT_SIGNING_KEY.
+        #[arg(long, conflicts_with = "key")]
+        sign: bool,
+    },
+    /// Make a publisher key pair; prints the public key.
+    Keygen {
+        /// Name of the key file in the keys directory.
+        #[arg(long, default_value = "publisher")]
+        name: String,
+        /// Write the private key here instead.
+        #[arg(long, value_name = "FILE")]
+        out: Option<PathBuf>,
+        /// Allow writing inside a git work tree.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Sign a .kkp (replacing any signature) with a private key.
+    Sign {
+        /// The package; it is rewritten in place.
+        file: PathBuf,
+        /// Private key file; without it, KUMIKIT_SIGNING_KEY.
+        #[arg(long, value_name = "FILE")]
+        key: Option<PathBuf>,
+    },
+    /// Check a .kkp's signature and say who signed it.
+    Verify {
+        /// The package.
+        file: PathBuf,
+        /// Fail unless it is signed by this key (ed25519:…).
+        #[arg(long, value_name = "KEY ID")]
+        key: Option<String>,
     },
 }
 
@@ -184,6 +302,20 @@ fn main() -> Result<()> {
             data_dir,
             action,
         } => runtime.block_on(run_plugin(socket, data_dir, action)),
+        Command::Theme {
+            action:
+                ThemeAction::Check {
+                    theme,
+                    strict,
+                    json,
+                },
+        } => {
+            let report = kumikit_core::theme::check(&theme)?;
+            if !kumikit_core::theme::print(&report, strict, json, &mut cli::Stdout) {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
         Command::Pair { socket, json } => runtime
             .block_on(async { cli::pair(&target(socket, None)?, json, &mut cli::Stdout).await }),
         Command::Devices {
@@ -225,9 +357,84 @@ async fn run_plugin(
 ) -> Result<()> {
     let out = &mut cli::Stdout;
     match action {
-        PluginAction::Pack { dir, output } => cli::pack(&dir, output.as_deref(), out),
-        PluginAction::Add { file, yes } => {
-            cli::add(&target(socket, data_dir)?, &file, yes, out).await
+        PluginAction::Pack {
+            dir,
+            output,
+            key,
+            sign,
+        } => {
+            let key = if key.is_some() || sign {
+                Some(kumikit_core::signing::read_key(
+                    key.as_deref(),
+                    &paths::process_env,
+                )?)
+            } else {
+                None
+            };
+            cli::pack(&dir, output.as_deref(), key.as_ref(), out)
+        }
+        PluginAction::Keygen {
+            name,
+            out: file,
+            force,
+        } => kumikit_core::signing::keygen(
+            &name,
+            file.as_deref(),
+            force,
+            Platform::current(),
+            &paths::process_env,
+            out,
+        ),
+        PluginAction::Sign { file, key } => {
+            let key = kumikit_core::signing::read_key(key.as_deref(), &paths::process_env)?;
+            kumikit_core::signing::sign(&file, &key, out)
+        }
+        PluginAction::Verify { file, key } => {
+            kumikit_core::signing::verify(&file, key.as_deref(), out)
+        }
+        PluginAction::Add {
+            target: what,
+            registry,
+            yes,
+        } => {
+            let t = target(socket, data_dir)?;
+            if registry.is_none() && cli::is_package_path(&what) {
+                cli::add(&t, std::path::Path::new(&what), yes, out).await
+            } else {
+                cli::add_by_id(&t, &what, registry.as_deref(), yes, out).await
+            }
+        }
+        PluginAction::Search { words } => {
+            cli::search(&target(socket, data_dir)?, &words, out).await
+        }
+        PluginAction::Update {
+            id,
+            yes,
+            allow_wider,
+        } => {
+            cli::update(
+                &target(socket, data_dir)?,
+                id.as_deref(),
+                yes,
+                allow_wider,
+                out,
+            )
+            .await
+        }
+        PluginAction::Registry { action } => {
+            let t = target(socket, data_dir)?;
+            match action {
+                RegistryAction::List => cli::registry_list(&t, out).await,
+                RegistryAction::Add { url } => cli::registry_add(&t, &url, out).await,
+                RegistryAction::Remove { url } => cli::registry_remove(&t, &url, out).await,
+            }
+        }
+        PluginAction::Lock { action } => {
+            let t = target(socket, data_dir)?;
+            match action {
+                LockAction::Export { output } => cli::lock_export(&t, output.as_deref(), out).await,
+                LockAction::Import { file, yes } => cli::lock_import(&t, &file, yes, out).await,
+            }
         }
         PluginAction::List => cli::list(&target(socket, data_dir)?, out).await,
         PluginAction::Remove { id, yes, keep_data } => {

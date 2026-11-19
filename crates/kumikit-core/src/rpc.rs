@@ -53,6 +53,8 @@ pub struct ServerInfo {
     pub shutdown: Arc<Notify>,
     /// Remote access, when the core runs with `--listen`.
     pub remote: Option<Arc<crate::remote::Remote>>,
+    /// Plugin registries; set by `serve` from the data directory.
+    pub registry: Option<Arc<crate::registry::CoreRegistry>>,
 }
 
 /// Who is on the other end of a connection.
@@ -73,6 +75,7 @@ impl ServerInfo {
             os: std::env::consts::OS.to_owned(),
             shutdown: Arc::new(Notify::new()),
             remote: None,
+            registry: None,
         }
     }
 }
@@ -291,6 +294,13 @@ fn reply<M: Method>(result: M::Result) -> Result<Value, RpcError> {
 }
 
 impl Conn {
+    /// The core's registries, or `unsupported` where none are configured (unit tests).
+    fn registry(&self) -> Result<Arc<crate::registry::CoreRegistry>, RpcError> {
+        self.info.registry.clone().ok_or_else(|| {
+            RpcError::new(ErrorCode::Unsupported, "this core has no plugin registries")
+        })
+    }
+
     /// Handles one line; returns the response to send, if any.
     async fn handle(&mut self, line: &[u8]) -> Option<String> {
         let value: Value = match serde_json::from_slice(line) {
@@ -370,6 +380,7 @@ impl Conn {
                     capabilities: CAPABILITIES
                         .iter()
                         .copied()
+                        .chain(self.info.registry.is_some().then_some("registry"))
                         .chain(self.info.remote.is_some().then_some("devices"))
                         .map(str::to_owned)
                         .collect(),
@@ -518,15 +529,16 @@ impl Conn {
             }
             m::PluginInstall::NAME => {
                 let p = parse::<m::PluginInstall>(params)?;
-                let plugin = match (&p.path, &p.package) {
-                    (Some(path), None) => crate::plugins::install(&self.host, path).await?,
-                    (None, Some(package)) => {
+                let plugin = match (&p.path, &p.package, &p.registry) {
+                    (Some(path), None, None) => crate::plugins::install(&self.host, path).await?,
+                    (None, Some(package), None) => {
                         crate::plugins::install_package(&self.host, package).await?
                     }
+                    (None, None, Some(r)) => self.registry()?.install(&self.host, r).await?,
                     _ => {
                         return Err(RpcError::new(
                             ErrorCode::InvalidParams,
-                            "give exactly one of path and package",
+                            "give exactly one of path, package and registry",
                         ));
                     }
                 };
@@ -549,6 +561,51 @@ impl Conn {
                     .await
                     .map_err(crate::plugins::host_err)?;
                 reply::<m::PluginUninstall>(Empty {})
+            }
+            m::PluginUpdates::NAME => {
+                let p = parse::<m::PluginUpdates>(params)?;
+                let updates = self
+                    .registry()?
+                    .updates(&self.host, p.refresh.unwrap_or(false))
+                    .await?;
+                reply::<m::PluginUpdates>(m::PluginUpdatesResult { updates })
+            }
+            m::PluginUpdate::NAME => {
+                let p = parse::<m::PluginUpdate>(params)?;
+                let plugin = self
+                    .registry()?
+                    .update(&self.host, &p.plugin, &p.version, p.grant.as_ref())
+                    .await?;
+                reply::<m::PluginUpdate>(PluginResult { plugin })
+            }
+            m::PluginLock::NAME => {
+                parse::<m::PluginLock>(params)?;
+                reply::<m::PluginLock>(m::PluginLockResult {
+                    lock: self.host.manager().lock_text(),
+                })
+            }
+            m::RegistryList::NAME => {
+                parse::<m::RegistryList>(params)?;
+                let registries = self.registry()?.list().await?;
+                reply::<m::RegistryList>(m::RegistryListResult { registries })
+            }
+            m::RegistryAdd::NAME => {
+                let p = parse::<m::RegistryAdd>(params)?;
+                self.registry()?.add(&p.url).await?;
+                reply::<m::RegistryAdd>(Empty {})
+            }
+            m::RegistryRemove::NAME => {
+                let p = parse::<m::RegistryRemove>(params)?;
+                self.registry()?.remove(&p.url).await?;
+                reply::<m::RegistryRemove>(Empty {})
+            }
+            m::RegistrySearch::NAME => {
+                let p = parse::<m::RegistrySearch>(params)?;
+                let result = self
+                    .registry()?
+                    .search(p.query.as_deref(), p.refresh.unwrap_or(false))
+                    .await?;
+                reply::<m::RegistrySearch>(result)
             }
             m::AuthPair::NAME | m::AuthToken::NAME => Err(match self.device {
                 None => RpcError::new(

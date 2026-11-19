@@ -75,6 +75,13 @@ impl Kernel {
         removed
     }
 
+    /// Whether a turn runs, or waits on an approval, on any of these providers.
+    pub fn turns_running_on(&self, providers: &[String]) -> bool {
+        self.lock_runs()
+            .values()
+            .any(|r| providers.contains(&r.provider))
+    }
+
     /// Forgets a thread's provider session, so its next turn starts one again with
     /// `resume`. Providers call this when they lose a session (for example, after
     /// unloading the instance that ran it).

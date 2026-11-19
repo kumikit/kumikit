@@ -384,6 +384,34 @@ impl Manifest {
         })
     }
 
+    /// What it asks for, in protocol form: permissions plus limits raised above the
+    /// defaults (what install shows and the registry copies).
+    pub fn requested(&self) -> kumikit_protocol::methods::Permissions {
+        use kumikit_protocol::methods::{FilesAccess, Limits as PLimits, Permissions as P};
+        let sorted = |v: &[String]| {
+            let mut v = v.to_vec();
+            v.sort();
+            v.dedup();
+            v
+        };
+        let l = self.limits;
+        P {
+            spawn: sorted(&self.permissions.spawn),
+            network: sorted(&self.permissions.network),
+            files: match self.permissions.files {
+                Files::None => FilesAccess::None,
+                Files::ReadWorkspace => FilesAccess::ReadWorkspace,
+                Files::Workspace => FilesAccess::Workspace,
+            },
+            secrets: sorted(&self.permissions.secrets),
+            tools: self.permissions.tools,
+            limits: (l.memory_mb.is_some() || l.call_timeout_s.is_some()).then_some(PLimits {
+                memory_mb: l.memory_mb,
+                call_timeout_s: l.call_timeout_s,
+            }),
+        }
+    }
+
     /// Whether the plugin has a component.
     pub fn wasm(&self) -> Option<&str> {
         self.runtime.as_ref().and_then(|r| r.wasm.as_deref())

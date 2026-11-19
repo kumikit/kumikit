@@ -22,6 +22,12 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::lock::DataDirLock;
 
+mod registry;
+pub use registry::{
+    add_by_id, is_package_path, lock_export, lock_import, registry_add, registry_list,
+    registry_remove, search, update,
+};
+
 /// Where the core is.
 #[derive(Debug, Clone)]
 pub struct Target {
@@ -70,6 +76,7 @@ enum Backend {
     Remote(Rpc),
     Local {
         host: PluginHost,
+        registry: crate::registry::CoreRegistry,
         _lock: DataDirLock,
     },
 }
@@ -154,7 +161,13 @@ impl Backend {
         crate::serve::prepare_data_dir(&target.data_dir)?;
         let lock = DataDirLock::acquire(&target.data_dir)?;
         let host = crate::serve::open_core(&target.data_dir).await?;
-        Ok(Backend::Local { host, _lock: lock })
+        let registry =
+            crate::registry::CoreRegistry::new(&target.data_dir, &crate::paths::process_env);
+        Ok(Backend::Local {
+            host,
+            registry,
+            _lock: lock,
+        })
     }
 
     async fn list(&mut self) -> Result<Vec<InstalledPlugin>> {
@@ -174,6 +187,7 @@ impl Backend {
                 .call::<PluginInstall>(&kumikit_protocol::methods::PluginInstallParams {
                     path: Some(path.to_owned()),
                     package: None,
+                    registry: None,
                 })
                 .await?
                 .plugin),
@@ -312,6 +326,10 @@ pub async fn add(target: &Target, file: &Path, yes: bool, out: &mut dyn Out) -> 
     let file =
         std::fs::canonicalize(file).with_context(|| format!("cannot read {}", file.display()))?;
     let manifest = peek_manifest(&file)?;
+    // The core verifies the package itself; this is only to say who signed it.
+    let signer = package::verify_package(&file)
+        .map_err(|e| anyhow!("{e}"))?
+        .key();
     let mut backend = Backend::open(target).await?;
     let path = file
         .to_str()
@@ -358,7 +376,13 @@ pub async fn add(target: &Target, file: &Path, yes: bool, out: &mut dyn Out) -> 
     if let Some(r) = &plugin.repository {
         out.line(&format!("Repository: {r}"));
     }
-    out.line("This package is not signed; Kumikit cannot check who made it.");
+    match signer {
+        Some(key) => out.line(&format!(
+            "Signed by key {}; not checked against a registry.",
+            key.grouped()
+        )),
+        None => out.line("This package is not signed; Kumikit cannot check who made it."),
+    }
     out.line("It asks for these permissions. It:");
     for line in describe(&plugin.requested) {
         out.line(&format!("  - {line}"));
@@ -430,15 +454,48 @@ pub async fn remove(
 }
 
 /// `kumikit plugin pack <dir> [-o <file>]`: validates the manifest and writes a `.kkp`.
-pub fn pack(dir: &Path, output: Option<&Path>, out: &mut dyn Out) -> Result<()> {
-    let manifest = Manifest::load(dir).map_err(|e| anyhow!("{e}"))?;
+pub fn pack(
+    dir: &Path,
+    output: Option<&Path>,
+    key: Option<&package::SigningKey>,
+    out: &mut dyn Out,
+) -> Result<()> {
+    // UI plugins and themes are checked as the app's plugin store checks them; anything
+    // else as a core plugin.
+    let (id, version) = match kumikit_assets::ui_manifest::check(dir) {
+        Ok((id, version, _)) => (id, version),
+        Err(ui_problems) if is_client_package(dir) => bail!("{ui_problems}"),
+        Err(_) => {
+            let m = Manifest::load(dir).map_err(|e| anyhow!("{e}"))?;
+            (m.id, m.version)
+        }
+    };
     let file = output.map_or_else(
-        || PathBuf::from(format!("{}-{}.kkp", manifest.id, manifest.version)),
+        || PathBuf::from(format!("{id}-{version}.kkp")),
         Path::to_path_buf,
     );
-    package::pack(dir, &file).map_err(|e| anyhow!("{e}"))?;
-    out.line(&format!("Wrote {}", file.display()));
+    package::pack_signed(dir, &file, key).map_err(|e| anyhow!("{e}"))?;
+    match key {
+        Some(k) => out.line(&format!(
+            "Wrote {}, signed by {}",
+            file.display(),
+            k.public()
+        )),
+        None => out.line(&format!("Wrote {}", file.display())),
+    }
     Ok(())
+}
+
+/// Whether the manifest in `dir` says `kind = ["ui"]` or `["theme"]`.
+fn is_client_package(dir: &Path) -> bool {
+    #[derive(serde::Deserialize)]
+    struct Kind {
+        kind: Vec<String>,
+    }
+    std::fs::read_to_string(dir.join("plugin.toml"))
+        .ok()
+        .and_then(|t| toml::from_str::<Kind>(&t).ok())
+        .is_some_and(|k| !k.kind.is_empty() && k.kind.iter().all(|x| x == "ui" || x == "theme"))
 }
 
 /// Connects to the running core and completes the handshake; fails if none runs.

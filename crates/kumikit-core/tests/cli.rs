@@ -75,7 +75,7 @@ async fn add_on_a_stopped_core_then_serve_offers_the_provider() {
         let hello = c
             .call(
                 "core.hello",
-                json!({"protocol": "0.4", "client": {"name": "t", "version": "0"}}),
+                json!({"protocol": "0.5", "client": {"name": "t", "version": "0"}}),
             )
             .await;
         assert_eq!(
@@ -192,6 +192,98 @@ async fn pack_builds_an_installable_package() {
         let r = kumikit(&dirs, &["pack", src.to_str().unwrap()]).await;
         assert!(!r.ok);
         assert!(r.stderr.contains("not in the package"), "{}", r.stderr);
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_signed_package_says_who_signed_it_and_the_key_never_shows() {
+    within(async {
+        let dirs = Dirs::new();
+        let key = dirs.root().join("keys").join("acme.key");
+        let r = kumikit(&dirs, &["keygen", "--out", key.to_str().unwrap()]).await;
+        assert!(r.ok, "{}{}", r.stdout, r.stderr);
+        let public = r
+            .stdout
+            .lines()
+            .find_map(|l| l.strip_prefix("Public key: "))
+            .unwrap()
+            .to_owned();
+        let pem = std::fs::read_to_string(&key).unwrap();
+        let secret = pem.lines().nth(1).unwrap().to_owned();
+
+        let src = dirs.root().join("src");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("plugin.toml"), PROBE_MANIFEST).unwrap();
+        std::fs::copy(kumikit_test_plugins::PROBE_WASM, src.join("plugin.wasm")).unwrap();
+        let out = dirs.root().join("probe.kkp");
+
+        // The key from the environment, with every log on: it never appears.
+        let run = tokio::process::Command::new(env!("CARGO_BIN_EXE_kumikit"))
+            .args([
+                "plugin",
+                "pack",
+                src.to_str().unwrap(),
+                "-o",
+                out.to_str().unwrap(),
+                "--sign",
+            ])
+            .env("KUMIKIT_SIGNING_KEY", &pem)
+            .env("KUMIKIT_LOG", "trace")
+            .stdin(Stdio::null())
+            .output()
+            .await
+            .unwrap();
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&run.stdout),
+            String::from_utf8_lossy(&run.stderr)
+        );
+        assert!(run.status.success(), "{text}");
+        assert!(text.contains(&public), "{text}");
+        assert!(!text.contains(&secret), "the private key was printed");
+
+        let r = kumikit(&dirs, &["verify", out.to_str().unwrap(), "--key", &public]).await;
+        assert!(
+            r.ok && r.stdout.contains("Signed by"),
+            "{}{}",
+            r.stdout,
+            r.stderr
+        );
+
+        let r = kumikit(&dirs, &["add", out.to_str().unwrap(), "--yes"]).await;
+        assert!(r.ok, "{}{}", r.stdout, r.stderr);
+        assert!(r.stdout.contains("Signed by key ed25519:"), "{}", r.stdout);
+        assert!(
+            r.stdout.contains("not checked against a registry"),
+            "{}",
+            r.stdout
+        );
+        assert!(!r.stdout.contains("not signed"), "{}", r.stdout);
+
+        let core = Core::start(&dirs).await;
+        let mut c = Client::hello(&dirs.address).await;
+        let list = c.call("plugin.list", json!({})).await;
+        assert_eq!(list["plugins"][0]["signed"], true, "{list}");
+        core.stop().await;
+
+        // A key file others can read is refused (Unix).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o644)).unwrap();
+            let r = kumikit(
+                &dirs,
+                &[
+                    "sign",
+                    out.to_str().unwrap(),
+                    "--key",
+                    key.to_str().unwrap(),
+                ],
+            )
+            .await;
+            assert!(!r.ok && r.stderr.contains("chmod 600"), "{}", r.stderr);
+        }
     })
     .await;
 }
@@ -332,11 +424,11 @@ async fn bridge_copies_lines_to_the_local_core() {
         let mut stdin = child.stdin.take().unwrap();
         let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
         stdin
-            .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"core.hello\",\"params\":{\"protocol\":\"0.4\",\"client\":{\"name\":\"t\",\"version\":\"0\"}}}\n\n")
+            .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"core.hello\",\"params\":{\"protocol\":\"0.5\",\"client\":{\"name\":\"t\",\"version\":\"0\"}}}\n\n")
             .await
             .unwrap();
         let hello: serde_json::Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
-        assert_eq!(hello["result"]["protocol"], "0.4");
+        assert_eq!(hello["result"]["protocol"], "0.5");
         // A local connection: no devices capability without --listen, auth not needed.
         stdin
             .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"auth.token\",\"params\":{\"token\":\"x\"}}\n")
@@ -347,6 +439,62 @@ async fn bridge_copies_lines_to_the_local_core() {
         drop(stdin);
         assert!(child.wait().await.unwrap().success());
         core.stop().await;
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn theme_check_explains_problems_and_pack_takes_themes() {
+    within(async {
+        let dirs = Dirs::new();
+        let theme = dirs.root().join("night");
+        std::fs::create_dir_all(theme.join("fonts")).unwrap();
+        std::fs::write(
+            theme.join("plugin.toml"),
+            "id = \"acme.night\"\nname = \"Night\"\nversion = \"1.0.0\"\nkind = [\"theme\"]\napi = \"^0.1\"\n\
+             [theme]\nvariants = [{ id = \"dark\", appearance = \"dark\", tokens = \"dark.json\" }]\n\
+             fonts = [\"fonts/a.woff2\"]\n",
+        )
+        .unwrap();
+        std::fs::write(theme.join("fonts/a.woff2"), b"wOF2 test font").unwrap();
+        let tokens = |json: &str| std::fs::write(theme.join("dark.json"), json).unwrap();
+        let path = theme.to_str().unwrap().to_owned();
+        let check = |args: Vec<String>| async move {
+            let mut full = vec!["theme".to_owned(), "check".to_owned()];
+            full.extend(args);
+            let refs: Vec<&str> = full.iter().map(String::as_str).collect();
+            kumikit_raw(&refs).await
+        };
+
+        tokens(r##"{"surface.panel": "#1a1b26", "text.primary": "#c0caf5"}"##);
+        let r = check(vec![path.clone(), "--strict".into()]).await;
+        assert!(r.ok && r.stdout.contains("passes every check"), "{}{}", r.stdout, r.stderr);
+
+        // Low contrast: a warning, which --strict turns into a failure.
+        tokens(r##"{"surface.panel": "#1a1b26", "text.primary": "#24283b"}"##);
+        let r = check(vec![path.clone()]).await;
+        assert!(r.ok && r.stdout.contains("warning: dark: text.primary on surface.panel"), "{}", r.stdout);
+        let r = check(vec![path.clone(), "--strict".into()]).await;
+        assert!(!r.ok, "{}", r.stdout);
+
+        // A value that is not of its type is an error; --json says the same.
+        tokens(r##"{"accent": "red; background: url(x)"}"##);
+        let r = check(vec![path.clone(), "--json".into()]).await;
+        assert!(!r.ok);
+        let v: serde_json::Value = serde_json::from_str(r.stdout.trim()).unwrap();
+        assert_eq!(v["ok"], false);
+        assert!(v["errors"][0].as_str().unwrap().contains("accent is not a valid color"), "{v}");
+
+        // pack takes a theme and checks it as the app's store would; the .kkp checks too.
+        tokens(r##"{"accent": "#7aa2f7"}"##);
+        let out = dirs.root().join("night.kkp");
+        let r = kumikit(&dirs, &["pack", &path, "-o", out.to_str().unwrap()]).await;
+        assert!(r.ok, "{}{}", r.stdout, r.stderr);
+        let r = check(vec![out.to_str().unwrap().into()]).await;
+        assert!(r.ok, "{}{}", r.stdout, r.stderr);
+        std::fs::remove_file(theme.join("fonts/a.woff2")).unwrap();
+        let r = kumikit(&dirs, &["pack", &path]).await;
+        assert!(!r.ok && r.stderr.contains("the font `fonts/a.woff2` is missing"), "{}", r.stderr);
     })
     .await;
 }

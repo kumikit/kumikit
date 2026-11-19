@@ -31,6 +31,11 @@ Kumikit has no accounts and no telemetry. It makes no network requests on its ow
 only traffic is what you start: agents you run, plugin registry lookups when you browse or
 install, and connections to cores you pair with.
 
+Plugin registries are contacted only when you browse or search them, install or update
+from them, import a lockfile or check for updates: a core contacts them for core plugins,
+the desktop app for UI plugins and themes. Nothing is checked in the background, and the
+first-run screen asks before it shows the registry's starter pack.
+
 A core listens on the network only when you start it with `kumikit serve --listen`; it
 never turns that on by itself. The desktop app connects only to cores you added, over TLS
 or through your own `ssh`, and sends keepalive pings only on those connections, so it
@@ -47,6 +52,8 @@ runtime only if it is missing when you install.
 - [Building from source](docs/building.md): prerequisites and steps for Linux, macOS and
   Windows.
 - [Specification](docs/spec/README.md): how Kumikit works.
+- [Plugin templates](templates/README.md): start a core plugin (Rust), a UI plugin (Svelte)
+  or a theme; sign it with `kumikit plugin keygen` and `kumikit plugin pack --key`.
 - [Decisions](docs/decisions/README.md): why it works that way.
 - [Contributing](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) (rules for humans and coding agents).
 - [Security](SECURITY.md).

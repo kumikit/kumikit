@@ -1,0 +1,69 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 40,
+    "method": "plugin.updates",
+    "params": {
+      "refresh": true
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 40,
+    "result": {
+      "updates": [
+        {
+          "plugin": "acme.probe",
+          "from": "0.1.0",
+          "to": "0.2.0",
+          "registry": "https://kumikit.github.io/registry/index.json",
+          "requested": {
+            "spawn": [
+              "fake-acp-agent"
+            ],
+            "network": [],
+            "files": "none",
+            "secrets": [
+              "acme-token"
+            ],
+            "tools": false
+          },
+          "widens": true
+        },
+        {
+          "plugin": "community.provider-gemini",
+          "from": "0.1.0",
+          "to": "0.1.1",
+          "registry": "https://kumikit.github.io/registry/index.json",
+          "requested": {
+            "spawn": [
+              "gemini"
+            ],
+            "network": [],
+            "files": "none",
+            "secrets": [],
+            "tools": false
+          },
+          "widens": false
+        }
+      ]
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 41,
+    "method": "plugin.updates",
+    "params": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 41,
+    "error": {
+      "code": -32000,
+      "message": "cannot reach kumikit.github.io: timed out",
+      "data": {
+        "code": "unavailable"
+      }
+    }
+  }
+]

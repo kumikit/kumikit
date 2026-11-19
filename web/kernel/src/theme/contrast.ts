@@ -35,20 +35,22 @@ export function contrast(fg: string, bg: string): number {
   return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
 }
 
-/** Text tokens and the surfaces they are used on, with the WCAG AA minimum. */
-export const CONTRAST_PAIRS: readonly [string, string, number][] = [
-  ['text.primary', 'surface.frame', 4.5],
-  ['text.primary', 'surface.panel', 4.5],
-  ['text.primary', 'surface.card', 4.5],
-  ['text.primary', 'surface.raised', 4.5],
-  ['text.primary', 'surface.input', 4.5],
-  ['text.secondary', 'surface.panel', 4.5],
-  ['text.secondary', 'surface.card', 4.5],
-  ['text.muted', 'surface.panel', 3],
-  ['text.link', 'surface.panel', 4.5],
-  ['text.on-accent', 'accent', 4.5],
-  ['code.text', 'code.background', 4.5],
-  ['focus', 'surface.panel', 3],
-  ['border.strong', 'surface.panel', 3],
-  ['state.danger', 'surface.panel', 3],
-];
+/** Text tokens and the surfaces they are used on, with the WCAG AA minimum: the shared list in
+ * `web/sdk/theme-rules.json`, which `kumikit theme check` reads too. */
+import { CONTRAST_PAIRS } from '@kumikit/ui-sdk';
+
+export { CONTRAST_PAIRS };
+
+/** The pairs whose contrast is below WCAG AA in these tokens, in words; pairs with a token
+ * the theme leaves to the fallback are not checked. */
+export function contrastWarnings(tokens: Readonly<Partial<Record<string, string>>>): string[] {
+  const out: string[] = [];
+  for (const [fg, bg, min] of CONTRAST_PAIRS) {
+    const f = tokens[fg];
+    const b = tokens[bg];
+    if (f === undefined || b === undefined) continue;
+    const ratio = contrast(f, b);
+    if (ratio + 1e-9 < min) out.push(`${fg} on ${bg} has contrast ${ratio.toFixed(2)}, below ${min}`);
+  }
+  return out;
+}

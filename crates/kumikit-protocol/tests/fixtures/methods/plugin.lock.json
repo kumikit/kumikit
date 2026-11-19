@@ -1,0 +1,15 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 45,
+    "method": "plugin.lock",
+    "params": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 45,
+    "result": {
+      "lock": "# Written by Kumikit. Export it to reproduce these plugins on another core.\nformat = 1\n\n[[plugin]]\nid = \"acme.probe\"\nversion = \"0.2.0\"\nsha256 = \"9f1c0e5b7a2d4c3e8f6a1b0d2c4e6f8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e\"\nsource = \"registry+https://kumikit.github.io/registry/index.json\"\nkey = \"ed25519:3l2Jc0bFq9cXlYbhQ6vB1t0hZ8Qw4Kc7Wz5Rr2Yp9Ns\"\nstate = \"enabled\"\ngranted = { spawn = [\"fake-acp-agent\"], secrets = [\"acme-token\"] }\n"
+    }
+  }
+]

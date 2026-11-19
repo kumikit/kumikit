@@ -10,6 +10,9 @@ use std::path::PathBuf;
 use kumikit_protocol::local::Platform;
 use kumikit_shell::assets::{self, APP_SCHEME, Asset, PLUGIN_SCHEME, SchemeForm};
 use kumikit_shell::bridge::{Bridge, Incoming};
+use kumikit_shell::client_registry::{
+    ClientError, ClientRef, ClientRegistry, ClientResult, ClientUpdate,
+};
 use kumikit_shell::connections::{
     CommandError, Connections, Keepalive, PairRequest, Removed, SshRequest,
 };
@@ -26,21 +29,42 @@ struct Shell {
     bridge: Bridge,
     local: LocalCore,
     store: Store,
+    /// UI plugins and themes from registries.
+    registry: ClientRegistry,
     /// Remote profiles.
     connections: Connections,
     /// The UI kernel's files.
     ui: PathBuf,
 }
 
-fn respond(asset: Asset, form: SchemeForm, cors: bool) -> Response<Cow<'static, [u8]>> {
+/// Who a response is for.
+enum Served {
+    /// The UI kernel's own files.
+    App,
+    /// An inline UI plugin or a theme: imported from the app origin.
+    Plugin,
+    /// A sandboxed panel's files, with that panel's CSP. The panel's document has an
+    /// opaque origin, so its module scripts are fetched with `Origin: null`.
+    Panel(String),
+}
+
+fn respond(asset: Asset, form: SchemeForm, served: Served) -> Response<Cow<'static, [u8]>> {
+    let csp = match &served {
+        Served::Panel(csp) => csp.clone(),
+        Served::App | Served::Plugin => assets::csp(form),
+    };
     let mut builder = Response::builder()
         .status(asset.status)
         .header("Content-Type", asset.content_type)
-        .header("Content-Security-Policy", assets::csp(form))
+        .header("Content-Security-Policy", csp)
         .header("X-Content-Type-Options", "nosniff");
-    if cors {
+    match served {
+        Served::App => {}
         // Plugin modules are imported from the app origin.
-        builder = builder.header("Access-Control-Allow-Origin", form.origin(APP_SCHEME));
+        Served::Plugin => {
+            builder = builder.header("Access-Control-Allow-Origin", form.origin(APP_SCHEME));
+        }
+        Served::Panel(_) => builder = builder.header("Access-Control-Allow-Origin", "null"),
     }
     builder
         .body(Cow::Owned(asset.body))
@@ -158,6 +182,68 @@ async fn client_plugins_install(shell: State<'_, Shell>, path: String) -> Result
         .map_err(|e| e.to_string())
 }
 
+/// Installs a UI plugin or theme from the client's registries.
+#[tauri::command]
+async fn client_plugins_install_registry(
+    shell: State<'_, Shell>,
+    plugin: ClientRef,
+) -> Result<Entry, ClientError> {
+    shell.registry.install(&plugin).await
+}
+
+/// UI plugins and themes the registries offer.
+#[tauri::command]
+async fn client_registry_search(
+    shell: State<'_, Shell>,
+    query: String,
+    refresh: bool,
+) -> Result<Vec<ClientResult>, ClientError> {
+    shell.registry.search(&query, refresh).await
+}
+
+/// The client's registries, in order.
+#[tauri::command]
+async fn client_registries_get(shell: State<'_, Shell>) -> Result<Vec<String>, ClientError> {
+    shell.registry.registries().await
+}
+
+/// Replaces the client's registries.
+#[tauri::command]
+async fn client_registries_set(
+    shell: State<'_, Shell>,
+    urls: Vec<String>,
+) -> Result<(), ClientError> {
+    shell.registry.set_registries(&urls).await
+}
+
+/// Updates the registries offer for installed UI plugins and themes.
+#[tauri::command]
+async fn client_plugins_updates(
+    shell: State<'_, Shell>,
+    refresh: bool,
+) -> Result<Vec<ClientUpdate>, ClientError> {
+    shell.registry.updates(refresh).await
+}
+
+/// Applies one update.
+#[tauri::command]
+async fn client_plugins_update(
+    shell: State<'_, Shell>,
+    id: String,
+    version: String,
+) -> Result<Entry, ClientError> {
+    shell.registry.update(&id, &version).await
+}
+
+/// The client lockfile's text.
+#[tauri::command]
+async fn client_lock(shell: State<'_, Shell>) -> Result<String, String> {
+    let store = shell.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.lock_text())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Removes an installed UI plugin or theme.
 #[tauri::command]
 async fn client_plugins_remove(shell: State<'_, Shell>, id: String) -> Result<(), String> {
@@ -240,7 +326,14 @@ fn main() {
         bridge_close,
         client_plugins_list,
         client_plugins_install,
+        client_plugins_install_registry,
         client_plugins_remove,
+        client_plugins_updates,
+        client_plugins_update,
+        client_registry_search,
+        client_registries_get,
+        client_registries_set,
+        client_lock,
         profiles_list,
         profile_probe,
         profile_pair,
@@ -255,7 +348,14 @@ fn main() {
         bridge_close,
         client_plugins_list,
         client_plugins_install,
+        client_plugins_install_registry,
         client_plugins_remove,
+        client_plugins_updates,
+        client_plugins_update,
+        client_registry_search,
+        client_registries_get,
+        client_registries_set,
+        client_lock,
         profiles_list,
         profile_probe,
         profile_pair,
@@ -265,19 +365,26 @@ fn main() {
     let result = builder
         .register_uri_scheme_protocol(APP_SCHEME, move |ctx, request: Request<Vec<u8>>| {
             let shell = ctx.app_handle().state::<Shell>();
-            respond(assets::load(&shell.ui, request.uri().path()), form, false)
+            respond(assets::load(&shell.ui, request.uri().path()), form, Served::App)
         })
         .register_uri_scheme_protocol(PLUGIN_SCHEME, move |ctx, request: Request<Vec<u8>>| {
             let shell = ctx.app_handle().state::<Shell>();
             let uri = request.uri();
             let host = uri.host().unwrap_or("");
-            let asset = match assets::plugin_target(form, host, uri.path())
-                .and_then(|(id, path)| shell.store.dir(&id).map(|d| (d, path)))
-            {
-                Some((dir, path)) => assets::load(&dir, &path),
+            let Some((id, path)) = assets::plugin_target(form, host, uri.path()) else {
+                return respond(assets::load(&PathBuf::new(), "/missing"), form, Served::Plugin);
+            };
+            let asset = match shell.store.dir(&id) {
+                Some(dir) => assets::load(&dir, &path),
                 None => assets::load(&PathBuf::new(), "/missing"),
             };
-            respond(asset, form, true)
+            let served = match shell.store.panel_network(&id) {
+                Some(network) => {
+                    Served::Panel(assets::panel_csp(&assets::panel_source(form, &id), &network))
+                }
+                None => Served::Plugin,
+            };
+            respond(asset, form, served)
         })
         .setup(move |app| {
             let exe_dir = std::env::current_exe()?
@@ -293,6 +400,7 @@ fn main() {
                 bundled: resource(app, "KUMIKIT_BUNDLED_UI_PLUGINS", "ui-plugins"),
                 installed: client.join("ui-plugins"),
             };
+            let registry = ClientRegistry::new(&client, store.clone(), &env);
             let ui = resource(app, "KUMIKIT_UI_DIR", "ui").unwrap_or_default();
             let connections = Connections {
                 profiles: Profiles::new(&client),
@@ -308,6 +416,7 @@ fn main() {
                 bridge: Bridge::default(),
                 local,
                 store,
+                registry,
                 connections,
                 ui,
             });

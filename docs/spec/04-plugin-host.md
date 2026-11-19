@@ -2,9 +2,9 @@
 
 Core plugins are **WASM components** run by wasmtime
 ([ADR 0003](../decisions/0003-wasm-first-core-plugins.md)) on WASI 0.2
-([ADR 0010](../decisions/0010-wasi-p2-and-session-instances.md)). A sidecar process
-speaking the same interfaces over JSON-RPC is a later escape hatch for code that cannot
-target WASM. Native libraries are never loaded into the core.
+([ADR 0010](../decisions/0010-wasi-p2-and-session-instances.md)). Sidecar processes are
+not part of 1.0 ([ADR 0021](../decisions/0021-no-sidecars-in-1-0.md)). Native libraries are
+never loaded into the core.
 
 The plugin host is the `kumikit-plugin-host` crate. It sits above the kernel: it uses the
 kernel's services (records, kv, secrets, process supervisor, provider registry) and the
@@ -18,14 +18,43 @@ kumikit.provider-claude-0.3.0.kkp      # tar.zst
 ├── plugin.wasm                        # component (core plugins)
 ├── settings.schema.json               # optional
 ├── assets/                            # icons, README, licenses
-└── SIGNATURE                          # ed25519 over the other files' hashes (from M4)
+└── SIGNATURE                          # optional: ed25519 over the other files' hashes
 ```
 
 A package holds only regular files and directories. The host refuses absolute paths,
 `..` components, symlinks, hard links and device files, and caps the unpacked size and
-entry count. Until signing exists (M4), `SIGNATURE` is neither required nor checked, and
-installing a local package says that its publisher cannot be verified.
-`kumikit plugin pack <dir>` builds a `.kkp` from a directory.
+entry count. `kumikit plugin pack <dir> [--key <file>]` builds a `.kkp` from a directory,
+signed with `--key` ([10](10-distribution.md#publisher-keys)).
+
+### Signatures
+
+`SIGNATURE` (format v1, [ADR 0018](../decisions/0018-package-signing-and-registry.md)) is a
+UTF-8 text file with LF line endings:
+
+```
+kumikit-signature 1
+key ed25519:<public key, 32 bytes, base64url without padding>
+file <sha256, 64 lowercase hex digits> <path>
+file …
+sig <signature, 64 bytes, base64url without padding>
+```
+
+- `file` lines list every regular file in the package except `SIGNATURE`, sorted bytewise
+  by path, with `/` separators, one line each.
+- The signature is ed25519 over every byte of the file before the `sig` line (from
+  `kumikit-signature 1` up to and including the newline that ends the last `file` line).
+- **Verification**, after the package is unpacked into staging: the file must parse
+  exactly (no other lines, no duplicate or unsafe paths); the unpacked files must equal
+  the `file` lines (nothing missing or extra, every hash equal); the signature must verify
+  with the key. Any failure refuses the package as untrusted.
+- The **key id** shown to people is `ed25519:` and the key in base64url, in groups of four.
+- **Pinning.** The core records each installed plugin's key (`publisher_key`) and where it
+  came from (`source`: a registry URL, `file` or `bundled`). A later version must be signed
+  by the pinned key; an unsigned package cannot replace a signed one. A plugin without a
+  pinned key (installed unsigned, or bundled) pins the first key it is updated with.
+- A registry package must be signed by the publisher key the registry gives
+  ([10](10-distribution.md#install)); a local file may be unsigned, and installing it says
+  that its publisher cannot be verified.
 
 ## Manifest
 
@@ -79,8 +108,9 @@ WIT packages live in `wit/`, one directory per published version
 (`wit/kumikit-host@0.1.0/`). They are versioned independently. A published version is
 never changed in place; changes ship as a new version and the host supports the previous
 major version for at least one kernel major release. `wit/PUBLISHED` records a hash of
-each published directory, and a test fails if one changes. The packages are `0.x` until
-third parties can publish (M4); they freeze at 1.0.0.
+each published directory, and a test fails if one changes. The packages stay `0.x`
+through M5 and freeze at 1.0.0 after it, before the official registry opens to third
+parties ([ADR 0020](../decisions/0020-interface-freeze-after-m5.md)).
 
 Rust guests use one SDK crate per world: `kumikit-plugin` (`sdk/rust`, the base world)
 and `kumikit-provider` (`sdk/rust-provider`, the provider world, sharing the base crate's
@@ -200,11 +230,12 @@ installed → enabled → active ⇄ idle → unloaded
 
 - Declared in the manifest, shown at install in plain words ("can start the `claude`
   program, which runs with your full user access"), granted or refused as a whole.
-- An update that widens permissions stays on the old version until the user approves.
-  (Until updates exist, in M4, installing an id that is already installed fails with
-  `conflict`.)
+- An update that widens permissions stays on the old version until the user grants the
+  new set ([10](10-distribution.md#updates)). Installing an id that is already installed
+  fails with `conflict`; updates go through `plugin.update`.
 - Every host import checks the grant; a denied call returns `permission-denied` and is
-  logged with the plugin id and the operation. There is no API to ask for more
+  logged with the plugin id and the operation. A turn that fails because the plugin
+  returns such an error ends with an error that starts `permission_denied: `. There is no API to ask for more
   permissions at runtime.
 - `spawn` is the widest permission: a spawned CLI is outside the WASM sandbox. The UI says
   so at install and in the plugin's detail page.
@@ -230,9 +261,10 @@ provider-backends = [{ key = "acp", schema = "acp.schema.json" }]
 - If no enabled plugin serves the key, or the entry's table fails the backend's schema
   (logged as a warning), the provider is unavailable and not listed.
 
-## Sidecar plugins (later)
+## Sidecar plugins (not in 1.0)
 
-`runtime.sidecar` starts a process that speaks the same WIT-defined interfaces as JSON-RPC
-over stdio. It exists for plugins that need a runtime WASM cannot host yet. Sidecars are
-not sandboxed: they are installed only with an explicit "unsandboxed" confirmation and are
-marked as such everywhere they appear.
+`runtime.sidecar` is reserved and refused at install
+([ADR 0021](../decisions/0021-no-sidecars-in-1-0.md)). A plugin that needs another runtime
+starts it with the `spawn` permission from a WASM component, which the user approves
+explicitly. Sidecars may be reconsidered after 1.0 if a real plugin cannot be built that
+way.

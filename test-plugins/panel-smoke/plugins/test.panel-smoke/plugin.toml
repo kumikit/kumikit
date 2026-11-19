@@ -1,0 +1,11 @@
+# A sandboxed panel that probes its own sandbox (test only).
+id = "test.panel-smoke"
+name = "Panel smoke"
+version = "0.1.0"
+kind = ["ui"]
+api = "^0.1"
+[ui]
+entry = "index.html"
+isolation = "iframe"
+[contributes]
+slots = [{ slot = "inspector.tab", id = "smoke", title = "Smoke" }]

@@ -93,3 +93,27 @@ describe('the engine', () => {
     expect(platformRules(false)).not.toContain('\n:root{');
   });
 });
+
+describe('the shared theme vectors (web/sdk/tests/theme-vectors.json)', () => {
+  // kumikit theme check (Rust) passes the same file, so the two cannot drift apart.
+  it('agree with every value and ratio', async () => {
+    const { readFileSync } = await import('node:fs');
+    const vectors = JSON.parse(readFileSync(new URL('../../sdk/tests/theme-vectors.json', import.meta.url), 'utf8')) as {
+      values: { type: Parameters<typeof isValid>[0]; value: string; valid: boolean }[];
+      contrast: { fg: string; bg: string; ratio: number }[];
+    };
+    for (const v of vectors.values) expect(isValid(v.type, v.value), `${v.type} ${v.value}`).toBe(v.valid);
+    for (const c of vectors.contrast) expect(contrast(c.fg, c.bg), `${c.fg} on ${c.bg}`).toBeCloseTo(c.ratio, 2);
+  });
+});
+
+describe('contrast warnings at install', () => {
+  it('name the pairs below WCAG AA and skip tokens left to the fallback', async () => {
+    const { contrastWarnings } = await import('../src/theme/contrast');
+    expect(contrastWarnings({ 'surface.panel': '#1a1b26', 'text.primary': '#c0caf5' })).toEqual([]);
+    const low = contrastWarnings({ 'surface.panel': '#1a1b26', 'text.primary': '#24283b' });
+    expect(low).toHaveLength(1);
+    expect(low[0]).toMatch(/^text\.primary on surface\.panel has contrast 1\.\d\d, below 4\.5$/);
+    expect(contrastWarnings({ 'text.primary': '#000' })).toEqual([]);
+  });
+});

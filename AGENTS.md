@@ -12,15 +12,18 @@ spec, not here.
 
 ## Status
 
-M0 (protocol and kernel), M1 (plugin host), M2 (client) and M3 (multiple cores) are
-built: `kumikit serve`, the kernel, WASM plugins with permissions and a lifecycle,
+M0 (protocol and kernel), M1 (plugin host), M2 (client), M3 (multiple cores) and M4
+(ecosystem) are built: `kumikit serve`, the kernel, WASM plugins with permissions and a lifecycle,
 provider-acp, `kumikit plugin`, the desktop app (Tauri shell, Svelte UI kernel, UI SDK
 0.1, ui-chat, ui-settings, theme-default), remote cores over TLS with pairing and device
-tokens or through SSH, and the browser client served by a core
+tokens or through SSH, the browser client served by a core, signed packages, plugin
+registries with installs by id, updates and lockfiles, sandboxed UI panels, `kumikit theme
+check` and plugin templates
 ([M0 plan](docs/plans/2026-11-15-m0-protocol-and-kernel.md),
 [M1 plan](docs/plans/2026-11-15-m1-plugin-host.md),
 [M2 plan](docs/plans/2026-11-16-m2-client.md),
-[M3 plan](docs/plans/2026-11-17-m3-multiple-cores.md)). M4 (ecosystem) is next. Build
+[M3 plan](docs/plans/2026-11-17-m3-multiple-cores.md),
+[M4 plan](docs/plans/2026-11-18-m4-ecosystem.md)). M5 (plugins) is next. Build
 in milestone order
 ([roadmap](docs/spec/12-roadmap.md)); do not start a later milestone's code before the
 earlier one's exit criteria pass.
@@ -44,12 +47,17 @@ earlier one's exit criteria pass.
 
 Now:
 - `sh scripts/check-docs.sh`: AGENTS.md size, and every relative Markdown link resolves.
+- `sh scripts/check-no-keys.sh`: no PEM private key in a tracked file.
 - `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace` (builds the test plugins for `wasm32-wasip2`; the target comes
   with `rust-toolchain.toml` under rustup, or a distribution's Rust WASM package)
 - `cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-test-hello -p kumikit-test-probe -p kumikit-provider-acp -- -D warnings`
 - `sh scripts/check-plugin-names.sh`: no plugin id, provider id or backend key in
   `crates/*/src`
+- `cargo run -p kumikit-core -- theme check --strict plugins/theme-default`: the
+  first-party theme passes the theme checks
+- `sh scripts/check-templates.sh`: the plugin templates build, pack, sign, install and
+  run (needs the `wasm32-wasip2` target and `npm ci`)
 - `cargo deny check licenses bans sources` (CI runs it; locally when dependencies change)
 - `cargo test -p kumikit-core --test exit_m1 -- --ignored`: live smoke test of provider-acp
   with real Claude Code (needs `claude-agent-acp` and a Claude login; manual)
@@ -66,9 +74,10 @@ From M2 (npm commands run at the repository root, an npm workspace):
 - `npm ci`, then `npm run check` (svelte-check + tsc) and `npm test` (Vitest)
 - `node scripts/check-npm-licenses.mjs` when npm dependencies change
 - Browser end-to-end: `node scripts/bundle.mjs && cargo build -p kumikit-core -p
-  kumikit-web-relay`, then `npx playwright test` in `web/e2e` (the relay suites, two
-  cores behind a cuttable network, and the browser client served by a core)
-- Desktop exit tests, M2 and M3 (Linux, in the container): `sh scripts/desktop/run.sh sh
+  kumikit-web-relay -p kumikit-test-registry-fixture -p kumikit-test-plugins`, then
+  `npx playwright test` in `web/e2e` (the relay suites, two cores behind a cuttable
+  network, the browser client served by a core, a fixture registry, sandboxed panels)
+- Desktop exit tests, M2, M3 and M4 (Linux, in the container): `sh scripts/desktop/run.sh sh
   scripts/desktop/e2e.sh` after `node scripts/bundle.mjs`; Windows runs in CI
 - Desktop shell memory: `sh scripts/desktop/run.sh sh scripts/desktop/footprint.sh`
 

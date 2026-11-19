@@ -119,6 +119,7 @@ async fn client_as(peer: Peer) -> Client {
         os: "test".into(),
         shutdown: Arc::new(tokio::sync::Notify::new()),
         remote: None,
+        registry: None,
     });
     let (read, write) = tokio::io::split(theirs);
     tokio::spawn(serve_messages(
@@ -166,10 +167,10 @@ impl Client {
         let r = self
             .call(
                 "core.hello",
-                json!({"protocol":"0.4","client":{"name":"t","version":"1"}}),
+                json!({"protocol":"0.5","client":{"name":"t","version":"1"}}),
             )
             .await;
-        assert_eq!(r["result"]["protocol"], "0.4", "{r}");
+        assert_eq!(r["result"]["protocol"], "0.5", "{r}");
     }
 
     fn dir(&self) -> String {
@@ -240,12 +241,12 @@ async fn hello_describes_the_core() {
     let r = c
         .call(
             "core.hello",
-            json!({"protocol":"0.4","client":{"name":"t","version":"1"}}),
+            json!({"protocol":"0.5","client":{"name":"t","version":"1"}}),
         )
         .await;
     assert_eq!(
         r["result"],
-        json!({"protocol":"0.4","core":{"version":"0.0.0","name":"test","os":"test"},
+        json!({"protocol":"0.5","core":{"version":"0.0.0","name":"test","os":"test"},
                "plugins":[],"capabilities":["threads","approvals","plugins","providers","workspace_events"]})
     );
 }

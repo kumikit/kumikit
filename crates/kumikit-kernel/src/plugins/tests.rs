@@ -22,6 +22,28 @@ fn record(id: &str) -> PluginRecord {
         sha256: "ab".into(),
         granted: None,
         installed: Timestamp("2026-11-15T00:00:00Z".into()),
+        publisher_key: None,
+        source: PluginSource::File,
+    }
+}
+
+#[tokio::test]
+async fn the_publisher_key_and_source_are_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let k = kernel(&dir).await;
+    let mut signed = record("acme.probe");
+    signed.publisher_key = Some("ed25519:abc".into());
+    signed.source = PluginSource::Registry("https://r.example/index.json".into());
+    k.plugin_insert(signed.clone()).await.unwrap();
+    let mut bundled = record("kumikit.x");
+    bundled.source = PluginSource::Bundled;
+    k.plugin_insert(bundled.clone()).await.unwrap();
+    k.close().await;
+    let k = kernel(&dir).await;
+    assert_eq!(k.plugin_get("acme.probe").await.unwrap(), Some(signed));
+    assert_eq!(k.plugin_get("kumikit.x").await.unwrap(), Some(bundled));
+    for s in ["file", "bundled", "registry+https://x/i.json"] {
+        assert_eq!(PluginSource::from_stored(s).as_stored(), s);
     }
 }
 
@@ -111,4 +133,28 @@ async fn deleting_a_plugin_keeps_or_deletes_its_data() {
     assert!(k.kv_get("a.keep", "k").await.unwrap().is_some());
     assert!(k.kv_get("a.drop", "k").await.unwrap().is_none());
     assert!(k.plugin_list().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn an_update_replaces_the_record_in_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let k = kernel(&dir).await;
+    let mut r = record("acme.probe");
+    r.publisher_key = Some("ed25519:old".into());
+    k.plugin_insert(r.clone()).await.unwrap();
+    let mut next = r.clone();
+    next.version = "0.2.0".into();
+    next.sha256 = "cd".into();
+    next.state = PluginState::Enabled;
+    next.granted = Some(Grants::default());
+    next.source = PluginSource::Registry("https://r.example/index.json".into());
+    k.plugin_replace(next.clone()).await.unwrap();
+    let got = k.plugin_get("acme.probe").await.unwrap().unwrap();
+    assert_eq!(got.version, "0.2.0");
+    assert_eq!(got.installed, r.installed, "the install time stays");
+    assert_eq!(got.source, next.source);
+    assert!(matches!(
+        k.plugin_replace(record("no.such")).await,
+        Err(KernelError::NotFound(_))
+    ));
 }

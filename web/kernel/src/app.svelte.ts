@@ -9,6 +9,7 @@ import type { Connection, Slot, ThreadAddress } from '@kumikit/ui-sdk';
 import { CommandRegistry, type WhenContext } from './commands/registry.svelte';
 import { ClientPlugins } from './plugins/client.svelte';
 import { CorePlugins } from './plugins/core.svelte';
+import { Registries } from './plugins/registry.svelte';
 import { CoreConnection, type Timers } from './connections/connection.svelte';
 import type { Platform, ProfileInfo } from './platform/index';
 import { meetsRequirements } from './plugins/requires';
@@ -32,7 +33,7 @@ export interface Toast {
 export type MainView =
   | { kind: 'tab' }
   | { kind: 'settings'; page?: string }
-  | { kind: 'plugins' }
+  | { kind: 'plugins'; starter?: boolean }
   | { kind: 'cores' }
   | { kind: 'view'; id: string; args?: unknown };
 
@@ -70,6 +71,7 @@ export class Kernel {
   readonly mac: boolean;
   readonly clientPlugins: ClientPlugins;
   readonly corePlugins: CorePlugins;
+  readonly registries: Registries;
   main = $state.raw<MainView>({ kind: 'tab' });
   dialog = $state.raw<Dialog>(undefined);
   toasts = $state.raw<Toast[]>([]);
@@ -90,6 +92,7 @@ export class Kernel {
     this.#systemDark = options.systemDark ?? (() => false);
     this.clientPlugins = new ClientPlugins(this);
     this.corePlugins = new CorePlugins(this);
+    this.registries = new Registries(this);
     this.#registerCommands();
   }
 
@@ -299,6 +302,19 @@ export class Kernel {
     }
   }
 
+  /** The first-run welcome's "Browse the starter pack": answers the welcome and shows
+   * the registry's starter pack (the first time the registries are contacted). */
+  openStarterPack(): void {
+    this.settings.update({ welcomeDone: true });
+    this.main = { kind: 'plugins', starter: true };
+    void this.registries.search('');
+  }
+
+  /** The first-run welcome's "Not now": remembered; the palette still offers it. */
+  dismissWelcome(): void {
+    this.settings.update({ welcomeDone: true });
+  }
+
   /** Opens a project folder on a core (the active tab's by default). Only the local core's
    * folders can be picked; other cores take a path on their machine, typed by the user. */
   async openWorkspaceFolder(connection: string = this.connection.id, typed?: string): Promise<void> {
@@ -382,6 +398,11 @@ export class Kernel {
     });
     c.register({ id: 'plugins.open', title: 'Manage plugins' }, () => {
       this.main = { kind: 'plugins' };
+    });
+    c.register({ id: 'plugins.starter', title: 'Starter pack: common plugins from the registry' }, () => this.openStarterPack());
+    c.register({ id: 'plugins.updates', title: 'Check for plugin updates' }, async () => {
+      this.main = { kind: 'plugins' };
+      await this.registries.checkUpdates();
     });
     const browser = this.platform.browser;
     if (browser) {

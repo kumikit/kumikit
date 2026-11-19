@@ -1,0 +1,20 @@
+# The plugin's manifest (docs/spec/04-plugin-host.md#manifest). Use your own publisher name
+# in the id: <publisher>.<name>, lowercase letters, digits and dashes.
+id = "yourname.echo"
+name = "Echo"
+version = "0.1.0"
+description = "Answers every message with the message itself."
+license = "MIT"
+repository = "https://github.com/yourname/kumikit-echo"
+kind = ["provider"]
+api = "^0.1"
+
+[runtime]
+wasm = "plugin.wasm"
+worlds = ["kumikit:provider/plugin@0.1.0"]
+
+# What the plugin may do; the user sees it in plain words before granting it.
+[permissions]
+
+[contributes]
+providers = [{ id = "echo", name = "Echo" }]

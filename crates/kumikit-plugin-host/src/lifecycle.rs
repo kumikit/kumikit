@@ -100,6 +100,16 @@ struct ProviderSpec {
     config: Option<String>,
 }
 
+/// A plugin's error as a turn's error text. A denied host call keeps its code in front,
+/// so the user (and a client) can tell a refused permission from other failures.
+fn guest_message(e: crate::runtime::bindings::base::kumikit::host::types::Error) -> String {
+    use crate::runtime::bindings::base::kumikit::host::types::ErrorCode;
+    match e.code {
+        ErrorCode::PermissionDenied => format!("permission_denied: {}", e.message),
+        _ => e.message,
+    }
+}
+
 /// The qualified id of a provider.
 pub fn qualified(plugin: &str, local: &str) -> String {
     format!("{plugin}/{local}")
@@ -214,8 +224,87 @@ impl PluginHost {
     // ---- management, with provider registration ----
 
     /// Installs a package (see [`Manager::install`]).
-    pub async fn install(&self, package: &std::path::Path) -> Result<PluginView, HostError> {
-        self.inner.manager.install(package).await
+    pub async fn install(
+        &self,
+        package: &std::path::Path,
+        source: kumikit_kernel::plugins::PluginSource,
+    ) -> Result<PluginView, HostError> {
+        self.inner.manager.install(package, source).await
+    }
+
+    /// Installs a package checked against a registry's entry (see
+    /// [`Manager::install_checked`]).
+    pub async fn install_checked(
+        &self,
+        package: &std::path::Path,
+        source: kumikit_kernel::plugins::PluginSource,
+        expected: Option<&crate::manager::Expected>,
+    ) -> Result<PluginView, HostError> {
+        self.inner
+            .manager
+            .install_checked(package, source, expected)
+            .await
+    }
+
+    /// Whether a turn runs on one of the plugin's providers, or on one its backend serves.
+    pub fn has_running_turns(&self, id: &str) -> bool {
+        let providers: Vec<String> = lock(&self.inner.registered)
+            .values()
+            .filter(|s| s.contributor == id || s.backend == id)
+            .map(|s| s.id.clone())
+            .collect();
+        self.inner.manager.kernel().turns_running_on(&providers)
+    }
+
+    /// Updates a plugin to the version in `package` (10-distribution, Updates): refused
+    /// while one of its turns runs; an enabled plugin is disabled around the swap and
+    /// enabled again with `grant`. If the swap fails, the old version stays as it was.
+    pub async fn update(
+        &self,
+        id: &str,
+        package: &std::path::Path,
+        source: kumikit_kernel::plugins::PluginSource,
+        expected: Option<&crate::manager::Expected>,
+        grant: Option<Grants>,
+    ) -> Result<PluginView, HostError> {
+        if self.has_running_turns(id) {
+            return Err(HostError::Conflict(format!(
+                "a turn of {id} is running; wait for it to end or cancel it, then update"
+            )));
+        }
+        let before = self.inner.manager.get(id)?;
+        let was_enabled = before.record.state == kumikit_kernel::plugins::PluginState::Enabled;
+        if was_enabled {
+            self.inner.manager.disable(id).await?;
+            self.reconcile().await;
+            self.unload(id, "updating").await;
+        }
+        let replaced = self
+            .inner
+            .manager
+            .replace(id, package, source, expected, grant.clone())
+            .await;
+        let view = match replaced {
+            Ok(v) => v,
+            Err(e) => {
+                if was_enabled && let Some(old) = &before.record.granted {
+                    let _ = self.inner.manager.enable(id, old).await;
+                    self.reconcile().await;
+                }
+                self.inner.changed.send_modify(|v| *v += 1);
+                return Err(e);
+            }
+        };
+        let view = match (was_enabled, &grant) {
+            (true, Some(g)) => {
+                let enabled = self.inner.manager.enable(id, g).await;
+                self.reconcile().await;
+                enabled?
+            }
+            _ => view,
+        };
+        self.inner.changed.send_modify(|v| *v += 1);
+        Ok(view)
     }
 
     /// Grants and enables a plugin, then registers its providers.
@@ -698,7 +787,7 @@ impl WasmProvider {
     ) -> ProviderResult<T> {
         match r {
             Ok(Ok(v)) => Ok(v),
-            Ok(Err(e)) => Err(ProviderError::new(e.message)),
+            Ok(Err(e)) => Err(ProviderError::new(guest_message(e))),
             Err(e) => {
                 if matches!(e, CallError::Trap { .. }) {
                     host.failed(&self.spec.backend, &e.to_string()).await;

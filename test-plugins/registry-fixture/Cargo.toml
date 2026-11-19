@@ -1,0 +1,26 @@
+[package]
+name = "kumikit-test-registry-fixture"
+description = "Test only: fixture plugin registries, signed with keys made at test time and served on loopback"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+kumikit-package.workspace = true
+kumikit-registry.workspace = true
+kumikit-registry-tool = { path = "../../crates/kumikit-registry-tool" }
+serde_json = "1.0.154"
+sha2 = "0.10.9"
+tokio = { version = "1.54.1", features = ["rt", "rt-multi-thread", "macros", "net", "io-util", "sync"] }
+toml = "1"
+kumikit-test-plugins = { path = "../kumikit-test-plugins" }
+
+[[bin]]
+name = "registry-fixture"
+path = "src/main.rs"

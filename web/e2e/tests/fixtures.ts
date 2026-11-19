@@ -33,6 +33,58 @@ export interface Kumikit {
   providerKkp(transcript: string, options?: ProviderOptions): string;
   /** The second core (only with `test.use({ remote: true })`). */
   remote: Remote;
+  /** The fixture registry (only with `test.use({ registry: true })`). */
+  registry: Registry;
+}
+
+/** A fixture registry on loopback (test-plugins/registry-fixture), publisher "acme" with a
+ * key made for this test. It is the relay's, its cores' and the app's default registry. */
+export interface Registry {
+  /** The index URL. */
+  url: string;
+  /** Writes the probe test plugin as `acme.probe` at `version`; returns its folder.
+   * `extra` are more `[permissions]` lines, joined with `;`. */
+  probe(version: string, extra?: string): Promise<string>;
+  publish(dir: string, how?: 'signed' | 'unsigned' | 'other-key'): Promise<void>;
+  starter(...ids: string[]): Promise<void>;
+  /** Writes index.json. */
+  build(): Promise<void>;
+  /** Requests the registry has served so far. */
+  hits(): Promise<number>;
+}
+
+/** Starts the fixture registry; returns it and its process. */
+export async function startRegistry(root: string): Promise<{ child: ChildProcess; registry: Registry }> {
+  const exe = join(TARGET, 'debug', process.platform === 'win32' ? 'registry-fixture.exe' : 'registry-fixture');
+  const child = spawn(exe, [root], { stdio: ['pipe', 'pipe', 'inherit'] });
+  const lines = createInterface({ input: child.stdout! });
+  const queue: ((line: string) => void)[] = [];
+  const url = await new Promise<string>((ok, fail) => {
+    lines.once('line', (l) => (l.startsWith('ready ') ? ok(l.slice(6)) : fail(new Error(l))));
+    child.once('exit', (code) => fail(new Error(`the registry fixture exited (${code}); run cargo build -p kumikit-test-registry-fixture`)));
+  });
+  lines.on('line', (l) => queue.shift()?.(l));
+  const send = (command: string) =>
+    new Promise<string>((ok, fail) => {
+      queue.push((l) => (l.startsWith('ok') ? ok(l.slice(2).trim()) : fail(new Error(`${command}: ${l}`))));
+      child.stdin!.write(`${command}\n`);
+    });
+  let n = 0;
+  return {
+    child,
+    registry: {
+      url,
+      async probe(version, extra = '') {
+        const dir = join(root, `probe-${version}-${++n}`);
+        await send(`probe ${dir} ${version} ${extra}`.trim());
+        return dir;
+      },
+      publish: async (dir, how = 'signed') => void (await send(`${how === 'signed' ? 'publish' : how === 'unsigned' ? 'publish-unsigned' : 'publish-other-key'} ${dir}`)),
+      starter: async (...ids) => void (await send(`starter ${ids.join(' ')}`)),
+      build: async () => void (await send('build')),
+      hits: async () => Number(await send('hits')),
+    },
+  };
 }
 
 export interface ProviderOptions {
@@ -56,11 +108,12 @@ export interface Remote {
   rotate(): Promise<void>;
 }
 
-function startRelay(work: string, remote: boolean): Promise<{ child: ChildProcess; url: string }> {
+function startRelay(work: string, remote: boolean, registry?: string): Promise<{ child: ChildProcess; url: string }> {
   const exe = join(TARGET, 'debug', process.platform === 'win32' ? 'kumikit-web-relay.exe' : 'kumikit-web-relay');
   const args = ['--ui', join(BUNDLE, 'ui-browser-test'), '--ui-plugins', join(BUNDLE, 'ui-plugins'), '--core-plugins', join(BUNDLE, 'core-plugins'), '--work', work];
   if (remote) args.push('--remote');
-  const child = spawn(exe, args, { stdio: ['pipe', 'pipe', 'inherit'] });
+  const env = registry ? { ...process.env, KUMIKIT_DEFAULT_REGISTRY: registry } : process.env;
+  const child = spawn(exe, args, { stdio: ['pipe', 'pipe', 'inherit'], env });
   return new Promise((ok, fail) => {
     const lines = createInterface({ input: child.stdout! });
     lines.once('line', (l) => (l.startsWith('ready ') ? ok({ child, url: l.slice(6) }) : fail(new Error(l))));
@@ -88,16 +141,18 @@ function manifest(n: number, transcript: string, options: ProviderOptions): stri
   ].join('\n');
 }
 
-export const test = base.extend<{ kk: Kumikit; remote: boolean }>({
+export const test = base.extend<{ kk: Kumikit; remote: boolean; registry: boolean }>({
   remote: [false, { option: true }],
-  kk: async ({ remote }, use) => {
+  registry: [false, { option: true }],
+  kk: async ({ remote, registry: withRegistry }, use) => {
     // Short: Unix socket paths are limited to about 104 bytes.
     const work = mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'kke-'));
     const project = join(work, 'proj');
     mkdirSync(project);
     const remoteProject = join(work, 'rproj');
     mkdirSync(remoteProject);
-    const { child, url } = await startRelay(join(work, 'w'), remote);
+    const fixture = withRegistry ? await startRegistry(join(work, 'reg')) : undefined;
+    const { child, url } = await startRelay(join(work, 'w'), remote, fixture?.registry.url);
     const send = (path: string, body?: unknown) =>
       fetch(url + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: body === undefined ? null : JSON.stringify(body) });
     const post = async (path: string, body?: unknown) => {
@@ -133,10 +188,18 @@ export const test = base.extend<{ kk: Kumikit; remote: boolean }>({
         revoke: () => post('/test/revoke'),
         rotate: () => post('/test/rotate'),
       },
+      get registry(): Registry {
+        if (!fixture) throw new Error('use test.use({ registry: true }) for a registry');
+        return fixture.registry;
+      },
     });
-    // Closing stdin stops the relay and its cores.
+    // Closing stdin stops the relay and its cores, and the registry.
     child.stdin?.end();
     await new Promise((r) => (child.exitCode !== null ? r(null) : child.once('exit', r)));
+    if (fixture) {
+      fixture.child.stdin?.end();
+      await new Promise((r) => (fixture.child.exitCode !== null ? r(null) : fixture.child.once('exit', r)));
+    }
     rmSync(work, { recursive: true, force: true });
   },
 });

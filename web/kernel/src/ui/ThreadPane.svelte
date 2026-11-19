@@ -11,6 +11,24 @@
   const view = $derived(address ? kernel.slotsIn('thread.view', address.connection)[0] : undefined);
   const thread = $derived(address && conn ? (conn.threads[address.workspace] ?? []).find((t) => t.id === address.thread) : undefined);
   const slotProps = $derived(address ? { address, connection: kernel.pluginConnection(address.connection) } : undefined);
+  // The registries' hosts, from their list (a local read: nothing is fetched).
+  const registryHosts = $derived(
+    [...new Set([...(kernel.registries.clientRegistries ?? []), ...(kernel.registries.coreRegistries ?? []).map((r) => r.url)].map(host))],
+  );
+  function host(url: string): string {
+    try {
+      return new URL(url).host || url;
+    } catch {
+      return url;
+    }
+  }
+  let listed = false;
+  $effect(() => {
+    if (!listed && !tab && !kernel.settings.value.welcomeDone && kernel.connection.ready) {
+      listed = true;
+      void kernel.registries.loadRegistries();
+    }
+  });
   const statusText: Record<string, string> = {
     idle: 'Idle',
     running: 'Running',
@@ -49,6 +67,17 @@
   <div class="kk-empty">
     <p>Open a project folder to start working with an agent.</p>
     <p><button type="button" class="kk-button primary" onclick={() => kernel.openWorkspaceFolder()}>Open folder…</button></p>
+    {#if !kernel.settings.value.welcomeDone && (kernel.registries.clientAvailable || kernel.registries.coreAvailable)}
+      <section class="welcome" aria-labelledby="kk-welcome-title">
+        <h2 id="kk-welcome-title">Welcome to Kumikit</h2>
+        <p>Kumikit starts small. Agent providers, tools and themes are plugins you choose. The starter pack lists common ones from the plugin registry.</p>
+        <p class="kk-muted">Browsing it contacts {registryHosts.length > 0 ? registryHosts.join(', ') : 'the plugin registry'}. Nothing is installed unless you choose it.</p>
+        <p class="welcome-actions">
+          <button type="button" class="kk-button" onclick={() => kernel.dismissWelcome()}>Not now</button>
+          <button type="button" class="kk-button primary" onclick={() => kernel.openStarterPack()}>Browse the starter pack</button>
+        </p>
+      </section>
+    {/if}
   </div>
 {:else if !address || !slotProps}
   <div class="kk-empty">
@@ -87,6 +116,24 @@
 {/if}
 
 <style>
+  .welcome {
+    max-width: 520px;
+    margin-top: 24px;
+    padding: 12px 16px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-medium, 0);
+    background: var(--kk-surface-card, Canvas);
+    text-align: left;
+  }
+  .welcome h2 {
+    margin: 0 0 6px;
+    font-size: var(--kk-font-size-large, large);
+  }
+  .welcome-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
   .banner {
     display: flex;
     align-items: center;

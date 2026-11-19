@@ -26,6 +26,7 @@ test-hooks = []
 [dependencies]
 kumikit-assets.workspace = true
 kumikit-package.workspace = true
+kumikit-registry.workspace = true
 kumikit-protocol.workspace = true
 semver = "1.0.28"
 serde_json = "1.0.154"

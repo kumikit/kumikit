@@ -18,6 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: sh scripts/check-docs.sh
       - run: sh scripts/check-plugin-names.sh
+      - run: sh scripts/check-no-keys.sh
 
   rust:
     strategy:
@@ -38,6 +39,9 @@ jobs:
       # Guest crates (SDK, plugins, test plugins) also build for the plugin target.
       - run: cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-test-hello -p kumikit-test-probe -p kumikit-provider-acp -- -D warnings
       - run: cargo test --workspace --no-fail-fast
+      - if: runner.os == 'Linux'
+        # The first-party theme passes the checks third-party themes must pass (08-themes).
+        run: cargo run -q -p kumikit-core -- theme check --strict plugins/theme-default
 
   footprint:
     runs-on: ubuntu-latest
@@ -88,7 +92,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: cargo build -p kumikit-core -p kumikit-web-relay
+      - run: cargo build -p kumikit-core -p kumikit-web-relay -p kumikit-test-registry-fixture -p kumikit-test-plugins
       - run: node scripts/bundle.mjs
       - run: npx playwright install --with-deps chromium webkit
         working-directory: web/e2e
@@ -137,7 +141,7 @@ jobs:
           Expand-Archive edgedriver.zip -DestinationPath "$env:USERPROFILE\edgedriver"
           "$env:USERPROFILE\edgedriver" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
       - run: node scripts/bundle.mjs
-      - run: cargo build -p kumikit-core -p kumikit-test-plugins && cargo build -p kumikit-shell --features test-hooks
+      - run: cargo build -p kumikit-core -p kumikit-test-plugins -p kumikit-test-registry-fixture && cargo build -p kumikit-shell --features test-hooks
       - if: runner.os == 'Linux'
         run: sh scripts/desktop/e2e.sh
       - if: runner.os == 'Windows'
@@ -146,13 +150,58 @@ jobs:
           KK_APP="$PWD/target/debug/kumikit-desktop.exe" KK_CORE_BIN="$PWD/target/debug/kumikit.exe" \
           KK_FAKE_AGENT_DIR="$(cygpath -w "$(cd "$agent" && pwd)")" KK_BUNDLE="$PWD/target/bundle" \
           KK_NET_CUT="$(cygpath -w "$PWD/$(find target/kumikit-test -type f -name net-cut.exe | head -n 1)")" \
-          KK_ARTIFACTS="$PWD/target/e2e-desktop" node --test --test-concurrency=1 web/e2e-desktop/exit.test.mjs web/e2e-desktop/exit-m3.test.mjs
+          KK_REGISTRY_FIXTURE="$(cygpath -w "$PWD/target/debug/registry-fixture.exe")" \
+          KK_ARTIFACTS="$PWD/target/e2e-desktop" node --test --test-concurrency=1 web/e2e-desktop/exit.test.mjs web/e2e-desktop/exit-m3.test.mjs web/e2e-desktop/exit-m4.test.mjs
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: e2e-desktop-${{ matrix.os }}
           path: target/e2e-desktop
           if-no-files-found: ignore
+
+  panel-smoke:
+    # Sandboxed panels (ADR 0019) in the real shell on every webview, WKWebView included:
+    # the app reports to stdout, so no WebDriver is needed (scripts/desktop/panel-smoke.mjs).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev xvfb
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: cargo build -p kumikit-shell --features test-hooks
+      - if: runner.os == 'Linux'
+        run: xvfb-run -a -s "-screen 0 1280x800x24" node scripts/desktop/panel-smoke.mjs target/debug/kumikit-desktop
+      - if: runner.os == 'macOS'
+        run: node scripts/desktop/panel-smoke.mjs target/debug/kumikit-desktop
+      - if: runner.os == 'Windows'
+        run: node scripts/desktop/panel-smoke.mjs target/debug/kumikit-desktop.exe
+
+  templates:
+    # The plugin author templates build, pack, sign, install and run as an author's would
+    # (M4); this job keeps them from rotting.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: sh scripts/check-templates.sh
 
   installers:
     # Installers are built only to check their size; they are not published (M2).

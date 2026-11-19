@@ -3,7 +3,7 @@
  * `test-plugins/web-relay`, which sits in front of a real core. Only the browser-test
  * bundle contains it.
  */
-import type { ClientPluginEntry, Incoming, Platform, ProfileInfo, Removed } from './index';
+import type { ClientPluginEntry, ClientRegistryResult, ClientUpdate, Incoming, Platform, ProfileInfo, Removed } from './index';
 import { ConnectError, asConnectError, pickWithInput, safeModeFromUrl } from './index';
 
 /** A profile endpoint: failures carry the shell's `{ code, message }`. */
@@ -80,6 +80,18 @@ export function relayPlatform(): Platform {
       remove: async (id) => {
         await fetch(`/client-plugins/${encodeURIComponent(id)}`, { method: 'DELETE' });
       },
+    },
+    // The relay serves the shell's client registry code (test-plugins/web-relay).
+    registry: {
+      search: (query, refresh) => profileCall<ClientRegistryResult[]>('/client-registry/search', post({ query, refresh })),
+      install: (plugin) => profileCall<ClientPluginEntry>('/client-registry/install', post(plugin)),
+      updates: (refresh) => profileCall<ClientUpdate[]>('/client-registry/updates', post({ refresh })),
+      update: (id, version) => profileCall<ClientPluginEntry>('/client-registry/update', post({ id, version })),
+      registries: () => profileCall<string[]>('/client-registry/registries'),
+      setRegistries: async (urls) => {
+        await profileCall<unknown>('/client-registry/registries', post({ urls }));
+      },
+      lock: async () => (await profileCall<{ lock: string }>('/client-registry/lock')).lock,
     },
     safeMode: safeModeFromUrl(location.href),
   };

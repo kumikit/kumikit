@@ -149,7 +149,11 @@ fn grant(spawn: &[&str]) -> Grants {
 impl Env {
     async fn install(&self, name: &str, manifest: &str, files: &[(&str, &[u8])], spawn: &[&str]) {
         let file = kkp(self.dir.path(), name, manifest, files);
-        let view = self.host.install(&file).await.unwrap();
+        let view = self
+            .host
+            .install(&file, kumikit_kernel::plugins::PluginSource::File)
+            .await
+            .unwrap();
         self.host
             .enable(&view.record.id, &grant(spawn))
             .await

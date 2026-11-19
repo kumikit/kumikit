@@ -1,0 +1,15 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 49,
+    "method": "registry.remove",
+    "params": {
+      "url": "https://plugins.example.org/index.json"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 49,
+    "result": {}
+  }
+]

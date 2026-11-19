@@ -107,11 +107,11 @@ The first call after authentication is `core.hello`:
 ```jsonc
 // → client
 { "jsonrpc": "2.0", "id": 1, "method": "core.hello",
-  "params": { "protocol": "0.4", "client": { "name": "kumikit-desktop", "version": "0.1.0" } } }
+  "params": { "protocol": "0.5", "client": { "name": "kumikit-desktop", "version": "0.1.0" } } }
 
 // ← core
 { "jsonrpc": "2.0", "id": 1, "result": {
-    "protocol": "0.4",
+    "protocol": "0.5",
     "core": { "version": "0.1.0", "name": "devbox", "os": "linux" },
     "plugins": [
       { "id": "kumikit.provider-acp", "version": "0.1.0",
@@ -129,7 +129,7 @@ The first call after authentication is `core.hello`:
   after authentication. Any other method before it fails with `handshake_required`. A version the core cannot serve fails `core.hello` with
   `protocol_mismatch`.
 - `capabilities` lists what this core serves: `threads`, `approvals`, `plugins`,
-  `providers`, `workspace_events`, and `devices` while remote access is on.
+  `providers`, `workspace_events`, `registry`, and `devices` while remote access is on.
 - The client builds its UI from `plugins` and `capabilities`. A tab on a core without a
   feature shows no UI for it; it does not show a disabled stub.
 - `plugins` lists the enabled plugins. Their `contributes` lists only what is available:
@@ -152,7 +152,8 @@ Methods are namespaced. Kernel namespaces are fixed; plugins get their own.
 | `provider.*` | `list`, `models` | Aggregated across provider plugins |
 | `settings.*` | `get`, `set`, `schema` | Per plugin, validated against its schema |
 | `secret.*` | `set`, `delete`, `list` | **Write-only**: a client can set a secret, never read one |
-| `plugin.*` | `list`, `install`, `enable`, `disable`, `uninstall`, `permissions` | |
+| `plugin.*` | `list`, `install`, `enable`, `disable`, `uninstall`, `updates`, `update`, `lock` | |
+| `registry.*` | `list`, `add`, `remove`, `search` | The core's plugin registries ([10](10-distribution.md#registry)) |
 | `command.*` | `list`, `run` | Commands contributed by core plugins |
 | `events.*` | `subscribe`, `unsubscribe` | See below |
 | `<pluginId>/*` | `kumikit.git/status` | Plugin-contributed methods, routed to that plugin |
@@ -183,11 +184,18 @@ and both sides ignore fields they do not know.
 | `thread.archive` | `thread` | `{}`. Sets `status` to `archived`; no thread event is appended (archiving is not thread content). Fails with `conflict` while a turn runs or waits; an archived thread refuses `thread.send`. |
 | `events.subscribe` | `topic`, `after` | `head` (the topic's last `seq` at subscribe time) |
 | `events.unsubscribe` | `topic` | `{}` |
-| `plugin.list` | — | `plugins`: every installed plugin (`id`, `name`, `version`, `description?`, `repository?`, `state`, `requested`, `granted?`, `contributes`, `signed`, `failure?`, `error?`) |
+| `plugin.list` | — | `plugins`: every installed plugin (`id`, `name`, `version`, `description?`, `repository?`, `state`, `requested`, `granted?`, `contributes`, `signed`, `publisher?`, `source?`, `failure?`, `error?`) |
 | `core.shutdown` | — | `{}`, sent before the core stops. Running turns end as on any stop: the next start ends them as `core_restarted`. |
 | `provider.list` | — | `providers`: `{ id (qualified), name, plugin }` for every available provider, read from manifests without activating anything |
 | `provider.models` | `provider` (qualified id) | `models`: `{ id, label, capabilities }`. Activates the provider's plugin; an unknown provider gives `not_found`. |
-| `plugin.install` | Exactly one of `path` on the core's machine (a `.kkp` file, or a directory holding a `plugin.toml`, packed as `kumikit plugin pack` would, and the packed archive's SHA-256 recorded) and `package`, the bytes of a `.kkp` in base64 (so a client can install on a core on another machine; limited by the 8 MiB message) | `plugin`, in state `installed`. Invalid packages and manifests fail with `invalid_params`, listing the problems; an id that is already installed fails with `conflict`. |
+| `plugin.install` | Exactly one of `path` on the core's machine (a `.kkp` file, or a directory holding a `plugin.toml`, packed as `kumikit plugin pack` would, and the packed archive's SHA-256 recorded), `package`, the bytes of a `.kkp` in base64 (so a client can install on a core on another machine; limited by the 8 MiB message), and `registry { id, version?, sha256?, registry? }` (`registry`: one index URL to use instead of the core's list), fetched by the core from its registries ([10](10-distribution.md#install)) | `plugin`, in state `installed`. Invalid packages and manifests fail with `invalid_params`, listing the problems; an id that is already installed fails with `conflict`; a hash, signature, pinned-key or index mismatch fails with `untrusted`; a registry that cannot be reached with `unavailable`; an id no registry lists with `not_found`. |
+| `plugin.updates` | `refresh?` (revalidate the indexes now) | `updates`: `{ plugin, from, to, registry, requested, widens }` for each installed registry plugin whose registry offers a higher version. Applies nothing. |
+| `plugin.update` | `plugin`, `version`, `grant?` | `plugin`. Downloads and checks the version like an install, then replaces the old one. When `requested` widens the current grant, `grant` must equal the new `requested`, otherwise `conflict` and nothing changes; `conflict` also while one of the plugin's turns runs. |
+| `plugin.lock` | — | `lock`: the text of the core's `plugins.lock` ([10](10-distribution.md#lockfiles)) |
+| `registry.list` | — | `registries`: `{ url, name? }` in resolution order (`name` once the index was read) |
+| `registry.add` | `url` | `{}`. Appends it; `invalid_params` for a URL that is not `https`, loopback `http` or `file`. |
+| `registry.remove` | `url` | `{}` |
+| `registry.search` | `query?`, `refresh?` | `results`: `{ id, name, description?, kind, publisher, key, registry, repository?, version, requested? }` (core plugins only, the latest version this core can run), and `fetched` (when the indexes were read) |
 | `plugin.enable` | `plugin`, `grant` | `plugin`. `grant` must equal the plugin's requested permissions (they are granted as a whole), otherwise `conflict`. Compiles the component. |
 | `plugin.disable` | `plugin` | `plugin`. Cancels the plugin's running turns and unloads it. |
 | `plugin.uninstall` | `plugin`, `deleteData?` | `{}`. Disables it first; deletes its kv and data directory only if `deleteData` is true. |
@@ -197,8 +205,10 @@ and both sides ignore fields they do not know.
 `none`, `read_workspace`, `workspace` and `limits { memoryMb, callTimeoutS }` present only
 when raised above the defaults. `failure { message, retryInSeconds? }` describes the last
 trap or limit breach; `retryInSeconds` is present while the plugin is in backoff. `signed`
-is false until package signing exists. `error` says why an installed package cannot be
-loaded (for example, its files were removed).
+is true when the package's signature was verified. `publisher { key, registry? }` gives
+the signing key's id and, for registry installs, the registry; `source` is `registry`,
+`file` or `bundled`. `error` says why an installed package cannot be loaded (for example,
+its files were removed).
 
 ### Notifications
 
@@ -226,6 +236,8 @@ without parsing messages:
 | -32000 | `unauthenticated` | A remote connection did not authenticate, or its code or token was refused |
 | -32000 | `protocol_mismatch` | The client's protocol version cannot be served |
 | -32000 | `plugin_failed` | A plugin or provider failed while handling the request |
+| -32000 | `untrusted` | A package failed verification: hash, signature, pinned key, or its manifest differs from the registry's entry |
+| -32000 | `unavailable` | A registry could not be reached or answered badly |
 | -32000 | `internal` | A bug or an I/O failure in the core |
 
 New codes are a minor change; clients treat an unknown `data.code` like `internal`.

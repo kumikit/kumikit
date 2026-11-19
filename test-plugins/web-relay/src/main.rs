@@ -32,6 +32,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use kumikit_shell::assets::{self, Asset};
 use kumikit_shell::bridge::{Bridge, Incoming};
+use kumikit_shell::client_registry::{ClientError, ClientRef, ClientRegistry};
 use kumikit_shell::connections::{CommandError, Connections, Keepalive, PairRequest, SshRequest};
 use kumikit_shell::profiles::{LOCAL, Profiles};
 use kumikit_shell::secrets::TokenStore;
@@ -42,12 +43,14 @@ use tokio::sync::{broadcast, mpsc};
 
 /// The same strictness as the shell's CSP, for an http origin.
 const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
-    font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'none'; \
+    font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'self'; \
     object-src 'none'";
 
 struct Relay {
     ui: PathBuf,
     store: Store,
+    /// The shell's client registry code, for UI plugins and themes from registries.
+    registry: ClientRegistry,
     address: String,
     picks: Mutex<VecDeque<Option<String>>>,
     drop_all: broadcast::Sender<()>,
@@ -205,8 +208,12 @@ async fn main() -> Result<()> {
         device_name: "Playwright".into(),
     };
 
+    // The default registry comes from KUMIKIT_DEFAULT_REGISTRY, as in the app.
+    let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+    let registry = ClientRegistry::new(&work.join("client"), store.clone(), &env);
     let relay = Arc::new(Relay {
         ui,
+        registry,
         store,
         address,
         picks: Mutex::new(VecDeque::new()),
@@ -230,6 +237,15 @@ async fn main() -> Result<()> {
         .route("/profiles/{name}", delete(profile_remove))
         .route("/client-plugins", get(list_plugins).post(install_plugin))
         .route("/client-plugins/{id}", delete(remove_plugin))
+        .route("/client-registry/search", post(registry_search))
+        .route("/client-registry/install", post(registry_install))
+        .route("/client-registry/updates", post(registry_updates))
+        .route("/client-registry/update", post(registry_update))
+        .route(
+            "/client-registry/registries",
+            get(registries_get).post(registries_set),
+        )
+        .route("/client-registry/lock", get(registry_lock))
         .route("/plugins/{id}/{*path}", get(plugin_file))
         .fallback(get(ui_file))
         .with_state(relay);
@@ -286,11 +302,37 @@ async fn ui_file(State(r): State<Arc<Relay>>, uri: Uri) -> Response {
 async fn plugin_file(
     State(r): State<Arc<Relay>>,
     UrlPath((id, path)): UrlPath<(String, String)>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
-    match r.store.dir(&id) {
-        Some(dir) => asset(assets::load(&dir, &format!("/{path}"))),
-        None => StatusCode::NOT_FOUND.into_response(),
+    let Some(dir) = r.store.dir(&id) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let mut response = asset(assets::load(&dir, &format!("/{path}")));
+    // A sandboxed panel's files get its own CSP, as the shell and the core send them.
+    if let Some(network) = r.store.panel_network(&id) {
+        let host = headers
+            .get(header::HOST)
+            .and_then(|h| h.to_str().ok())
+            .filter(|h| {
+                h.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b".-:[]".contains(&b))
+            })
+            .unwrap_or("localhost");
+        let own = format!("http://{host}");
+        let csp = format!(
+            "{}; frame-ancestors {own}",
+            assets::panel_csp(&format!("{own}/plugins/{id}/"), &network)
+        );
+        let h = response.headers_mut();
+        if let Ok(v) = HeaderValue::from_str(&csp) {
+            h.insert(header::CONTENT_SECURITY_POLICY, v);
+        }
+        h.insert(
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            HeaderValue::from_static("null"),
+        );
     }
+    response
 }
 
 #[derive(Deserialize)]
@@ -419,6 +461,86 @@ async fn relay_socket(r: Arc<Relay>, profile: String, mut socket: WebSocket) {
     }
     bridge.close(&id);
     let _ = socket.send(Message::Close(None)).await;
+}
+
+// ---- the client registry (the shell's commands) ----
+
+fn client_err(e: ClientError) -> Response {
+    (StatusCode::BAD_REQUEST, axum::Json(e)).into_response()
+}
+
+fn reply<T: serde::Serialize>(r: Result<T, ClientError>) -> Response {
+    match r {
+        Ok(v) => axum::Json(v).into_response(),
+        Err(e) => client_err(e),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct Search {
+    query: String,
+    refresh: bool,
+}
+
+async fn registry_search(
+    State(r): State<Arc<Relay>>,
+    axum::Json(p): axum::Json<Search>,
+) -> Response {
+    reply(r.registry.search(&p.query, p.refresh).await)
+}
+
+async fn registry_install(
+    State(r): State<Arc<Relay>>,
+    axum::Json(p): axum::Json<ClientRef>,
+) -> Response {
+    reply(r.registry.install(&p).await)
+}
+
+#[derive(serde::Deserialize)]
+struct Refresh {
+    refresh: bool,
+}
+
+async fn registry_updates(
+    State(r): State<Arc<Relay>>,
+    axum::Json(p): axum::Json<Refresh>,
+) -> Response {
+    reply(r.registry.updates(p.refresh).await)
+}
+
+#[derive(serde::Deserialize)]
+struct Update {
+    id: String,
+    version: String,
+}
+
+async fn registry_update(
+    State(r): State<Arc<Relay>>,
+    axum::Json(p): axum::Json<Update>,
+) -> Response {
+    reply(r.registry.update(&p.id, &p.version).await)
+}
+
+async fn registries_get(State(r): State<Arc<Relay>>) -> Response {
+    reply(r.registry.registries().await)
+}
+
+#[derive(serde::Deserialize)]
+struct Urls {
+    urls: Vec<String>,
+}
+
+async fn registries_set(State(r): State<Arc<Relay>>, axum::Json(p): axum::Json<Urls>) -> Response {
+    reply(
+        r.registry
+            .set_registries(&p.urls)
+            .await
+            .map(|()| serde_json::json!({})),
+    )
+}
+
+async fn registry_lock(State(r): State<Arc<Relay>>) -> Response {
+    axum::Json(serde_json::json!({ "lock": r.store.lock_text() })).into_response()
 }
 
 // ---- profiles (the shell's commands) ----

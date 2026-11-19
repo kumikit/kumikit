@@ -7,6 +7,8 @@
 
 use std::path::{Component, Path, PathBuf};
 
+pub mod ui_manifest;
+
 /// The scheme the UI kernel is served from.
 pub const APP_SCHEME: &str = "kumikit-app";
 /// The scheme UI plugins are served from.
@@ -67,7 +69,54 @@ pub fn csp(form: SchemeForm) -> String {
     format!(
         "default-src 'none'; script-src {app} {plugin}; style-src {app} {plugin}; \
          img-src {app} {plugin} data:; font-src {app} {plugin}; connect-src {app} {plugin} {ipc}; \
-         base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'"
+         base-uri 'none'; form-action 'none'; frame-src {plugin}; object-src 'none'"
+    )
+}
+
+/// The CSP source that covers one plugin's files and nothing else: the plugin's host on
+/// native schemes, its path on the localhost form (`docs/spec/07-ui-plugins.md#level-2-sandboxed-panels`).
+pub fn panel_source(form: SchemeForm, id: &str) -> String {
+    match form {
+        SchemeForm::Native => format!("{PLUGIN_SCHEME}://{id}"),
+        SchemeForm::Localhost => format!("http://{PLUGIN_SCHEME}.localhost/{id}/"),
+    }
+}
+
+/// Whether `host` may appear in a panel's `[ui] network`: a lowercase DNS name (no
+/// scheme, port, path, wildcard or CSP syntax).
+pub fn valid_network_host(host: &str) -> bool {
+    !host.is_empty()
+        && host.len() <= 253
+        && host.split('.').count() >= 2
+        && host.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        })
+}
+
+/// The CSP of a sandboxed panel's files: code, styles, fonts and images only from `own`
+/// (see [`panel_source`]), network only to the `https` hosts the plugin declares. Hosts
+/// that are not plain DNS names are left out.
+pub fn panel_csp(own: &str, network: &[String]) -> String {
+    let hosts: Vec<String> = network
+        .iter()
+        .filter(|h| valid_network_host(h))
+        .map(|h| format!("https://{h}"))
+        .collect();
+    let connect = if hosts.is_empty() {
+        "'none'".to_owned()
+    } else {
+        hosts.join(" ")
+    };
+    format!(
+        "default-src 'none'; script-src {own}; style-src {own}; img-src {own} data:; \
+         font-src {own}; connect-src {connect}; base-uri 'none'; form-action 'none'; \
+         frame-src 'none'; object-src 'none'"
     )
 }
 
@@ -75,7 +124,7 @@ pub fn csp(form: SchemeForm) -> String {
 /// (`docs/spec/06-client.md#browser-client`): everything from the core's own origin, which
 /// covers `wss:` to it, nothing inline, and no framing by other pages.
 pub const WEB_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
-    font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'none'; \
+    font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'self'; \
     frame-ancestors 'none'; object-src 'none'";
 
 /// A file to answer a request with.
@@ -274,13 +323,49 @@ mod tests {
             let csp = csp(form);
             assert!(csp.starts_with("default-src 'none'"));
             assert!(!csp.contains("unsafe"));
-            assert!(csp.contains("frame-src 'none'"));
+            assert!(csp.contains(&format!("frame-src {}", form.csp_source(PLUGIN_SCHEME))));
             // The UI kernel reads bundled.json and theme tokens with fetch.
             assert!(csp.contains(&format!(
                 "connect-src {} {}",
                 form.csp_source(APP_SCHEME),
                 form.csp_source(PLUGIN_SCHEME)
             )));
+        }
+    }
+
+    #[test]
+    fn panel_csp_is_confined_to_its_plugin() {
+        let own = panel_source(SchemeForm::Native, "acme.graph");
+        assert_eq!(own, "kumikit-plugin://acme.graph");
+        let csp = panel_csp(&own, &[]);
+        assert!(csp.starts_with("default-src 'none'"));
+        assert!(csp.contains("script-src kumikit-plugin://acme.graph;"));
+        assert!(csp.contains("connect-src 'none'"));
+        assert!(csp.contains("frame-src 'none'"));
+        assert!(!csp.contains("unsafe"));
+        assert!(!csp.contains("ipc"));
+        assert_eq!(
+            panel_source(SchemeForm::Localhost, "acme.graph"),
+            "http://kumikit-plugin.localhost/acme.graph/"
+        );
+    }
+
+    #[test]
+    fn panel_network_lists_only_plain_hosts() {
+        let hosts = [
+            "api.github.com",
+            "https://evil.example",
+            "*.example.com",
+            "a.example; script-src *",
+            "localhost",
+            "x.example:8080",
+            "UPPER.example",
+        ]
+        .map(String::from);
+        let csp = panel_csp("kumikit-plugin://a.b", &hosts);
+        assert!(csp.contains("connect-src https://api.github.com;"), "{csp}");
+        for bad in ["evil", "*", "script-src *", "localhost", "8080", "UPPER"] {
+            assert!(!csp.contains(bad), "{bad} in {csp}");
         }
     }
 }

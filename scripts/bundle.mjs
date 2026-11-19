@@ -5,6 +5,7 @@
 //   ui-browser-test/ the browser-test build, for Playwright
 //   ui-plugins/<id>/ the bundled UI plugins and themes, unpacked (read-only)
 //   core-plugins/  provider-acp as a .kkp, seeded on the core with --bundled-plugins
+//   test-ui-plugins/<id>/ UI plugins for the tests only, unpacked (never shipped)
 // Usage: node scripts/bundle.mjs   (from the repository root)
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -42,6 +43,18 @@ for (const dir of UI_PLUGINS) {
   if (existsSync(join(dir, 'dist'))) cpSync(join(dir, 'dist'), join(target, 'dist'), { recursive: true });
   for (const m of manifest.matchAll(/tokens\s*=\s*"([^"]+)"/g)) cpSync(join(dir, m[1]), join(target, m[1]));
   for (const m of manifest.matchAll(/"(fonts\/[^"]+\.woff2)"/g)) cpSync(join(dir, m[1]), join(target, m[1]));
+}
+
+// Test-only UI plugins (never shipped): built here, staged in test-ui-plugins/ for the
+// browser and desktop suites.
+for (const dir of ['test-plugins/ui-panel']) {
+  const manifest = readFileSync(join(dir, 'plugin.toml'), 'utf8');
+  const id = tomlString(manifest, 'id');
+  const target = join(OUT, 'test-ui-plugins', id);
+  run('npx', ['vite', 'build', '--logLevel', 'warn'], { cwd: dir });
+  mkdirSync(target, { recursive: true });
+  for (const f of ['plugin.toml', 'index.html', 'panel.css']) cpSync(join(dir, f), join(target, f));
+  cpSync(join(dir, 'dist'), join(target, 'dist'), { recursive: true });
 }
 
 // The browser client serves the same UI plugins itself.

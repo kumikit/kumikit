@@ -6,6 +6,7 @@ pub mod error;
 pub mod event;
 pub mod jsonrpc;
 pub mod local;
+pub mod lockfile;
 pub mod methods;
 pub mod model;
 pub mod remote;

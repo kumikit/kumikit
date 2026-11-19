@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "The main window: the connection bridge, remote profiles, the client plugin store and the open dialog (ADR 0013, ADR 0017).",
+  "description": "The main window: the connection bridge, remote profiles, the client plugin store with its registries, and the open dialog (ADR 0013, ADR 0017, ADR 0018).",
   "windows": ["main"],
   "permissions": [
     "allow-bridge-connect",
@@ -10,6 +10,13 @@
     "allow-client-plugins-list",
     "allow-client-plugins-install",
     "allow-client-plugins-remove",
+    "allow-client-plugins-install-registry",
+    "allow-client-plugins-updates",
+    "allow-client-plugins-update",
+    "allow-client-registry-search",
+    "allow-client-registries-get",
+    "allow-client-registries-set",
+    "allow-client-lock",
     "allow-profiles-list",
     "allow-profile-probe",
     "allow-profile-pair",

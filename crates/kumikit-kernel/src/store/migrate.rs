@@ -11,6 +11,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0002_plugins.sql"),
     include_str!("../../migrations/0003_seeded_plugins.sql"),
     include_str!("../../migrations/0004_devices.sql"),
+    include_str!("../../migrations/0005_plugin_publisher.sql"),
 ];
 
 /// Applies the migrations `conn` has not seen yet, each in its own transaction. Fails
@@ -43,8 +44,8 @@ mod tests {
     #[test]
     fn fresh_database_reaches_latest() {
         let mut conn = Connection::open_in_memory().unwrap();
-        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 4);
-        assert_eq!(version(&conn), 4);
+        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 5);
+        assert_eq!(version(&conn), 5);
         let tables: i64 = conn
             .query_row(
                 "SELECT count(*) FROM sqlite_master WHERE type = 'table'
@@ -66,7 +67,7 @@ mod tests {
             [],
         )
         .unwrap();
-        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 4);
+        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 5);
         let n: i64 = conn
             .query_row("SELECT count(*) FROM workspaces", [], |r| r.get(0))
             .unwrap();
@@ -77,6 +78,36 @@ mod tests {
             [],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn schema_4_marks_seeded_plugins_as_bundled() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn, &MIGRATIONS[..4]).unwrap();
+        for id in ["kumikit.seeded", "acme.local"] {
+            conn.execute(
+                "INSERT INTO plugins (id, version, state, sha256, installed)
+                 VALUES (?1, '0.1.0', 'installed', 'x', 't')",
+                [id],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO seeded_plugins (id, version, seeded) VALUES ('kumikit.seeded', '0.1.0', 't')",
+            [],
+        )
+        .unwrap();
+        migrate(&mut conn, MIGRATIONS).unwrap();
+        let source = |id: &str| -> (String, Option<String>) {
+            conn.query_row(
+                "SELECT source, publisher_key FROM plugins WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap()
+        };
+        assert_eq!(source("kumikit.seeded"), ("bundled".into(), None));
+        assert_eq!(source("acme.local"), ("file".into(), None));
     }
 
     #[test]
@@ -111,7 +142,7 @@ mod tests {
         let err = migrate(&mut conn, MIGRATIONS).unwrap_err();
         assert!(matches!(
             err,
-            StoreError::NewerSchema { found: 7, known: 4 }
+            StoreError::NewerSchema { found: 7, known: 5 }
         ));
     }
 }

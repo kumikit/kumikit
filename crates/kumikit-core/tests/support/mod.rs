@@ -105,8 +105,19 @@ impl Core {
         dir: Option<&Path>,
         args: &[&std::ffi::OsStr],
     ) -> (Core, Duration) {
+        Core::start_with_env(dirs, dir, args, &[]).await
+    }
+
+    /// Starts the core with extra `serve` arguments and environment variables.
+    pub async fn start_with_env(
+        dirs: &Dirs,
+        dir: Option<&Path>,
+        args: &[&std::ffi::OsStr],
+        env: &[(&str, &str)],
+    ) -> (Core, Duration) {
         let started = std::time::Instant::now();
         let mut command = Command::new(env!("CARGO_BIN_EXE_kumikit"));
+        command.envs(env.iter().copied());
         if let Some(dir) = dir {
             let mut paths = vec![dir.to_path_buf()];
             if let Some(p) = std::env::var_os("PATH") {
@@ -259,7 +270,7 @@ impl Client {
         let mut c = Client::connect(address).await;
         c.call(
             "core.hello",
-            json!({"protocol": "0.4", "client": {"name": "kumikit-test", "version": "0.0.0"}}),
+            json!({"protocol": "0.5", "client": {"name": "kumikit-test", "version": "0.0.0"}}),
         )
         .await;
         c

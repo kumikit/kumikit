@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@kumikit/protocol": "0.1.0",
-    "@kumikit/ui-sdk": "0.1.0",
+    "@kumikit/ui-sdk": "0.1.1",
     "@tauri-apps/api": "2.12.5",
     "@tauri-apps/plugin-dialog": "2.8.4",
     "marked": "18.2.0"

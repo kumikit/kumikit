@@ -48,7 +48,7 @@
       {#if mainView.kind === 'settings'}
         <SettingsView {kernel} page={mainView.page} />
       {:else if mainView.kind === 'plugins'}
-        <PluginsView {kernel} />
+        <PluginsView {kernel} starter={mainView.starter ?? false} />
       {:else if mainView.kind === 'cores'}
         <CoresView {kernel} />
       {:else if mainView.kind === 'view' && pluginView}

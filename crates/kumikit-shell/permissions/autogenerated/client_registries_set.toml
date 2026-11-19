@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-client-registries-set"
+description = "Enables the client_registries_set command without any pre-configured scope."
+commands.allow = ["client_registries_set"]
+
+[[permission]]
+identifier = "deny-client-registries-set"
+description = "Denies the client_registries_set command without any pre-configured scope."
+commands.deny = ["client_registries_set"]

@@ -3,16 +3,18 @@
 //! bundled with the app. The shell checks a manifest's structure and that its files
 //! exist; the UI kernel checks the contents when it loads them.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use kumikit_registry::index::UiNeeds;
 use serde::{Deserialize, Serialize};
 
-/// The UI SDK version this shell serves; manifests' `api` ranges must accept it.
-pub const UI_SDK_VERSION: &str = "0.1.0";
+pub use kumikit_assets::ui_manifest::{MANIFEST, UI_SDK_VERSION, valid_id};
 
-/// The manifest file name.
-pub const MANIFEST: &str = "plugin.toml";
+/// Reads and checks the manifest in an unpacked plugin directory (the shared check in
+/// `kumikit_assets::ui_manifest`).
+pub fn check(dir: &Path) -> Result<(String, String, serde_json::Value), StoreError> {
+    kumikit_assets::ui_manifest::check(dir).map_err(StoreError::Invalid)
+}
 
 /// A store error, in plain words for the user.
 #[derive(Debug, thiserror::Error)]
@@ -26,9 +28,84 @@ pub enum StoreError {
     /// No installed plugin has this id.
     #[error("{0}")]
     NotFound(String),
+    /// The package failed verification: its signature, a pinned key, or (from a
+    /// registry) its manifest against the entry.
+    #[error("{0}")]
+    Untrusted(String),
     /// Reading or writing files failed.
     #[error("{0}")]
     Io(#[from] std::io::Error),
+}
+
+/// Who signed an installed plugin, and the registry it came from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Publisher {
+    /// The signing key's id.
+    pub key: String,
+    /// The registry's index URL, for a registry install.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registry: Option<String>,
+}
+
+/// What the store remembers about an installed plugin (`<installed>/<id>/install.toml`):
+/// the installed version, its package's hash, where it came from and who signed it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Meta {
+    /// Installed version.
+    pub version: String,
+    /// SHA-256 of the package.
+    pub sha256: String,
+    /// `file` or `registry+<index URL>`.
+    pub source: String,
+    /// The signing key's id, pinned for later versions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+}
+
+/// What a registry's entry says a package is (10-distribution, Install).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Expected {
+    /// The publisher's key, which must have signed it.
+    pub key: String,
+    /// `id`.
+    pub id: String,
+    /// `version`.
+    pub version: String,
+    /// `api`.
+    pub api: String,
+    /// Its isolation, network hosts and core needs, as the entry copies them.
+    pub ui: UiNeeds,
+}
+
+/// A UI plugin's needs as its manifest (JSON) says.
+pub fn ui_needs(manifest: &serde_json::Value) -> UiNeeds {
+    let strings = |v: &serde_json::Value| -> Vec<String> {
+        let mut out: Vec<String> = v
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.sort();
+        out
+    };
+    let ui = &manifest["ui"];
+    UiNeeds {
+        isolation: (!ui.is_null()).then(|| ui["isolation"].as_str().unwrap_or("inline").to_owned()),
+        network: strings(&ui["network"]),
+        requires_core: strings(&manifest["requires"]["core"]),
+    }
+}
+
+/// Whether `new` needs more than `old` (10-distribution, Updates): a new network host, or
+/// inline code where there was none.
+pub fn widens(old: &UiNeeds, new: &UiNeeds) -> bool {
+    new.network.iter().any(|h| !old.network.contains(h))
+        || (new.isolation.as_deref() == Some("inline")
+            && old.isolation.as_deref() != Some("inline"))
 }
 
 /// What the UI kernel gets for each plugin.
@@ -41,223 +118,25 @@ pub struct Entry {
     pub source: &'static str,
     /// The manifest as JSON.
     pub manifest: serde_json::Value,
+    /// Who signed it, if it was signed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<Publisher>,
 }
 
-// Fields are declared so unknown ones are refused; the UI kernel reads most of them.
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Manifest {
+struct Staged {
+    sha256: String,
+    staging: tempfile::TempDir,
     id: String,
-    name: String,
     version: String,
-    #[serde(default)]
-    description: Option<String>,
-    #[serde(default)]
-    license: Option<String>,
-    #[serde(default)]
-    repository: Option<String>,
-    kind: Vec<String>,
-    api: String,
-    #[serde(default)]
-    ui: Option<UiSection>,
-    #[serde(default)]
-    theme: Option<ThemeSection>,
-    #[serde(default)]
-    requires: Option<toml::Value>,
-    #[serde(default)]
-    contributes: Option<Contributes>,
+    manifest: serde_json::Value,
+    key: Option<String>,
 }
 
-// Fields are declared so unknown ones are refused; the UI kernel reads most of them.
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct UiSection {
-    entry: String,
-    #[serde(default = "inline")]
-    isolation: String,
-}
-
-fn inline() -> String {
-    "inline".into()
-}
-
-// Fields are declared so unknown ones are refused; the UI kernel reads most of them.
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ThemeSection {
-    variants: Vec<Variant>,
-    #[serde(default)]
-    fonts: Vec<String>,
-}
-
-// Fields are declared so unknown ones are refused; the UI kernel reads most of them.
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Variant {
-    id: String,
-    #[serde(default)]
-    name: Option<String>,
-    appearance: String,
-    tokens: String,
-}
-
-// Fields are declared so unknown ones are refused; the UI kernel reads most of them.
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Contributes {
-    #[serde(default)]
-    slots: Vec<toml::Value>,
-    #[serde(default)]
-    commands: Vec<toml::Value>,
-    #[serde(default)]
-    settings: Option<String>,
-}
-
-fn valid_id(id: &str) -> bool {
-    let mut parts = id.split('.');
-    let ok = |s: &str| {
-        !s.is_empty()
-            && s.chars()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-    };
-    matches!((parts.next(), parts.next(), parts.next()), (Some(a), Some(b), None) if ok(a) && ok(b))
-}
-
-/// A path inside the package that stays inside it.
-fn inside(root: &Path, rel: &str, what: &str, problems: &mut Vec<String>) -> Option<PathBuf> {
-    let p = Path::new(rel);
-    if p.is_absolute()
-        || p.components()
-            .any(|c| !matches!(c, std::path::Component::Normal(_)))
-    {
-        problems.push(format!(
-            "{what} `{rel}` must be a relative path inside the package"
-        ));
-        return None;
-    }
-    let full = root.join(p);
-    if !full.is_file() {
-        problems.push(format!("{what} `{rel}` is missing from the package"));
-        return None;
-    }
-    Some(full)
-}
-
-/// Reads and checks the manifest in an unpacked plugin directory. Every problem is
-/// reported at once.
-pub fn check(dir: &Path) -> Result<(String, String, serde_json::Value), StoreError> {
-    let text = std::fs::read_to_string(dir.join(MANIFEST))
-        .map_err(|_| StoreError::Invalid(format!("the package has no {MANIFEST}")))?;
-    let value: toml::Value = toml::from_str(&text)
-        .map_err(|e| StoreError::Invalid(format!("{MANIFEST} is not valid TOML: {e}")))?;
-    let m: Manifest = value
-        .clone()
-        .try_into()
-        .map_err(|e| StoreError::Invalid(format!("{MANIFEST}: {e}")))?;
-    let mut problems = Vec::new();
-    if !valid_id(&m.id) {
-        problems.push(format!(
-            "id `{}` must be <publisher>.<name> in lowercase letters, digits and dashes",
-            m.id
-        ));
-    }
-    if m.name.trim().is_empty() {
-        problems.push("name must not be empty".into());
-    }
-    if semver::Version::parse(&m.version).is_err() {
-        problems.push(format!("version `{}` is not a semver version", m.version));
-    }
-    match semver::VersionReq::parse(&m.api) {
-        Ok(req) => {
-            let sdk = semver::Version::new(0, 1, 0);
-            if !req.matches(&sdk) {
-                problems.push(format!(
-                    "api `{}` does not accept the UI SDK {UI_SDK_VERSION} this app provides",
-                    m.api
-                ));
-            }
-        }
-        Err(_) => problems.push(format!("api `{}` is not a version range", m.api)),
-    }
-    let kind = match m.kind.as_slice() {
-        [k] if k == "ui" || k == "theme" => k.as_str(),
-        _ => {
-            if m.kind.iter().any(|k| k != "ui" && k != "theme") {
-                problems
-                    .push("this is a core plugin; install it on a core from Manage plugins".into());
-            } else {
-                problems.push("kind must be exactly one of [\"ui\"] or [\"theme\"]".into());
-            }
-            ""
-        }
-    };
-    match kind {
-        "ui" => match &m.ui {
-            None => problems.push("a UI plugin needs a [ui] section with an entry".into()),
-            Some(ui) => {
-                inside(dir, &ui.entry, "the entry", &mut problems);
-                match ui.isolation.as_str() {
-                    "inline" => {}
-                    "iframe" => problems.push(
-                        "sandboxed panels (isolation = \"iframe\") need a later Kumikit".into(),
-                    ),
-                    other => problems.push(format!("isolation `{other}` is not known")),
-                }
-            }
-        },
-        "theme" => {
-            match &m.theme {
-                None => problems.push("a theme needs a [theme] section with variants".into()),
-                Some(t) => {
-                    if t.variants.is_empty() {
-                        problems.push("a theme needs at least one variant".into());
-                    }
-                    let mut ids = BTreeMap::new();
-                    for v in &t.variants {
-                        if ids.insert(v.id.clone(), ()).is_some() {
-                            problems.push(format!("variant id `{}` is used twice", v.id));
-                        }
-                        if v.appearance != "light" && v.appearance != "dark" {
-                            problems.push(format!(
-                                "variant `{}`: appearance must be light or dark",
-                                v.id
-                            ));
-                        }
-                        if let Some(f) = inside(dir, &v.tokens, "the tokens file", &mut problems)
-                        && std::fs::read_to_string(&f)
-                            .ok()
-                            .and_then(|s| serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&s).ok())
-                            .is_none()
-                    {
-                        problems.push(format!("`{}` is not a JSON object", v.tokens));
-                    }
-                    }
-                    for f in &t.fonts {
-                        if !f.ends_with(".woff2") {
-                            problems.push(format!("font `{f}` must be a .woff2 file"));
-                        }
-                        inside(dir, f, "the font", &mut problems);
-                    }
-                }
-            }
-        }
-        _ => {}
-    }
-    if let Some(c) = &m.contributes
-        && let Some(s) = &c.settings
-    {
-        inside(dir, s, "the settings schema", &mut problems);
-    }
-    if !problems.is_empty() {
-        return Err(StoreError::Invalid(problems.join("; ")));
-    }
-    let json = serde_json::to_value(&value).map_err(|e| StoreError::Invalid(e.to_string()))?;
-    Ok((m.id, m.version, json))
+fn publisher(meta: &Meta) -> Option<Publisher> {
+    Some(Publisher {
+        key: meta.key.clone()?,
+        registry: meta.source.strip_prefix("registry+").map(str::to_owned),
+    })
 }
 
 /// Installed and bundled UI plugins.
@@ -286,6 +165,12 @@ impl Store {
             })
     }
 
+    /// For a sandboxed panel plugin, the hosts it may contact; `None` for any other plugin
+    /// (and for an unknown or broken one).
+    pub fn panel_network(&self, id: &str) -> Option<Vec<String>> {
+        kumikit_assets::ui_manifest::panel_network(&self.dir(id)?)
+    }
+
     fn installed_version(&self, id: &str) -> Option<String> {
         let dir = self.installed.join(id);
         std::fs::read_dir(dir)
@@ -306,12 +191,19 @@ impl Store {
         let mut out = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
         let mut push = |dir: PathBuf, source: &'static str| match check(&dir) {
-            Ok((id, version, manifest)) if seen.insert(id.clone()) => out.push(Entry {
-                id,
-                version,
-                source,
-                manifest,
-            }),
+            Ok((id, version, manifest)) if seen.insert(id.clone()) => {
+                let publisher = (source == "installed")
+                    .then(|| self.meta(&id))
+                    .flatten()
+                    .and_then(|m| publisher(&m));
+                out.push(Entry {
+                    id,
+                    version,
+                    source,
+                    manifest,
+                    publisher,
+                })
+            }
             Ok(_) => {}
             Err(e) => {
                 #[allow(clippy::print_stderr)]
@@ -361,14 +253,94 @@ impl Store {
         out
     }
 
-    /// Unpacks and checks a package, then moves it into place. A bundled id cannot be
-    /// replaced, and an installed id must be removed first (no updates before M4).
-    pub fn install(&self, package: &Path) -> Result<Entry, StoreError> {
+    /// What the store remembers about an installed plugin.
+    pub fn meta(&self, id: &str) -> Option<Meta> {
+        if !valid_id(id) {
+            return None;
+        }
+        let text = std::fs::read_to_string(self.installed.join(id).join("install.toml")).ok()?;
+        toml::from_str(&text).ok()
+    }
+
+    fn write_meta(&self, id: &str, meta: &Meta) -> Result<(), StoreError> {
+        let text = toml::to_string(meta).map_err(|e| StoreError::Invalid(e.to_string()))?;
+        let path = self.installed.join(id).join("install.toml");
+        let tmp = path.with_extension("toml.tmp");
+        std::fs::write(&tmp, text)?;
+        std::fs::rename(tmp, path)?;
+        Ok(())
+    }
+
+    /// Unpacks into staging, verifies the signature, checks the manifest and, with
+    /// `expected`, that it is what the registry's entry says.
+    fn stage(&self, package: &Path, expected: Option<&Expected>) -> Result<Staged, StoreError> {
         std::fs::create_dir_all(&self.installed)?;
+        let sha256 = kumikit_package::sha256_file(package)?;
         let staging = tempfile::tempdir_in(&self.installed)?;
         kumikit_package::unpack(package, staging.path())
             .map_err(|e| StoreError::Invalid(e.to_string()))?;
+        let key = kumikit_package::signature::verify_dir(staging.path())
+            .map_err(|e| match e {
+                kumikit_package::PackageError::Untrusted(m) => {
+                    StoreError::Untrusted(format!("untrusted package: {m}"))
+                }
+                other => StoreError::Invalid(other.to_string()),
+            })?
+            .key()
+            .map(|k| k.to_string());
         let (id, version, manifest) = check(staging.path())?;
+        if let Some(e) = expected {
+            let untrusted = |why: String| {
+                StoreError::Untrusted(format!("untrusted package: {} {}: {why}", e.id, e.version))
+            };
+            match &key {
+                None => return Err(untrusted("it is not signed".into())),
+                Some(k) if *k != e.key => {
+                    return Err(untrusted(format!(
+                        "it is signed by {k}, not by the publisher's key {}",
+                        e.key
+                    )));
+                }
+                Some(_) => {}
+            }
+            let api = manifest["api"].as_str().unwrap_or_default();
+            if id != e.id || version != e.version || api != e.api {
+                return Err(untrusted(format!(
+                    "its manifest says {id} {version} (api {api}), which differs from the registry's entry"
+                )));
+            }
+            if ui_needs(&manifest) != e.ui {
+                return Err(untrusted(
+                    "its isolation, network hosts or core needs differ from the registry's entry"
+                        .into(),
+                ));
+            }
+        }
+        Ok(Staged {
+            sha256,
+            staging,
+            id,
+            version,
+            manifest,
+            key,
+        })
+    }
+
+    /// Installs a UI plugin or theme package from a file.
+    pub fn install(&self, package: &Path) -> Result<Entry, StoreError> {
+        self.install_checked(package, "file", None)
+    }
+
+    /// Installs a package; `source` is `file` or `registry+<url>`, and `expected` (from a
+    /// registry) is checked before anything is put in place.
+    pub fn install_checked(
+        &self,
+        package: &Path,
+        source: &str,
+        expected: Option<&Expected>,
+    ) -> Result<Entry, StoreError> {
+        let staged = self.stage(package, expected)?;
+        let id = staged.id.clone();
         if self.bundled.as_ref().is_some_and(|b| b.join(&id).is_dir()) {
             return Err(StoreError::Conflict(format!(
                 "{id} is bundled with the app; disable it instead"
@@ -381,16 +353,110 @@ impl Store {
             )));
         }
         std::fs::create_dir_all(&target)?;
-        std::fs::rename(staging.keep(), target.join(&version))?;
+        std::fs::rename(staged.staging.keep(), target.join(&staged.version))?;
+        let meta = Meta {
+            version: staged.version.clone(),
+            sha256: staged.sha256,
+            source: source.to_owned(),
+            key: staged.key,
+        };
+        self.write_meta(&id, &meta)?;
         Ok(Entry {
+            publisher: publisher(&meta),
             id,
-            version,
+            version: staged.version,
             source: "installed",
-            manifest,
+            manifest: staged.manifest,
         })
     }
 
-    /// Removes an installed plugin (bundled ones can only be disabled).
+    /// Replaces an installed plugin with another version (an update). A package signed by
+    /// another key than the installed one's, or unsigned where it was signed, is untrusted.
+    pub fn replace(
+        &self,
+        id: &str,
+        package: &Path,
+        source: &str,
+        expected: Option<&Expected>,
+    ) -> Result<Entry, StoreError> {
+        let current = self
+            .meta(id)
+            .ok_or_else(|| StoreError::NotFound(format!("{id} is not installed")))?;
+        let staged = self.stage(package, expected)?;
+        if staged.id != id {
+            return Err(StoreError::Invalid(format!(
+                "the package is {}, not {id}",
+                staged.id
+            )));
+        }
+        if staged.version == current.version {
+            return Err(StoreError::Conflict(format!(
+                "{id} {} is already installed",
+                current.version
+            )));
+        }
+        if let Some(pinned) = &current.key
+            && staged.key.as_ref() != Some(pinned)
+        {
+            return Err(StoreError::Untrusted(format!(
+                "untrusted package: {id} {} is not signed by the key of the installed version ({pinned}); if you trust the new one, remove the plugin and install it again",
+                staged.version
+            )));
+        }
+        let dir = self.installed.join(id);
+        std::fs::rename(staged.staging.keep(), dir.join(&staged.version))?;
+        let meta = Meta {
+            version: staged.version.clone(),
+            sha256: staged.sha256,
+            source: source.to_owned(),
+            key: staged.key,
+        };
+        self.write_meta(id, &meta)?;
+        let old = dir.join(&current.version);
+        if old.is_dir() {
+            std::fs::remove_dir_all(old)?;
+        }
+        Ok(Entry {
+            publisher: publisher(&meta),
+            id: id.to_owned(),
+            version: staged.version,
+            source: "installed",
+            manifest: staged.manifest,
+        })
+    }
+
+    /// The client lockfile's text: installed (not bundled) UI plugins and themes.
+    pub fn lock_text(&self) -> String {
+        let mut ids: Vec<String> = std::fs::read_dir(&self.installed)
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect();
+        ids.sort();
+        let plugins = ids
+            .into_iter()
+            .filter_map(|id| {
+                let m = self.meta(&id)?;
+                Some(kumikit_protocol::lockfile::LockEntry {
+                    id,
+                    version: m.version,
+                    sha256: m.sha256,
+                    source: m.source,
+                    key: m.key,
+                    state: None,
+                    granted: None,
+                    enabled: None,
+                    trusted: None,
+                })
+            })
+            .collect();
+        kumikit_protocol::lockfile::render(&kumikit_protocol::lockfile::LockFile {
+            format: kumikit_protocol::lockfile::LOCK_FORMAT,
+            plugins,
+        })
+    }
+
     pub fn remove(&self, id: &str) -> Result<(), StoreError> {
         let target = self.installed.join(id);
         if !valid_id(id) || !target.is_dir() {
@@ -504,6 +570,29 @@ slots = [{ slot = "inspector.tab", id = "p", title = "P" }]
     }
 
     #[test]
+    fn installs_a_sandboxed_panel_and_reports_its_hosts() {
+        let root = tempfile::tempdir().unwrap();
+        let s = store(root.path());
+        let manifest = UI.replace(
+            "entry = \"dist/index.js\"",
+            "entry = \"dist/index.html\"\nisolation = \"iframe\"\nnetwork = [\"api.example.com\"]",
+        );
+        let p = package(
+            root.path(),
+            "panel",
+            &manifest,
+            &[("dist/index.html", "<!doctype html>")],
+        );
+        s.install(&p).unwrap();
+        assert_eq!(
+            s.panel_network("community.panel"),
+            Some(vec!["api.example.com".to_owned()])
+        );
+        assert_eq!(s.panel_network("kumikit.base"), None, "a theme is no panel");
+        assert_eq!(s.panel_network("nobody.here"), None);
+    }
+
+    #[test]
     fn refuses_what_it_cannot_load() {
         let root = tempfile::tempdir().unwrap();
         let s = store(root.path());
@@ -514,18 +603,43 @@ slots = [{ slot = "inspector.tab", id = "p", title = "P" }]
                 "install it on a core",
             ),
             (
-                "iframe",
+                "iframe-js",
                 &UI.replace(
                     "entry = \"dist/index.js\"",
                     "entry = \"dist/index.js\"\nisolation = \"iframe\"",
                 ),
-                "need a later Kumikit",
+                "must be an .html file",
+            ),
+            (
+                "iframe-host",
+                &UI.replace(
+                    "entry = \"dist/index.js\"",
+                    "entry = \"dist/index.js\"\nisolation = \"iframe\"\nnetwork = [\"https://x.example\"]",
+                ),
+                "is not a host name",
+            ),
+            (
+                "panel-slot",
+                &UI.replace(
+                    "entry = \"dist/index.js\"",
+                    "entry = \"dist/index.html\"\nisolation = \"iframe\"",
+                )
+                .replace("inspector.tab", "transcript.renderer"),
+                "cannot contribute to `transcript.renderer`",
+            ),
+            (
+                "inline-network",
+                &UI.replace(
+                    "entry = \"dist/index.js\"",
+                    "entry = \"dist/index.js\"\nnetwork = [\"x.example\"]",
+                ),
+                "only for sandboxed panels",
             ),
             ("missing", UI, "the entry `dist/index.js` is missing"),
             (
                 "api",
                 &UI.replace("^0.1", "^1.0"),
-                "does not accept the UI SDK 0.1.0",
+                "does not accept the UI SDK 0.1.1",
             ),
             (
                 "bundled",

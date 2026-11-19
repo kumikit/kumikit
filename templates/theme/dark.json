@@ -1,0 +1,17 @@
+{
+  "surface.frame": "#16131f",
+  "surface.panel": "#1d1928",
+  "surface.card": "#241f31",
+  "surface.raised": "#2b2539",
+  "surface.input": "#141120",
+  "text.primary": "#ece8f5",
+  "text.secondary": "#c3bdd3",
+  "text.muted": "#9a93ad",
+  "text.link": "#b9a6ff",
+  "accent": "#8f75f0",
+  "text.on-accent": "#0f0b1a",
+  "focus": "#b9a6ff",
+  "border.subtle": "#332c44",
+  "border.strong": "#6f6487",
+  "radius.medium": "8px"
+}

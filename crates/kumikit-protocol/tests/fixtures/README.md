@@ -26,5 +26,7 @@ The first entry of most files is a recording of a real session: the M0 exit test
 Error cases and kinds the scripted provider never emits (`reasoning.delta`,
 `file.changed`, `plugin.event`), and the `plugin.*` methods and `core.pluginsChanged`
 (added in protocol 0.2), and `provider.*`, `core.shutdown` and the workspace topic events
-(added in 0.3), and the `auth.*` methods and `plugin.install { package }` (added in 0.4),
+(added in 0.3), and the `auth.*` methods and `plugin.install { package }` (added in 0.4), and the
+`registry.*` methods, `plugin.updates`, `plugin.update`, `plugin.lock`, `plugin.install
+{ registry }`, publishers and the `untrusted` and `unavailable` errors (added in 0.5),
 are written by hand from the spec. Device ids are `01JCDV…`; tokens and codes are made up.

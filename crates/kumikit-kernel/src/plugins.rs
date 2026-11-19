@@ -27,7 +27,8 @@ pub enum PluginState {
 }
 
 impl PluginState {
-    fn as_str(self) -> &'static str {
+    /// The stored form: `installed`, `enabled` or `disabled`.
+    pub fn as_str(self) -> &'static str {
         match self {
             PluginState::Installed => "installed",
             PluginState::Enabled => "enabled",
@@ -47,6 +48,39 @@ impl PluginState {
     }
 }
 
+/// Where an installed plugin came from (10-distribution, Lockfiles).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PluginSource {
+    /// A local package file or folder.
+    File,
+    /// Preinstalled from the bundled directory.
+    Bundled,
+    /// A registry, by its index URL.
+    Registry(String),
+}
+
+impl PluginSource {
+    /// The stored form: `file`, `bundled` or `registry+<url>`.
+    pub fn as_stored(&self) -> String {
+        match self {
+            PluginSource::File => "file".into(),
+            PluginSource::Bundled => "bundled".into(),
+            PluginSource::Registry(url) => format!("registry+{url}"),
+        }
+    }
+
+    /// Reads the stored form; anything unknown reads as `file`.
+    pub fn from_stored(s: &str) -> PluginSource {
+        match s {
+            "bundled" => PluginSource::Bundled,
+            _ => match s.strip_prefix("registry+") {
+                Some(url) => PluginSource::Registry(url.to_owned()),
+                None => PluginSource::File,
+            },
+        }
+    }
+}
+
 /// An installed plugin, as the kernel stores it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginRecord {
@@ -62,6 +96,11 @@ pub struct PluginRecord {
     pub granted: Option<Grants>,
     /// When it was installed.
     pub installed: Timestamp,
+    /// The id of the key that signed the package (`ed25519:…`), pinned for later
+    /// versions; `None` for an unsigned package.
+    pub publisher_key: Option<String>,
+    /// Where it came from.
+    pub source: PluginSource,
 }
 
 fn row_to_record(
@@ -77,6 +116,8 @@ fn row_to_record(
             sha256: r.get(3)?,
             granted: None,
             installed: Timestamp(r.get(5)?),
+            publisher_key: r.get(6)?,
+            source: PluginSource::from_stored(&r.get::<_, String>(7)?),
         },
         state,
         granted,
@@ -90,7 +131,8 @@ fn finish(parts: (PluginRecord, String, Option<String>)) -> KernelResult<PluginR
     Ok(rec)
 }
 
-const SELECT: &str = "SELECT id, version, state, sha256, granted, installed FROM plugins";
+const SELECT: &str =
+    "SELECT id, version, state, sha256, granted, installed, publisher_key, source FROM plugins";
 
 fn plugin_get(c: &Connection, id: &str) -> KernelResult<Option<PluginRecord>> {
     c.query_row(&format!("{SELECT} WHERE id = ?1"), [id], row_to_record)
@@ -177,17 +219,53 @@ impl Kernel {
                     )));
                 }
                 c.execute(
-                    "INSERT INTO plugins (id, version, state, sha256, granted, installed)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    "INSERT INTO plugins
+                       (id, version, state, sha256, granted, installed, publisher_key, source)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                     params![
                         record.id,
                         record.version,
                         record.state.as_str(),
                         record.sha256,
                         granted,
-                        record.installed.0
+                        record.installed.0,
+                        record.publisher_key,
+                        record.source.as_stored()
                     ],
                 )?;
+                Ok(())
+            })
+            .await
+    }
+
+    /// Replaces an installed plugin's record with another version's (an update): version,
+    /// hash, key, source, state and grants change; the install time and its data stay.
+    pub async fn plugin_replace(&self, record: PluginRecord) -> KernelResult<()> {
+        let granted = record
+            .granted
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
+        self.inner
+            .store
+            .write(move |c| {
+                let n = c.execute(
+                    "UPDATE plugins SET version = ?2, state = ?3, sha256 = ?4, granted = ?5,
+                       publisher_key = ?6, source = ?7
+                     WHERE id = ?1",
+                    params![
+                        record.id,
+                        record.version,
+                        record.state.as_str(),
+                        record.sha256,
+                        granted,
+                        record.publisher_key,
+                        record.source.as_stored()
+                    ],
+                )?;
+                if n == 0 {
+                    return Err(KernelError::NotFound(format!("no plugin {}", record.id)));
+                }
                 Ok(())
             })
             .await
