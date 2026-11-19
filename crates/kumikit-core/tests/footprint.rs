@@ -12,7 +12,12 @@
 //!    (no agent is started); its round trip and the memory it adds;
 //! 4. remote access on (`--listen 127.0.0.1:0`, M3): the first start, which generates the
 //!    certificate, is reported; a later start and the idle memory with one paired client
-//!    connected and past `core.hello` are held to the same budgets as phase 1.
+//!    connected and past `core.hello` are held to the same budgets as phase 1;
+//! 5. registries (M4): after a `registry.search` and an install by id from a fixture
+//!    registry on loopback, the idle memory is held to the same budget. Enabling the
+//!    plugin afterwards compiles its component inside the running core; the idle memory
+//!    after that is reported, not gated (see the M4 plan's notes: it comes from compiling
+//!    in-process, which predates M4).
 //!
 //! A measurement, not a correctness test: it is `#[ignore]`d and meant for a release
 //! build. Run it with `sh scripts/footprint.sh`.
@@ -238,6 +243,51 @@ async fn sample_remote() -> (Duration, Sample) {
     )
 }
 
+/// Phase 5: idle memory after the core searched a registry and installed a plugin from
+/// it, then after it enabled (compiled) that plugin.
+async fn sample_registry() -> (Option<u64>, Option<u64>) {
+    let dirs = Dirs::new();
+    let root = dirs.root().join("reg");
+    let www = root.join("www");
+    std::fs::create_dir_all(&www).unwrap();
+    let server = kumikit_test_registry_fixture::serve(www).await;
+    let fixture = kumikit_test_registry_fixture::Fixture::new(&root, &server.url);
+    let (key, _) = kumikit_plugin_host::package::SigningKey::generate().unwrap();
+    fixture.publisher("acme", &key, &["acme"]);
+    let src = root.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(
+        src.join("plugin.toml"),
+        "id = \"acme.probe\"\nname = \"Probe\"\nversion = \"0.1.0\"\nkind = [\"provider\"]\napi = \"^0.1\"\n\
+         [runtime]\nwasm = \"plugin.wasm\"\nworlds = [\"kumikit:provider/plugin@0.1.0\"]\n\
+         [contributes]\nproviders = [{ id = \"probe\", name = \"Probe\" }]\n",
+    )
+    .unwrap();
+    std::fs::copy(kumikit_test_plugins::PROBE_WASM, src.join("plugin.wasm")).unwrap();
+    fixture.publish(&src, Some(&key));
+    fixture.build_index();
+    let index = fixture.index_url();
+    let (core, _) =
+        Core::start_with_env(&dirs, None, &[], &[("KUMIKIT_DEFAULT_REGISTRY", &index)]).await;
+    let mut c = Client::hello(&dirs.address).await;
+    c.call("registry.search", json!({"query": "probe"})).await;
+    let p = c
+        .call("plugin.install", json!({"registry": {"id": "acme.probe"}}))
+        .await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let installed = rss_kb(core.pid());
+    c.call(
+        "plugin.enable",
+        json!({"plugin": "acme.probe", "grant": p["plugin"]["requested"]}),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let enabled = rss_kb(core.pid());
+    drop(c);
+    core.stop().await;
+    (installed, enabled)
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "measurement; run with scripts/footprint.sh on a release build"]
 async fn core_footprint_is_within_budget() {
@@ -294,6 +344,31 @@ async fn core_footprint_is_within_budget() {
         median(firsts).as_millis()
     );
     check_start_and_idle("remote on, one paired client", &remote);
+
+    let mut registry = Vec::new();
+    let mut compiled = Vec::new();
+    for _ in 0..RUNS {
+        let (installed, enabled) = sample_registry().await;
+        registry.extend(installed);
+        compiled.extend(enabled);
+    }
+    if !compiled.is_empty() {
+        println!(
+            "after enabling it in the running core (compiles the component; reported, not gated): idle RSS {:.1} MB",
+            mb(median(compiled))
+        );
+    }
+    if !registry.is_empty() {
+        let kb = median(registry);
+        println!(
+            "after a registry search and install (median of {RUNS}): idle RSS {:.1} MB",
+            mb(kb)
+        );
+        assert!(
+            kb <= RSS_BUDGET_KB,
+            "idle RSS after a registry install {kb} KiB exceeds {RSS_BUDGET_KB} KiB"
+        );
+    }
 
     println!("core binary: {:.1} MiB", bytes as f64 / (1024.0 * 1024.0));
     assert!(

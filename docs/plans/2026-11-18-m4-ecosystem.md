@@ -833,7 +833,7 @@ Each step ends with the Verify checks that apply and one commit on branch `m4-ec
 - [x] **14. Templates.** `templates/*`, `test-plugins/client-store`,
   `scripts/check-templates.sh`, `templates` CI job, README pointers. Commit: `feat: add
   plugin author templates`.
-- [ ] **15. Footprint and installers.** The new phase, the panel run (reported), numbers in
+- [x] **15. Footprint and installers.** The new phase, the panel run (reported), numbers in
   Notes. Commit: `chore: measure the M4 footprint`.
 - [ ] **16. Close out.** Spec matches the code; roadmap M4 status; AGENTS.md status and
   Verify; agent reference (signature format pitfalls, the registry cache, the panel
@@ -1146,4 +1146,24 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
   into a fresh core and runs one echo turn through the protocol
   (`scripts/template-turn.mjs`), and installs the UI plugin and theme into a client store
   with the shell's own code (`test-plugins/client-store`). CI job `templates` (Linux).
+- Step 15 (2026-11-19, Linux x86_64, release), against M3's numbers:
+  - Core: cold start 3–4 ms; idle 11.9 MB (no plugins), 12.9 MB (plugins enabled),
+    15.4 MB (remote on, one client); activation 4.8 ms / +8.1 MB. All unchanged.
+  - New phase 5: after a `registry.search` and an install by id, idle **17.8 MB** (gated,
+    budget 30).
+  - **Finding (reported, not gated):** enabling a plugin *in the running core* leaves
+    idle memory at **38.8 MB**. The same happens for a plugin installed from a file
+    (38.0 MB), so it is not the registry: enabling compiles the component with Cranelift
+    in-process (M1's compile-at-enable) and the allocator keeps the memory. The earlier
+    phases enable plugins offline, before `serve`, so they never saw it. Raised with the
+    user; no budget changed.
+  - **Core binary 30.5 MiB** (28.4 in M3; budget 32 MiB). Over the plan's 30 MiB stop
+    line, so reported with a breakdown (unstripped symbols vs main, +2.1 MiB stripped):
+    the registry client (`kumikit_registry` 195 KiB plus the client halves of rustls,
+    hyper, webpki and tokio-rustls, about 0.5 MiB), generic code newly instantiated in
+    core, alloc, tokio and serde_json (about 0.6 MiB), Kumikit's own new code (about
+    0.45 MiB), unwind tables 0.1 MiB, toml 64 KiB, `kumikit_theme` 28 KiB (regex was
+    already in the core). No single dependency to drop; the lever measured in M1
+    (`opt-level = "s"` for Cranelift and wasmtime) needs the user's approval.
+  - Installers: from CI (below).
 
