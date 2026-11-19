@@ -1,0 +1,312 @@
+{
+  "$comment": "Shared by web/kernel/tests/theme.test.ts and the kumikit-theme crate: both implementations of 08-themes' checks must give these answers. Ratios are WCAG 2 contrast ratios, compared to two decimals.",
+  "values": [
+    {
+      "type": "color",
+      "value": "#1a1b26",
+      "valid": true
+    },
+    {
+      "type": "color",
+      "value": "#fff",
+      "valid": true
+    },
+    {
+      "type": "color",
+      "value": "#ffff",
+      "valid": true
+    },
+    {
+      "type": "color",
+      "value": "#12345678",
+      "valid": true
+    },
+    {
+      "type": "color",
+      "value": "transparent",
+      "valid": true
+    },
+    {
+      "type": "color",
+      "value": "rgba(10, 20, 30, 0.5)",
+      "valid": true
+    },
+    {
+      "type": "color",
+      "value": "rgb(10 20 30 / 50%)",
+      "valid": true
+    },
+    {
+      "type": "color",
+      "value": "hsl(220 30% 20%)",
+      "valid": true
+    },
+    {
+      "type": "color",
+      "value": "HSLA(220, 30%, 20%, 0.4)",
+      "valid": true
+    },
+    {
+      "type": "color",
+      "value": "red",
+      "valid": false
+    },
+    {
+      "type": "color",
+      "value": "#12",
+      "valid": false
+    },
+    {
+      "type": "color",
+      "value": "#ggg",
+      "valid": false
+    },
+    {
+      "type": "color",
+      "value": "red; background: url(https://x)",
+      "valid": false
+    },
+    {
+      "type": "color",
+      "value": "expression(alert(1))",
+      "valid": false
+    },
+    {
+      "type": "color",
+      "value": "#12/**/3456",
+      "valid": false
+    },
+    {
+      "type": "color",
+      "value": "rgb(1,2)",
+      "valid": false
+    },
+    {
+      "type": "length",
+      "value": "8px",
+      "valid": true
+    },
+    {
+      "type": "length",
+      "value": "0",
+      "valid": true
+    },
+    {
+      "type": "length",
+      "value": "1.5rem",
+      "valid": true
+    },
+    {
+      "type": "length",
+      "value": "-2em",
+      "valid": true
+    },
+    {
+      "type": "length",
+      "value": ".5px",
+      "valid": true
+    },
+    {
+      "type": "length",
+      "value": "10vh",
+      "valid": false
+    },
+    {
+      "type": "length",
+      "value": "8",
+      "valid": false
+    },
+    {
+      "type": "length",
+      "value": "8px} body{display:none",
+      "valid": false
+    },
+    {
+      "type": "number",
+      "value": "0.95",
+      "valid": true
+    },
+    {
+      "type": "number",
+      "value": "400",
+      "valid": true
+    },
+    {
+      "type": "number",
+      "value": "-1",
+      "valid": true
+    },
+    {
+      "type": "number",
+      "value": "1e3",
+      "valid": false
+    },
+    {
+      "type": "number",
+      "value": "one",
+      "valid": false
+    },
+    {
+      "type": "duration",
+      "value": "120ms",
+      "valid": true
+    },
+    {
+      "type": "duration",
+      "value": "0.2s",
+      "valid": true
+    },
+    {
+      "type": "duration",
+      "value": "1h",
+      "valid": false
+    },
+    {
+      "type": "duration",
+      "value": "120",
+      "valid": false
+    },
+    {
+      "type": "easing",
+      "value": "linear",
+      "valid": true
+    },
+    {
+      "type": "easing",
+      "value": "ease-out",
+      "valid": true
+    },
+    {
+      "type": "easing",
+      "value": "cubic-bezier(0.2, 0, 0, 1)",
+      "valid": true
+    },
+    {
+      "type": "easing",
+      "value": "steps(4)",
+      "valid": false
+    },
+    {
+      "type": "easing",
+      "value": "cubic-bezier(1,2,3)",
+      "valid": false
+    },
+    {
+      "type": "font-list",
+      "value": "\"Inter\", system-ui, sans-serif",
+      "valid": true
+    },
+    {
+      "type": "font-list",
+      "value": "'JetBrains Mono', monospace",
+      "valid": true
+    },
+    {
+      "type": "font-list",
+      "value": "Inter",
+      "valid": true
+    },
+    {
+      "type": "font-list",
+      "value": "Inter; color: red",
+      "valid": false
+    },
+    {
+      "type": "font-list",
+      "value": "\"a\\\"b\"",
+      "valid": false
+    },
+    {
+      "type": "font-list",
+      "value": "url(x)",
+      "valid": false
+    },
+    {
+      "type": "font-list",
+      "value": "1font",
+      "valid": false
+    },
+    {
+      "type": "shadow",
+      "value": "none",
+      "valid": true
+    },
+    {
+      "type": "shadow",
+      "value": "0 1px 2px rgba(0,0,0,0.2), 0 4px 8px #0003",
+      "valid": true
+    },
+    {
+      "type": "shadow",
+      "value": "inset 0 0 0 1px #000",
+      "valid": true
+    },
+    {
+      "type": "shadow",
+      "value": "0 0 2px url(x)",
+      "valid": false
+    },
+    {
+      "type": "shadow",
+      "value": "0 0 2px",
+      "valid": false
+    },
+    {
+      "type": "shadow",
+      "value": "0 1px red",
+      "valid": false
+    },
+    {
+      "type": "color",
+      "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "valid": false
+    },
+    {
+      "type": "length",
+      "value": "<script>",
+      "valid": false
+    }
+  ],
+  "contrast": [
+    {
+      "fg": "#000",
+      "bg": "#fff",
+      "ratio": 21.0
+    },
+    {
+      "fg": "#777",
+      "bg": "#fff",
+      "ratio": 4.48
+    },
+    {
+      "fg": "#fff",
+      "bg": "#fff",
+      "ratio": 1.0
+    },
+    {
+      "fg": "#c0caf5",
+      "bg": "#1a1b26",
+      "ratio": 10.59
+    },
+    {
+      "fg": "rgba(0,0,0,0.5)",
+      "bg": "#ffffff",
+      "ratio": 3.98
+    },
+    {
+      "fg": "#7aa2f7",
+      "bg": "#1a1b26",
+      "ratio": 6.79
+    },
+    {
+      "fg": "rgb(255 255 255)",
+      "bg": "#0000ff",
+      "ratio": 8.59
+    },
+    {
+      "fg": "#565f89",
+      "bg": "#1f2335",
+      "ratio": 2.51
+    }
+  ]
+}

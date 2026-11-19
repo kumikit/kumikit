@@ -7,6 +7,7 @@ members = [
   "crates/kumikit-assets",
   "crates/kumikit-registry",
   "crates/kumikit-registry-tool",
+  "crates/kumikit-theme",
   "crates/kumikit-plugin-host",
   "crates/kumikit-core",
   "crates/kumikit-shell",

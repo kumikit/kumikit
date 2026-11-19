@@ -796,7 +796,7 @@ Each step ends with the Verify checks that apply and one commit on branch `m4-ec
   README privacy sentence. Commit: `feat: install and update core plugins from registries`.
 - [x] **7. Core exit test.** `tests/exit_m4.rs` (steps 1–6 of the exit flow) and
   `serve_makes_no_registry_request`. Commit: `test: add the M4 exit test for the core`.
-- [ ] **8. Theme check.** `kumikit-theme`, `web/sdk/theme-rules.json`, shared vectors in
+- [x] **8. Theme check.** `kumikit-theme`, `web/sdk/theme-rules.json`, shared vectors in
   Vitest and cargo, `kumikit-package::ui_manifest` (moved from the shell's store, no
   behaviour change, as its own commit), `sdk/schema/ui-plugin-manifest.schema.json`,
   `kumikit theme check`. Commits: `refactor: share the UI manifest check`, `feat: check
@@ -1056,4 +1056,22 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
   failures; the host now keeps the code in front for denied calls (`permission_denied:
   …`), and the test asserts it exactly. Other error codes keep their text. 04-plugin-host
   says so.
+- Step 8:
+  - The shared UI manifest check lives in `kumikit-assets::ui_manifest`, not
+    `kumikit-package` (which may not depend on `kumikit-assets`' host rule); the shell,
+    `kumikit theme check`, `kumikit plugin pack` and the registry checker use it.
+  - `web/sdk/theme-rules.json` holds the contrast pairs; the SDK generator emits
+    `CONTRAST_PAIRS` from it (so it is also SDK API), and `kumikit-theme` reads it at
+    compile time with the published `tokens.json`. Both implementations pass
+    `web/sdk/tests/theme-vectors.json` (54 values, 8 contrast ratios).
+  - Fonts: WOFF2 only, by name and first bytes, as the app's store already required (the
+    spec said WOFF or WOFF2).
+  - `kumikit plugin pack` now takes UI plugins and themes, checked as the store checks
+    them (it validated everything as a core plugin before).
+  - The UI kernel warns about low contrast when a theme is installed (it only filtered
+    invalid values before).
+  - `sdk/schema/ui-plugin-manifest.schema.json` exists, with a test that the first-party
+    and test UI manifests validate (Q6).
+  - The registry checker's panel fixture uses `api = "^0.1"` until step 11 moves the UI
+    SDK to 0.1.1.
 

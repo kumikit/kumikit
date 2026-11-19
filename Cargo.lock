@@ -2508,6 +2508,7 @@ dependencies = [
  "kumikit-registry-tool",
  "kumikit-test-plugins",
  "kumikit-test-registry-fixture",
+ "kumikit-theme",
  "rcgen",
  "rustix",
  "rustls",
@@ -2652,6 +2653,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "kumikit-assets",
  "kumikit-package",
  "kumikit-plugin-host",
  "kumikit-protocol",
@@ -2736,6 +2738,17 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tokio",
+ "toml 1.2.1+spec-1.1.0",
+]
+
+[[package]]
+name = "kumikit-theme"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
  "toml 1.2.1+spec-1.1.0",
 ]
 

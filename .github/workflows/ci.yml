@@ -39,6 +39,9 @@ jobs:
       # Guest crates (SDK, plugins, test plugins) also build for the plugin target.
       - run: cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-test-hello -p kumikit-test-probe -p kumikit-provider-acp -- -D warnings
       - run: cargo test --workspace --no-fail-fast
+      - if: runner.os == 'Linux'
+        # The first-party theme passes the checks third-party themes must pass (08-themes).
+        run: cargo run -q -p kumikit-core -- theme check --strict plugins/theme-default
 
   footprint:
     runs-on: ubuntu-latest

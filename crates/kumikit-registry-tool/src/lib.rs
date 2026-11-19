@@ -84,6 +84,7 @@ pub fn facts(dir: &Path) -> Result<Facts, String> {
     }
     let kind: Kind = toml::from_str(&text).map_err(|e| format!("plugin.toml: {e}"))?;
     if is_client_kind(&kind.kind) {
+        kumikit_assets::ui_manifest::check(dir)?;
         let m: ClientManifest = toml::from_str(&text).map_err(|e| format!("plugin.toml: {e}"))?;
         let mut network = m.ui.as_ref().map(|u| u.network.clone()).unwrap_or_default();
         network.sort();

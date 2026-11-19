@@ -18,7 +18,7 @@ import type {
 import type { Slot, TokenName } from './generated';
 
 export type { Slot, TokenName, TokenType } from './generated';
-export { SDK_VERSION, SLOTS, TOKENS } from './generated';
+export { CONTRAST_PAIRS, SDK_VERSION, SLOTS, TOKENS } from './generated';
 export { isComposing, tokenVar } from './helpers';
 
 /** Undoes a registration or a mount. */

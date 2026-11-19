@@ -10,6 +10,7 @@ import type { Kernel } from '../app.svelte';
 import Form from '../declarative/Form.svelte';
 import type { ClientPluginEntry } from '../platform/index';
 import type { ThemeVariant } from '../theme/engine.svelte';
+import { contrastWarnings } from '../theme/contrast';
 import { checkTokens } from '../theme/validate';
 import { createContext } from './context';
 
@@ -91,9 +92,13 @@ export class ClientPlugins {
     this.plugins = this.plugins.map((p) => (p.entry.id === id ? { ...p, ...change } : p));
   }
 
+  /** Contrast warnings per theme id, from the last time its tokens were loaded. */
+  #contrast = new Map<string, string[]>();
+
   async #loadThemes(): Promise<void> {
     const k = this.kernel;
     const variants: ThemeVariant[] = [];
+    this.#contrast.clear();
     for (const p of this.plugins.filter((p) => p.kind === 'theme' && p.enabled)) {
       for (const v of p.manifest.theme?.variants ?? []) {
         try {
@@ -102,6 +107,8 @@ export class ClientPlugins {
           if (checked.errors.length > 0) {
             k.notify(`Theme ${p.manifest.name}: ${checked.errors.length} token(s) ignored (${checked.errors.slice(0, 3).join('; ')})`, 'warning');
           }
+          const low = contrastWarnings(checked.tokens).map((w) => `${v.id}: ${w}`);
+          if (low.length > 0) this.#contrast.set(p.entry.id, [...(this.#contrast.get(p.entry.id) ?? []), ...low]);
           variants.push({
             theme: p.entry.id,
             id: v.id,
@@ -225,6 +232,11 @@ export class ClientPlugins {
     this.plugins = [...this.plugins.filter((x) => x.entry.id !== entry.id), p];
     if (p.kind === 'theme') await this.#loadThemes();
     k.notify(`Installed ${p.manifest.name}`, 'success');
+    // 08-themes: installing a theme with low contrast is allowed, with a warning.
+    const low = this.#contrast.get(entry.id) ?? [];
+    if (low.length > 0) {
+      k.notify(`${p.manifest.name} has low contrast in places (${low.length}): ${low.slice(0, 2).join('; ')}`, 'warning');
+    }
     return p;
   }
 

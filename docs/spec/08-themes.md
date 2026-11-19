@@ -69,8 +69,8 @@ checks with `kumikit theme check <dir | file.kkp> [--strict] [--json]`:
 - Contrast: text tokens against the surfaces they are used on must meet WCAG AA (4.5:1 for
   body text, 3:1 for large text and UI components). Failures are warnings; installing
   anyway is allowed with a warning, and `--strict` makes them errors.
-- Every referenced font file exists in the package and is a web font (WOFF or WOFF2). A
-  missing or other file is an error.
+- Every font the manifest lists exists in the package and is a WOFF2 web font (by its
+  name and its first bytes). A missing or other file is an error.
 
 The two implementations (TypeScript in the UI kernel, Rust in the `kumikit-theme` crate
 behind the CLI) share their data: the token set (`web/sdk/api/<version>/tokens.json`), the

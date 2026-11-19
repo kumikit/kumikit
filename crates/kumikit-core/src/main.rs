@@ -63,6 +63,11 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Check a theme before publishing it.
+    Theme {
+        #[command(subcommand)]
+        action: ThemeAction,
+    },
     /// List or revoke paired devices.
     Devices {
         /// The core's socket (Linux, macOS) or pipe (Windows). Default: per platform.
@@ -102,6 +107,21 @@ enum DevicesAction {
     Revoke {
         /// Device id, from `kumikit devices list`.
         id: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ThemeAction {
+    /// Token values, WCAG AA contrast and fonts, as the app checks them at install.
+    Check {
+        /// A theme directory (with plugin.toml) or a .kkp.
+        theme: PathBuf,
+        /// Treat contrast warnings as errors.
+        #[arg(long)]
+        strict: bool,
+        /// Print the result as JSON.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -282,6 +302,20 @@ fn main() -> Result<()> {
             data_dir,
             action,
         } => runtime.block_on(run_plugin(socket, data_dir, action)),
+        Command::Theme {
+            action:
+                ThemeAction::Check {
+                    theme,
+                    strict,
+                    json,
+                },
+        } => {
+            let report = kumikit_core::theme::check(&theme)?;
+            if !kumikit_core::theme::print(&report, strict, json, &mut cli::Stdout) {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
         Command::Pair { socket, json } => runtime
             .block_on(async { cli::pair(&target(socket, None)?, json, &mut cli::Stdout).await }),
         Command::Devices {

@@ -51,6 +51,8 @@ Now:
 - `cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-test-hello -p kumikit-test-probe -p kumikit-provider-acp -- -D warnings`
 - `sh scripts/check-plugin-names.sh`: no plugin id, provider id or backend key in
   `crates/*/src`
+- `cargo run -p kumikit-core -- theme check --strict plugins/theme-default`: the
+  first-party theme passes the theme checks
 - `cargo deny check licenses bans sources` (CI runs it; locally when dependencies change)
 - `cargo test -p kumikit-core --test exit_m1 -- --ignored`: live smoke test of provider-acp
   with real Claude Code (needs `claude-agent-acp` and a Claude login; manual)

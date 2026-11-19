@@ -460,9 +460,18 @@ pub fn pack(
     key: Option<&package::SigningKey>,
     out: &mut dyn Out,
 ) -> Result<()> {
-    let manifest = Manifest::load(dir).map_err(|e| anyhow!("{e}"))?;
+    // UI plugins and themes are checked as the app's plugin store checks them; anything
+    // else as a core plugin.
+    let (id, version) = match kumikit_assets::ui_manifest::check(dir) {
+        Ok((id, version, _)) => (id, version),
+        Err(ui_problems) if is_client_package(dir) => bail!("{ui_problems}"),
+        Err(_) => {
+            let m = Manifest::load(dir).map_err(|e| anyhow!("{e}"))?;
+            (m.id, m.version)
+        }
+    };
     let file = output.map_or_else(
-        || PathBuf::from(format!("{}-{}.kkp", manifest.id, manifest.version)),
+        || PathBuf::from(format!("{id}-{version}.kkp")),
         Path::to_path_buf,
     );
     package::pack_signed(dir, &file, key).map_err(|e| anyhow!("{e}"))?;
@@ -475,6 +484,18 @@ pub fn pack(
         None => out.line(&format!("Wrote {}", file.display())),
     }
     Ok(())
+}
+
+/// Whether the manifest in `dir` says `kind = ["ui"]` or `["theme"]`.
+fn is_client_package(dir: &Path) -> bool {
+    #[derive(serde::Deserialize)]
+    struct Kind {
+        kind: Vec<String>,
+    }
+    std::fs::read_to_string(dir.join("plugin.toml"))
+        .ok()
+        .and_then(|t| toml::from_str::<Kind>(&t).ok())
+        .is_some_and(|k| !k.kind.is_empty() && k.kind.iter().all(|x| x == "ui" || x == "theme"))
 }
 
 /// Connects to the running core and completes the handshake; fails if none runs.
