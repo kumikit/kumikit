@@ -827,7 +827,7 @@ Each step ends with the Verify checks that apply and one commit on branch `m4-ec
 - [x] **12. Playwright suites.** Relay serves the fixture registry; `registry`, `panels`,
   `starter`, `exit-m4` specs; browser-client additions; axe. *(CI: WebKit.)* Commit: `test:
   drive registry installs and panels from the browser build`.
-- [ ] **13. Desktop exit test and macOS smoke.** `exit-m4.test.mjs` in `e2e.sh` and the
+- [x] **13. Desktop exit test and macOS smoke.** `exit-m4.test.mjs` in `e2e.sh` and the
   Windows step; `panel-smoke` job. Linux in the container; *(CI: Windows, macOS.)* Commit:
   `test: add M4 exit-criteria test`. **Second push.**
 - [ ] **14. Templates.** `templates/*`, `test-plugins/client-store`,
@@ -1130,4 +1130,10 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
   - Not done: installing on a *remote* core from the registry through the UI; the core's
     Rust tests and the browser client (whose only core is not on this machine) cover the
     core fetching for itself.
+- Step 13: `web/e2e-desktop/exit-m4.test.mjs` passes on Linux in the container (8.4 s,
+  after the M2 and M3 tests, which still pass); Windows runs it in CI. It starts
+  `registry-fixture` itself and gives the app `KUMIKIT_DEFAULT_REGISTRY`; the core the app
+  starts inherits it. The `panel-smoke` job (step 2) stays as the WKWebView check: it
+  covers the frame, its CSP and IPC on all three webviews with a stand-in page, while the
+  real UI kernel's bridge on WebKit is covered by Playwright WebKit on macOS (CI).
 
