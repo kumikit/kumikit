@@ -100,6 +100,16 @@ struct ProviderSpec {
     config: Option<String>,
 }
 
+/// A plugin's error as a turn's error text. A denied host call keeps its code in front,
+/// so the user (and a client) can tell a refused permission from other failures.
+fn guest_message(e: crate::runtime::bindings::base::kumikit::host::types::Error) -> String {
+    use crate::runtime::bindings::base::kumikit::host::types::ErrorCode;
+    match e.code {
+        ErrorCode::PermissionDenied => format!("permission_denied: {}", e.message),
+        _ => e.message,
+    }
+}
+
 /// The qualified id of a provider.
 pub fn qualified(plugin: &str, local: &str) -> String {
     format!("{plugin}/{local}")
@@ -777,7 +787,7 @@ impl WasmProvider {
     ) -> ProviderResult<T> {
         match r {
             Ok(Ok(v)) => Ok(v),
-            Ok(Err(e)) => Err(ProviderError::new(e.message)),
+            Ok(Err(e)) => Err(ProviderError::new(guest_message(e))),
             Err(e) => {
                 if matches!(e, CallError::Trap { .. }) {
                     host.failed(&self.spec.backend, &e.to_string()).await;

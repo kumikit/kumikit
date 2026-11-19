@@ -794,7 +794,7 @@ Each step ends with the Verify checks that apply and one commit on branch `m4-ec
   `plugin.install { registry }`, `plugin.updates`/`update`, `plugin.lock`; the registries
   file; `plugins.lock` writing; CLI `add <id>`, `search`, `update`, `registry`, `lock`;
   README privacy sentence. Commit: `feat: install and update core plugins from registries`.
-- [ ] **7. Core exit test.** `tests/exit_m4.rs` (steps 1–6 of the exit flow) and
+- [x] **7. Core exit test.** `tests/exit_m4.rs` (steps 1–6 of the exit flow) and
   `serve_makes_no_registry_request`. Commit: `test: add the M4 exit test for the core`.
 - [ ] **8. Theme check.** `kumikit-theme`, `web/sdk/theme-rules.json`, shared vectors in
   Vitest and cargo, `kumikit-package::ui_manifest` (moved from the shell's store, no
@@ -1050,4 +1050,10 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
     publisher and lockfile, four ways a registry can lie, updates proposed and wider ones
     waiting, key change and a second registry, an update waiting for a running turn, and
     the CLI end to end with a lockfile moved to a fresh core).
+- Step 7: `tests/exit_m4.rs` runs the exit flow through the CLI and the protocol in about
+  3.5 s. A turn's error used to carry only the host's message ("secret … is not in
+  permissions.secrets"), so a refused permission could not be told apart from other
+  failures; the host now keeps the code in front for denied calls (`permission_denied:
+  …`), and the test asserts it exactly. Other error codes keep their text. 04-plugin-host
+  says so.
 

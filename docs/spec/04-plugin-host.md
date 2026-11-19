@@ -234,7 +234,8 @@ installed → enabled → active ⇄ idle → unloaded
   new set ([10](10-distribution.md#updates)). Installing an id that is already installed
   fails with `conflict`; updates go through `plugin.update`.
 - Every host import checks the grant; a denied call returns `permission-denied` and is
-  logged with the plugin id and the operation. There is no API to ask for more
+  logged with the plugin id and the operation. A turn that fails because the plugin
+  returns such an error ends with an error that starts `permission_denied: `. There is no API to ask for more
   permissions at runtime.
 - `spawn` is the widest permission: a spawned CLI is outside the WASM sandbox. The UI says
   so at install and in the plugin's detail page.

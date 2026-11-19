@@ -52,6 +52,7 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 [dev-dependencies]
 kumikit-test-plugins.workspace = true
 kumikit-test-registry-fixture = { path = "../../test-plugins/registry-fixture" }
+kumikit-registry-tool = { path = "../kumikit-registry-tool" }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 tempfile = "3.27.0"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "process", "io-util", "time", "net"] }

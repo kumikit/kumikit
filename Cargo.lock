@@ -2501,6 +2501,7 @@ dependencies = [
  "kumikit-plugin-host",
  "kumikit-protocol",
  "kumikit-registry",
+ "kumikit-registry-tool",
  "kumikit-test-plugins",
  "kumikit-test-registry-fixture",
  "rcgen",
