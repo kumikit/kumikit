@@ -8,7 +8,7 @@ import { mount, unmount } from 'svelte';
 
 import type { Kernel } from '../app.svelte';
 import Form from '../declarative/Form.svelte';
-import type { ClientPluginEntry } from '../platform/index';
+import type { ClientPluginEntry, ClientRef } from '../platform/index';
 import type { ThemeVariant } from '../theme/engine.svelte';
 import { contrastWarnings } from '../theme/contrast';
 import { checkTokens } from '../theme/validate';
@@ -227,7 +227,41 @@ export class ClientPlugins {
   async install(path: string): Promise<ClientPlugin | undefined> {
     const k = this.kernel;
     const entry = await k.attempt('Cannot install', () => k.platform.clientPlugins.install(path));
-    if (!entry) return undefined;
+    return entry ? this.added(entry) : undefined;
+  }
+
+  /** Installs a UI plugin or theme from the app's registries. */
+  async installFrom(plugin: ClientRef): Promise<ClientPlugin | undefined> {
+    const k = this.kernel;
+    const registry = k.platform.registry;
+    if (!registry) return undefined;
+    const entry = await k.attempt('Cannot install', () => registry.install(plugin));
+    return entry ? this.added(entry) : undefined;
+  }
+
+  /** After an update: the new version replaces the old in the list. An update that brings
+   * inline code no longer counts as trusted; the user is asked again (10-distribution,
+   * Updates). Its old module stays loaded until the app restarts. */
+  async updated(entry: ClientPluginEntry): Promise<ClientPlugin> {
+    const k = this.kernel;
+    const p = this.#describe(entry);
+    if (p.kind === 'ui' && (p.manifest.ui?.isolation ?? 'inline') === 'inline') {
+      const was = this.plugins.find((x) => x.entry.id === entry.id);
+      const wasInline = was && (was.manifest.ui?.isolation ?? 'inline') === 'inline';
+      if (!wasInline) {
+        k.settings.update({ trustedPlugins: k.settings.value.trustedPlugins.filter((x) => x !== entry.id) });
+        await this.#deactivate(entry.id);
+      }
+    }
+    const now = this.#describe(entry);
+    this.plugins = this.plugins.map((x) => (x.entry.id === entry.id ? now : x));
+    if (now.kind === 'theme') await this.#loadThemes();
+    return now;
+  }
+
+  /** Adds an installed plugin to the list and loads it if it is a theme. */
+  async added(entry: ClientPluginEntry): Promise<ClientPlugin> {
+    const k = this.kernel;
     const p = this.#describe(entry);
     this.plugins = [...this.plugins.filter((x) => x.entry.id !== entry.id), p];
     if (p.kind === 'theme') await this.#loadThemes();

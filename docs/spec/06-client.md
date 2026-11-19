@@ -143,9 +143,12 @@ still load.
 - **Lockfiles:** "Export lock file" shows the core's or the app's lockfile with Copy;
   "Import lock file" reads one through a file input, shows what would be installed and
   every permission, and asks once ([10](10-distribution.md#lockfiles)).
-- **Registries** (in Settings): the ordered list for each core and for this app; add by
-  URL, remove.
-- **Starter pack:** the first-run welcome screen ([10](10-distribution.md#starter-pack)).
+- **Registries** (in the plugin manager, with the lockfiles): the ordered list for the
+  chosen core and for this app; add by URL, remove.
+- **Starter pack:** on first run, the empty home view shows a welcome card (not a dialog:
+  nothing is blocked) with "Browse the starter pack" and "Not now"; the palette offers it
+  later ([10](10-distribution.md#starter-pack)). Showing the card reads only the registry
+  list, to name the hosts browsing would contact.
 - **Bundled plugins.** The app's resources hold the bundled UI plugins and a data file,
   `bundled.json`, which lists them and names the fallback theme. The UI kernel names no
   plugin in code. If the fallback theme is missing, the base styles fall back to system

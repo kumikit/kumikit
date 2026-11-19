@@ -23,6 +23,8 @@ export interface Settings {
   trustedPlugins: string[];
   /** Per-plugin storage (`ctx.storage`). */
   pluginStorage: Record<string, Record<string, string>>;
+  /** The first-run welcome was answered (10-distribution, Starter pack). */
+  welcomeDone: boolean;
 }
 
 export const DEFAULTS: Settings = {
@@ -33,6 +35,7 @@ export const DEFAULTS: Settings = {
   disabledPlugins: [],
   trustedPlugins: [],
   pluginStorage: {},
+  welcomeDone: false,
 };
 
 const KEY = 'kumikit.settings';
@@ -68,6 +71,7 @@ export function parseSettings(text: string | null): Settings {
     trustedPlugins: strings(r.trustedPlugins),
     pluginStorage:
       typeof r.pluginStorage === 'object' && r.pluginStorage !== null ? (r.pluginStorage as Settings['pluginStorage']) : {},
+    welcomeDone: r.welcomeDone === true,
   };
   if (typeof r.themeVariant === 'string') s.themeVariant = r.themeVariant;
   return s;

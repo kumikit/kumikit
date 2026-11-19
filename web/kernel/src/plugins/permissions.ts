@@ -20,3 +20,17 @@ export function describePermissions(p: Permissions): string[] {
 
 /** Whether a grant lets the plugin start programs outside the sandbox. */
 export const startsPrograms = (p: Permissions): boolean => p.spawn.length > 0;
+
+/** What a UI plugin or theme needs, in plain words (07-ui-plugins). */
+export function describeUiNeeds(kind: string[], ui: { isolation?: string; network?: string[]; requiresCore?: string[] }): string[] {
+  if (kind.includes('theme')) return ['colors, fonts and sizes only; runs no code'];
+  const lines: string[] = [];
+  if (ui.isolation === 'iframe') lines.push('runs in a sandboxed panel: it sees only its own tab’s core, read-only');
+  else lines.push('runs its code inside the app, with full access to the app and every connected core (asks for trust)');
+  for (const h of ui.network ?? []) lines.push(`can connect to ${h}`);
+  for (const r of ui.requiresCore ?? []) lines.push(`shows only on cores with ${r}`);
+  return lines;
+}
+
+/** A key id shortened for a list; the full id goes in a title. */
+export const shortKey = (key: string): string => (key.length > 24 ? `${key.slice(0, 20)}…` : key);

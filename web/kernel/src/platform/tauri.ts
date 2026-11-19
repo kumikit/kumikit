@@ -2,7 +2,7 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 
-import type { ClientPluginEntry, Incoming, Platform, ProfileInfo, Removed } from './index';
+import type { ClientPluginEntry, ClientRegistryResult, ClientUpdate, Incoming, Platform, ProfileInfo, Removed } from './index';
 import { asConnectError, pickWithInput, safeModeFromUrl } from './index';
 
 /** Invokes a shell command; its `{ code, message }` failures become ConnectErrors. */
@@ -53,6 +53,15 @@ export function tauriPlatform(): Platform {
       list: () => invoke<ClientPluginEntry[]>('client_plugins_list'),
       install: (path) => invoke<ClientPluginEntry>('client_plugins_install', { path }),
       remove: (id) => invoke<void>('client_plugins_remove', { id }),
+    },
+    registry: {
+      search: (query, refresh) => call<ClientRegistryResult[]>('client_registry_search', { query, refresh }),
+      install: (plugin) => call<ClientPluginEntry>('client_plugins_install_registry', { plugin }),
+      updates: (refresh) => call<ClientUpdate[]>('client_plugins_updates', { refresh }),
+      update: (id, version) => call<ClientPluginEntry>('client_plugins_update', { id, version }),
+      registries: () => call<string[]>('client_registries_get'),
+      setRegistries: (urls) => call<void>('client_registries_set', { urls }),
+      lock: () => call<string>('client_lock'),
     },
     safeMode: safeModeFromUrl(location.href),
   };

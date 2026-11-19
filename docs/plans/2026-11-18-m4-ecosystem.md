@@ -807,7 +807,7 @@ Each step ends with the Verify checks that apply and one commit on branch `m4-ec
   `{ path } | { registry }`, `client_plugins_updates`, `client_plugins_update`,
   `client_lock`) with capabilities and `build.rs`. Commit: `feat: install UI plugins and
   themes from registries`.
-- [ ] **10. UI kernel: browse, updates, lock, starter pack.**
+- [x] **10. UI kernel: browse, updates, lock, starter pack.**
   - plugin manager browse and search (core and app), the details and permission dialog
     with publisher and key, Check for updates with the widening approval, lock export and
     import, Settings → Registries;
@@ -1084,4 +1084,16 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
   - The shell's tests build their index from `kumikit-registry`'s types and serve it
     themselves: the shared fixture crate pulls in the plugin host and the kernel, which
     the shell must not depend on, even in tests.
+- Step 10:
+  - The welcome is a card in the empty home view, not a modal, so fresh clients in the
+    existing Playwright and desktop tests are not blocked; it reads the registry list
+    (local) to name the hosts, and searches only on "Browse the starter pack".
+  - Registry settings and lockfiles sit in the plugin manager ("Registries and
+    lockfiles"), not Settings; 06-client says so.
+  - Lockfile import in the UI reads Kumikit's own lockfile format with a small parser
+    (no TOML dependency), tested against text captured from the Rust renderer.
+  - A UI update that brings inline code drops the plugin's trust, so the app asks again.
+  - The test relay serves the shell's real client registry code at `/client-registry/*`.
+  - UI kernel **65.1 KB** gzip (57.8 before M4; budget 150 KB). Vitest 100 tests;
+    Playwright Chromium 15 passed (1 live skipped).
 

@@ -34,6 +34,50 @@ export interface ClientPluginEntry {
   source: 'bundled' | 'installed';
   /** The manifest, as JSON. The UI kernel checks its contents when it loads it. */
   manifest: unknown;
+  /** Who signed it, and the registry it came from (10-distribution). */
+  publisher?: { key: string; registry?: string };
+}
+
+/** What a UI plugin needs: how its code runs, the hosts it may contact, its core plugins. */
+export interface UiNeeds {
+  isolation?: string;
+  network?: string[];
+  requiresCore?: string[];
+}
+
+/** A UI plugin or theme a registry offers (the shell's `client_registry_search`). */
+export interface ClientRegistryResult {
+  id: string;
+  name: string;
+  description?: string;
+  kind: string[];
+  publisher: string;
+  key: string;
+  registry: string;
+  registryName: string;
+  repository?: string;
+  version: string;
+  ui: UiNeeds;
+  starter: boolean;
+}
+
+/** An update a registry offers for an installed UI plugin or theme. */
+export interface ClientUpdate {
+  plugin: string;
+  from: string;
+  to: string;
+  registry: string;
+  ui: UiNeeds;
+  /** It needs more than the installed version: new hosts, or inline code. */
+  widens: boolean;
+}
+
+/** A plugin to install from the client's registries. */
+export interface ClientRef {
+  id: string;
+  version?: string;
+  sha256?: string;
+  registry?: string;
 }
 
 /** A connection profile as the shell shows it: no address, no token. */
@@ -104,6 +148,19 @@ export interface Platform {
     list(): Promise<ClientPluginEntry[]>;
     install(path: string): Promise<ClientPluginEntry>;
     remove(id: string): Promise<void>;
+  };
+  /** UI plugins and themes from registries, through the shell (absent in a browser).
+   * Failures are {@link ConnectError}s with the shell's codes (`unavailable`,
+   * `untrusted`, `invalid`, `not_found`, `conflict`). Nothing is fetched until called. */
+  readonly registry?: {
+    search(query: string, refresh: boolean): Promise<ClientRegistryResult[]>;
+    install(plugin: ClientRef): Promise<ClientPluginEntry>;
+    updates(refresh: boolean): Promise<ClientUpdate[]>;
+    update(id: string, version: string): Promise<ClientPluginEntry>;
+    registries(): Promise<string[]>;
+    setRegistries(urls: string[]): Promise<void>;
+    /** The client lockfile's text. */
+    lock(): Promise<string>;
   };
   /** Whether to start without UI plugins (06-client, safe mode). */
   readonly safeMode: boolean;
