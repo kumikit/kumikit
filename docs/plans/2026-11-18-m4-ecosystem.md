@@ -4,9 +4,8 @@
   published to the registry by a third party installs on a fresh machine, with its
   permissions shown and enforced. Nothing from M5: no new provider, bot, git or GitHub
   plugin, no tool gateway, no VS Code theme importer, no new WIT host interfaces.
-- **Status:** done (2026-11-19), except step R (the real registry, which needs the
-  user's go-ahead) and two findings for the user (the core binary at 30.5 MiB, and idle
-  memory after an in-process enable). CI results are in the Notes.
+- **Status:** done (2026-11-19), with two findings for the user (the core binary at
+  30.5 MiB, and idle memory after an in-process enable). CI results are in the Notes.
 
 ## Scope
 
@@ -841,7 +840,7 @@ Each step ends with the Verify checks that apply and one commit on branch `m4-ec
   Verify; agent reference (signature format pitfalls, the registry cache, the panel
   bridge, the smoke hook); README (privacy, installing plugins); plan `done`. Commit:
   `docs: close M4`. **Last push**; mark the PR ready.
-- [ ] **R. The real registry (only after you approve, any time after step 6).** Create
+- [x] **R. The real registry (only after you approve, any time after step 6).** Create
   `github.com/kumikit/registry` with the layout above, its README (how to publish), the
   workflow, `publishers/kumikit.toml` (with a key you generate and keep: I don't hold the
   project's private key), and Pages for `index.json`. Nothing is created, pushed or
@@ -1187,4 +1186,15 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
   **17.1 MB**, `.dmg` 14.9 MB, NSIS 14.0 MB (budget 20 MB). Footprint on CI: idle
   11.8 / 13.0 / 15.1 MB, after a registry install 17.8 MB, after an in-process enable
   40.5 MB (reported), core binary 30.3 MiB.
-
+- Step R (approved by the user): `github.com/kumikit/registry` is public, with the layout,
+  README, `starter.toml`, `allow-confusable.toml` and `.github/workflows/check.yml`. No
+  release of kumikit is tagged yet, so the workflow pins the checker by commit
+  (`KUMIKIT_REV`, the pushed head of this branch, `d9df01f`) instead of `--tag`; move it
+  to a tag at the first release. It runs `check --require-early` (with `--base` and
+  `--author` on pull requests, `--base` = the previous `main` on pushes) and, on `main`,
+  builds `index.json` and deploys it to Pages. The first run passed (check 4m13s with a
+  cold install, pages 14s); `https://kumikit.github.io/registry/index.json` serves the
+  empty index (format 1), and `kumikit plugin search` reads it over https with the OS
+  roots. `main` requires the `check` job (not enforced for admins, no required reviews).
+  The registry has no publishers yet: `publishers/kumikit.toml` waits for a key the user
+  generates and keeps.
