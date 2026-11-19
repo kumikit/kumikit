@@ -3,9 +3,17 @@
 <script lang="ts">
   import type { Kernel } from '../app.svelte';
   import type { CoreConnection } from '../connections/connection.svelte';
+  import { untrack } from 'svelte';
   import SlotHost from './SlotHost.svelte';
 
   let { kernel }: { kernel: Kernel } = $props();
+  // Sidebar sections get the active core's connection. The props change only when that
+  // core does: a new object on every render would remount every section on any change.
+  const activeCore = $derived(kernel.connection.id);
+  const sectionProps = $derived.by(() => {
+    void activeCore;
+    return untrack(() => ({ connection: kernel.pluginConnection() }));
+  });
   const statusText: Record<string, string> = {
     idle: 'idle',
     running: 'running',
@@ -74,7 +82,7 @@
   {#each kernel.slotsIn('sidebar.section') as entry (entry)}
     <section aria-label={entry.contribution.title}>
       <h2>{entry.contribution.title}</h2>
-      <SlotHost plugin={entry.plugin} contribution={entry.contribution} props={{ connection: kernel.pluginConnection() }} slots={kernel.slots} />
+      <SlotHost plugin={entry.plugin} contribution={entry.contribution} props={sectionProps} slots={kernel.slots} />
     </section>
   {/each}
 </nav>

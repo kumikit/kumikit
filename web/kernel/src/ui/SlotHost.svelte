@@ -4,6 +4,7 @@
 -->
 <script lang="ts" generics="P">
   import type { Mountable } from '@kumikit/ui-sdk';
+  import { untrack } from 'svelte';
   import type { SlotRegistry } from '../slots/registry.svelte';
 
   let {
@@ -22,7 +23,9 @@
     failed = undefined;
     let unmount: (() => void) | void;
     try {
-      unmount = contribution.mount(el, p);
+      // What the contribution reads while mounting is its own business: only the host's
+      // props remount it, or a plugin that changes state it read would remount forever.
+      unmount = untrack(() => contribution.mount(el, p));
     } catch (e) {
       failed = e instanceof Error ? e.message : String(e);
       slots.fail(plugin, e);
