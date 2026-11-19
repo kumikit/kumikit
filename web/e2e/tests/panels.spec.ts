@@ -54,13 +54,13 @@ test('a sandboxed panel reads through the bridge and is refused the rest', async
   // The iframe is sandboxed without same-origin rights.
   await expect(page.locator('iframe[title="Panel test"]')).toHaveAttribute('sandbox', 'allow-scripts');
 
-  // Theme changes reach the panel live.
-  const before = results.accent;
-  await command(page, 'Theme: Default Dark');
-  await expect
-    .poll(async () => JSON.parse((await frame.locator('#out').textContent())!).themeChanges ?? 0)
-    .toBeGreaterThan(0);
-  const after = JSON.parse((await frame.locator('#out').textContent())!) as Record<string, unknown>;
-  expect(after.accent).not.toBe('');
-  expect(typeof before).toBe('string');
+  // Theme changes reach the panel live: after a switch, the panel's accent is the page's.
+  const pageAccent = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--kk-accent').trim());
+  const panelState = async () => JSON.parse((await frame.locator('#out').textContent())!) as { accent?: string; themeChanges?: number };
+  for (const theme of ['Theme: Kumikit Dark', 'Theme: Kumikit Light']) {
+    const changes = (await panelState()).themeChanges ?? 0;
+    await command(page, theme);
+    await expect.poll(async () => (await panelState()).themeChanges ?? 0).toBeGreaterThan(changes);
+    await expect.poll(async () => (await panelState()).accent).toBe(await pageAccent());
+  }
 });

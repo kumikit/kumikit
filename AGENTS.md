@@ -69,8 +69,9 @@ From M2 (npm commands run at the repository root, an npm workspace):
 - `npm ci`, then `npm run check` (svelte-check + tsc) and `npm test` (Vitest)
 - `node scripts/check-npm-licenses.mjs` when npm dependencies change
 - Browser end-to-end: `node scripts/bundle.mjs && cargo build -p kumikit-core -p
-  kumikit-web-relay`, then `npx playwright test` in `web/e2e` (the relay suites, two
-  cores behind a cuttable network, and the browser client served by a core)
+  kumikit-web-relay -p kumikit-test-registry-fixture -p kumikit-test-plugins`, then
+  `npx playwright test` in `web/e2e` (the relay suites, two cores behind a cuttable
+  network, the browser client served by a core, a fixture registry, sandboxed panels)
 - Desktop exit tests, M2 and M3 (Linux, in the container): `sh scripts/desktop/run.sh sh
   scripts/desktop/e2e.sh` after `node scripts/bundle.mjs`; Windows runs in CI
 - Desktop shell memory: `sh scripts/desktop/run.sh sh scripts/desktop/footprint.sh`

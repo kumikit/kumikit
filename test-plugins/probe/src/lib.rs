@@ -13,6 +13,7 @@
 //! - `spawn <program> [cwd]`: starts it, closes stdin, returns its stdout as `text.done`
 //!   when a turn is running.
 //! - `run <args…>`: starts `fake-acp-agent <args…>` and waits for it.
+//! - `report <program>`: starts `<program> cwd` in a turn and replies with its output.
 //! - `spawn-secret <var> <secret>`: starts `fake-acp-agent env` with a secret variable.
 //! - `secret <name>`: reads a secret.
 //! - `kv`: a set/get/list/delete round trip in its own store.
@@ -170,6 +171,8 @@ fn probe(command: &str) -> Result<(), Error> {
             spawn(req, false)
         }
         ["run", args @ ..] => spawn(request("fake-acp-agent", args), false),
+        // Like `spawn`, inside a turn: the program's output is the reply.
+        ["report", program] => spawn(request(program, &["cwd"]), true),
         ["spawn-secret", var, secret] => {
             let mut req = request("fake-acp-agent", &["env"]);
             req.secret_env = vec![((*var).to_owned(), (*secret).to_owned())];

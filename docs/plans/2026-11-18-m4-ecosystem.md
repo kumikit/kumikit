@@ -824,7 +824,7 @@ Each step ends with the Verify checks that apply and one commit on branch `m4-ec
   - Vitest.
 
   Commit: `feat: run UI plugins in sandboxed panels`.
-- [ ] **12. Playwright suites.** Relay serves the fixture registry; `registry`, `panels`,
+- [x] **12. Playwright suites.** Relay serves the fixture registry; `registry`, `panels`,
   `starter`, `exit-m4` specs; browser-client additions; axe. *(CI: WebKit.)* Commit: `test:
   drive registry installs and panels from the browser build`.
 - [ ] **13. Desktop exit test and macOS smoke.** `exit-m4.test.mjs` in `e2e.sh` and the
@@ -1112,4 +1112,22 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
   - `test-plugins/ui-panel` (built by `bundle.mjs` into `test-ui-plugins/`) and
     `web/e2e/tests/panels.spec.ts`. Vitest 107, Playwright Chromium 16 passed.
   - UI kernel 66.7 KB gzip.
+- Step 12:
+  - `test-plugins/registry-fixture` has a binary (`registry-fixture <root>`): it makes
+    acme's key, serves the registry on loopback and takes line commands (`probe`,
+    `publish`, `publish-unsigned`, `publish-other-key`, `starter`, `build`, `hits`). The
+    Playwright fixtures start it with `test.use({ registry: true })` and pass its URL to the
+    relay (and so its cores and its client registry) as `KUMIKIT_DEFAULT_REGISTRY`.
+  - The probe test plugin gained `report <program>` (run `<program> cwd` in a turn and
+    reply with its output): its `spawn` never reports output, so a granted call could not
+    be seen in the UI.
+  - Specs: `registry.spec.ts` (starter pack with no request before the click and axe on
+    the results, a panel from the registry without trust, updates with the widening
+    dialog and the lockfile, a registry signed by the wrong key), `exit-m4.spec.ts`,
+    `browser-registry.spec.ts` (the browser client installs from its core's registry and
+    runs a bundled panel), `panels.spec.ts` (theme changes now really switch themes).
+  - Chromium: 22 passed (1 live skipped). WebKit runs in CI only.
+  - Not done: installing on a *remote* core from the registry through the UI; the core's
+    Rust tests and the browser client (whose only core is not on this machine) cover the
+    core fetching for itself.
 

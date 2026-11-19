@@ -92,7 +92,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: cargo build -p kumikit-core -p kumikit-web-relay
+      - run: cargo build -p kumikit-core -p kumikit-web-relay -p kumikit-test-registry-fixture -p kumikit-test-plugins
       - run: node scripts/bundle.mjs
       - run: npx playwright install --with-deps chromium webkit
         working-directory: web/e2e
