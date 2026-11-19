@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-client-registry-search"
+description = "Enables the client_registry_search command without any pre-configured scope."
+commands.allow = ["client_registry_search"]
+
+[[permission]]
+identifier = "deny-client-registry-search"
+description = "Denies the client_registry_search command without any pre-configured scope."
+commands.deny = ["client_registry_search"]

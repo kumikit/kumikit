@@ -56,8 +56,8 @@ The shell's jobs, and its only commands ([ADR 0013](../decisions/0013-desktop-sh
   command? })` (checks it with a `core.hello` over its own connection), and `profile_remove(name)` (revokes its own
   device on the core if it can reach it within 2 s, then forgets the token and profile).
   After a profile is added the webview never sees its address again.
-- **Client plugin store:** `client_plugins_list`, `client_plugins_install(source)` (a
-  `{ path }` or `{ registry: { id, version?, sha256? } }`) and `client_plugins_remove(id)`.
+- **Client plugin store:** `client_plugins_list`, `client_plugins_install(path)` and
+  `client_plugins_remove(id)`.
   Installs UI plugin and theme packages into `<client data>/ui-plugins/<id>/<version>/`,
   checks the structure of their manifest ([07](07-ui-plugins.md#manifest)) and their
   signature ([04](04-plugin-host.md#signatures)), pins the publisher key, refuses core
@@ -66,12 +66,15 @@ The shell's jobs, and its only commands ([ADR 0013](../decisions/0013-desktop-sh
 - **Client registry** ([ADR 0018](../decisions/0018-package-signing-and-registry.md)): the
   shell fetches UI plugins and themes from the client's registries, only when the user
   asks. `client_registry_search(query, refresh)` searches them (UI plugins and themes),
+  `client_plugins_install_registry({ id, version?, sha256?, registry? })` installs one,
   `client_registries_get` and `client_registries_set(urls)` read and replace the ordered
-  list (`<client data>/registries.toml`), `client_plugins_updates(refresh)` lists updates,
-  `client_plugins_update(id, version)` applies one (wider network hosts or a change to
-  inline code need the UI's confirmation first), and `client_lock` returns
-  `<client data>/plugins.lock`, which the shell rewrites after every install, update and
-  removal ([10](10-distribution.md#lockfiles)).
+  list (`<client data>/registries.toml`), `client_plugins_updates(refresh)` lists updates
+  (with `widens` when the new version needs new network hosts or inline code, which the UI
+  confirms first), `client_plugins_update(id, version)` applies one, and `client_lock`
+  returns the client lockfile ([10](10-distribution.md#lockfiles)), built from the
+  `install.toml` the store keeps beside each installed plugin (version, hash, source and
+  the pinned key). Failures are `{ code, message }` with `unavailable`, `untrusted`,
+  `invalid`, `not_found`, `conflict` or `internal`.
 - **Client secrets:** device tokens for paired cores. On macOS the Keychain and on Windows
   the Credential Manager (service `dev.kumikit.client`, account the profile name); on
   Linux, and wherever `KUMIKIT_CLIENT_SECRETS=file` is set, `<client data>/secrets.json`

@@ -801,7 +801,7 @@ Each step ends with the Verify checks that apply and one commit on branch `m4-ec
   behaviour change, as its own commit), `sdk/schema/ui-plugin-manifest.schema.json`,
   `kumikit theme check`. Commits: `refactor: share the UI manifest check`, `feat: check
   themes from the CLI`.
-- [ ] **9. Shell: client registry, signatures, lockfile.** Install from a registry with
+- [x] **9. Shell: client registry, signatures, lockfile.** Install from a registry with
   verification and pinning, the client lockfile, the registries file. New commands
   (`client_registry_search`, `client_registries_get/set`, `client_plugins_install` taking
   `{ path } | { registry }`, `client_plugins_updates`, `client_plugins_update`,
@@ -1074,4 +1074,14 @@ Answered 2026-11-18: Q4 yes (no 1.0 freeze in M4; v1 formats; allowlisted publis
     and test UI manifests validate (Q6).
   - The registry checker's panel fixture uses `api = "^0.1"` until step 11 moves the UI
     SDK to 0.1.1.
+- Step 9:
+  - `client_plugins_install(path)` keeps its signature; installs from a registry use a new
+    `client_plugins_install_registry` (06-client says so now).
+  - The store keeps `<installed>/<id>/install.toml` (version, hash, source, key): the
+    pinned key and what the client lockfile is built from.
+  - A UI update "widens" when it adds network hosts or brings inline code where there was
+    none; the shell reports it and the UI confirms (step 10). Trust stays in the UI kernel.
+  - The shell's tests build their index from `kumikit-registry`'s types and serve it
+    themselves: the shared fixture crate pulls in the plugin host and the kernel, which
+    the shell must not depend on, even in tests.
 

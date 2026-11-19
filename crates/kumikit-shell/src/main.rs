@@ -10,6 +10,9 @@ use std::path::PathBuf;
 use kumikit_protocol::local::Platform;
 use kumikit_shell::assets::{self, APP_SCHEME, Asset, PLUGIN_SCHEME, SchemeForm};
 use kumikit_shell::bridge::{Bridge, Incoming};
+use kumikit_shell::client_registry::{
+    ClientError, ClientRef, ClientRegistry, ClientResult, ClientUpdate,
+};
 use kumikit_shell::connections::{
     CommandError, Connections, Keepalive, PairRequest, Removed, SshRequest,
 };
@@ -26,6 +29,8 @@ struct Shell {
     bridge: Bridge,
     local: LocalCore,
     store: Store,
+    /// UI plugins and themes from registries.
+    registry: ClientRegistry,
     /// Remote profiles.
     connections: Connections,
     /// The UI kernel's files.
@@ -177,6 +182,68 @@ async fn client_plugins_install(shell: State<'_, Shell>, path: String) -> Result
         .map_err(|e| e.to_string())
 }
 
+/// Installs a UI plugin or theme from the client's registries.
+#[tauri::command]
+async fn client_plugins_install_registry(
+    shell: State<'_, Shell>,
+    plugin: ClientRef,
+) -> Result<Entry, ClientError> {
+    shell.registry.install(&plugin).await
+}
+
+/// UI plugins and themes the registries offer.
+#[tauri::command]
+async fn client_registry_search(
+    shell: State<'_, Shell>,
+    query: String,
+    refresh: bool,
+) -> Result<Vec<ClientResult>, ClientError> {
+    shell.registry.search(&query, refresh).await
+}
+
+/// The client's registries, in order.
+#[tauri::command]
+async fn client_registries_get(shell: State<'_, Shell>) -> Result<Vec<String>, ClientError> {
+    shell.registry.registries().await
+}
+
+/// Replaces the client's registries.
+#[tauri::command]
+async fn client_registries_set(
+    shell: State<'_, Shell>,
+    urls: Vec<String>,
+) -> Result<(), ClientError> {
+    shell.registry.set_registries(&urls).await
+}
+
+/// Updates the registries offer for installed UI plugins and themes.
+#[tauri::command]
+async fn client_plugins_updates(
+    shell: State<'_, Shell>,
+    refresh: bool,
+) -> Result<Vec<ClientUpdate>, ClientError> {
+    shell.registry.updates(refresh).await
+}
+
+/// Applies one update.
+#[tauri::command]
+async fn client_plugins_update(
+    shell: State<'_, Shell>,
+    id: String,
+    version: String,
+) -> Result<Entry, ClientError> {
+    shell.registry.update(&id, &version).await
+}
+
+/// The client lockfile's text.
+#[tauri::command]
+async fn client_lock(shell: State<'_, Shell>) -> Result<String, String> {
+    let store = shell.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.lock_text())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Removes an installed UI plugin or theme.
 #[tauri::command]
 async fn client_plugins_remove(shell: State<'_, Shell>, id: String) -> Result<(), String> {
@@ -259,7 +326,14 @@ fn main() {
         bridge_close,
         client_plugins_list,
         client_plugins_install,
+        client_plugins_install_registry,
         client_plugins_remove,
+        client_plugins_updates,
+        client_plugins_update,
+        client_registry_search,
+        client_registries_get,
+        client_registries_set,
+        client_lock,
         profiles_list,
         profile_probe,
         profile_pair,
@@ -274,7 +348,14 @@ fn main() {
         bridge_close,
         client_plugins_list,
         client_plugins_install,
+        client_plugins_install_registry,
         client_plugins_remove,
+        client_plugins_updates,
+        client_plugins_update,
+        client_registry_search,
+        client_registries_get,
+        client_registries_set,
+        client_lock,
         profiles_list,
         profile_probe,
         profile_pair,
@@ -319,6 +400,7 @@ fn main() {
                 bundled: resource(app, "KUMIKIT_BUNDLED_UI_PLUGINS", "ui-plugins"),
                 installed: client.join("ui-plugins"),
             };
+            let registry = ClientRegistry::new(&client, store.clone(), &env);
             let ui = resource(app, "KUMIKIT_UI_DIR", "ui").unwrap_or_default();
             let connections = Connections {
                 profiles: Profiles::new(&client),
@@ -334,6 +416,7 @@ fn main() {
                 bridge: Bridge::default(),
                 local,
                 store,
+                registry,
                 connections,
                 ui,
             });

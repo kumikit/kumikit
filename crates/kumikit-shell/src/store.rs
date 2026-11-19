@@ -5,7 +5,8 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use kumikit_registry::index::UiNeeds;
+use serde::{Deserialize, Serialize};
 
 pub use kumikit_assets::ui_manifest::{MANIFEST, UI_SDK_VERSION, valid_id};
 
@@ -27,9 +28,84 @@ pub enum StoreError {
     /// No installed plugin has this id.
     #[error("{0}")]
     NotFound(String),
+    /// The package failed verification: its signature, a pinned key, or (from a
+    /// registry) its manifest against the entry.
+    #[error("{0}")]
+    Untrusted(String),
     /// Reading or writing files failed.
     #[error("{0}")]
     Io(#[from] std::io::Error),
+}
+
+/// Who signed an installed plugin, and the registry it came from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Publisher {
+    /// The signing key's id.
+    pub key: String,
+    /// The registry's index URL, for a registry install.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registry: Option<String>,
+}
+
+/// What the store remembers about an installed plugin (`<installed>/<id>/install.toml`):
+/// the installed version, its package's hash, where it came from and who signed it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Meta {
+    /// Installed version.
+    pub version: String,
+    /// SHA-256 of the package.
+    pub sha256: String,
+    /// `file` or `registry+<index URL>`.
+    pub source: String,
+    /// The signing key's id, pinned for later versions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+}
+
+/// What a registry's entry says a package is (10-distribution, Install).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Expected {
+    /// The publisher's key, which must have signed it.
+    pub key: String,
+    /// `id`.
+    pub id: String,
+    /// `version`.
+    pub version: String,
+    /// `api`.
+    pub api: String,
+    /// Its isolation, network hosts and core needs, as the entry copies them.
+    pub ui: UiNeeds,
+}
+
+/// A UI plugin's needs as its manifest (JSON) says.
+pub fn ui_needs(manifest: &serde_json::Value) -> UiNeeds {
+    let strings = |v: &serde_json::Value| -> Vec<String> {
+        let mut out: Vec<String> = v
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.sort();
+        out
+    };
+    let ui = &manifest["ui"];
+    UiNeeds {
+        isolation: (!ui.is_null()).then(|| ui["isolation"].as_str().unwrap_or("inline").to_owned()),
+        network: strings(&ui["network"]),
+        requires_core: strings(&manifest["requires"]["core"]),
+    }
+}
+
+/// Whether `new` needs more than `old` (10-distribution, Updates): a new network host, or
+/// inline code where there was none.
+pub fn widens(old: &UiNeeds, new: &UiNeeds) -> bool {
+    new.network.iter().any(|h| !old.network.contains(h))
+        || (new.isolation.as_deref() == Some("inline")
+            && old.isolation.as_deref() != Some("inline"))
 }
 
 /// What the UI kernel gets for each plugin.
@@ -42,6 +118,25 @@ pub struct Entry {
     pub source: &'static str,
     /// The manifest as JSON.
     pub manifest: serde_json::Value,
+    /// Who signed it, if it was signed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<Publisher>,
+}
+
+struct Staged {
+    sha256: String,
+    staging: tempfile::TempDir,
+    id: String,
+    version: String,
+    manifest: serde_json::Value,
+    key: Option<String>,
+}
+
+fn publisher(meta: &Meta) -> Option<Publisher> {
+    Some(Publisher {
+        key: meta.key.clone()?,
+        registry: meta.source.strip_prefix("registry+").map(str::to_owned),
+    })
 }
 
 /// Installed and bundled UI plugins.
@@ -96,12 +191,19 @@ impl Store {
         let mut out = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
         let mut push = |dir: PathBuf, source: &'static str| match check(&dir) {
-            Ok((id, version, manifest)) if seen.insert(id.clone()) => out.push(Entry {
-                id,
-                version,
-                source,
-                manifest,
-            }),
+            Ok((id, version, manifest)) if seen.insert(id.clone()) => {
+                let publisher = (source == "installed")
+                    .then(|| self.meta(&id))
+                    .flatten()
+                    .and_then(|m| publisher(&m));
+                out.push(Entry {
+                    id,
+                    version,
+                    source,
+                    manifest,
+                    publisher,
+                })
+            }
             Ok(_) => {}
             Err(e) => {
                 #[allow(clippy::print_stderr)]
@@ -151,14 +253,94 @@ impl Store {
         out
     }
 
-    /// Unpacks and checks a package, then moves it into place. A bundled id cannot be
-    /// replaced, and an installed id must be removed first (no updates before M4).
-    pub fn install(&self, package: &Path) -> Result<Entry, StoreError> {
+    /// What the store remembers about an installed plugin.
+    pub fn meta(&self, id: &str) -> Option<Meta> {
+        if !valid_id(id) {
+            return None;
+        }
+        let text = std::fs::read_to_string(self.installed.join(id).join("install.toml")).ok()?;
+        toml::from_str(&text).ok()
+    }
+
+    fn write_meta(&self, id: &str, meta: &Meta) -> Result<(), StoreError> {
+        let text = toml::to_string(meta).map_err(|e| StoreError::Invalid(e.to_string()))?;
+        let path = self.installed.join(id).join("install.toml");
+        let tmp = path.with_extension("toml.tmp");
+        std::fs::write(&tmp, text)?;
+        std::fs::rename(tmp, path)?;
+        Ok(())
+    }
+
+    /// Unpacks into staging, verifies the signature, checks the manifest and, with
+    /// `expected`, that it is what the registry's entry says.
+    fn stage(&self, package: &Path, expected: Option<&Expected>) -> Result<Staged, StoreError> {
         std::fs::create_dir_all(&self.installed)?;
+        let sha256 = kumikit_package::sha256_file(package)?;
         let staging = tempfile::tempdir_in(&self.installed)?;
         kumikit_package::unpack(package, staging.path())
             .map_err(|e| StoreError::Invalid(e.to_string()))?;
+        let key = kumikit_package::signature::verify_dir(staging.path())
+            .map_err(|e| match e {
+                kumikit_package::PackageError::Untrusted(m) => {
+                    StoreError::Untrusted(format!("untrusted package: {m}"))
+                }
+                other => StoreError::Invalid(other.to_string()),
+            })?
+            .key()
+            .map(|k| k.to_string());
         let (id, version, manifest) = check(staging.path())?;
+        if let Some(e) = expected {
+            let untrusted = |why: String| {
+                StoreError::Untrusted(format!("untrusted package: {} {}: {why}", e.id, e.version))
+            };
+            match &key {
+                None => return Err(untrusted("it is not signed".into())),
+                Some(k) if *k != e.key => {
+                    return Err(untrusted(format!(
+                        "it is signed by {k}, not by the publisher's key {}",
+                        e.key
+                    )));
+                }
+                Some(_) => {}
+            }
+            let api = manifest["api"].as_str().unwrap_or_default();
+            if id != e.id || version != e.version || api != e.api {
+                return Err(untrusted(format!(
+                    "its manifest says {id} {version} (api {api}), which differs from the registry's entry"
+                )));
+            }
+            if ui_needs(&manifest) != e.ui {
+                return Err(untrusted(
+                    "its isolation, network hosts or core needs differ from the registry's entry"
+                        .into(),
+                ));
+            }
+        }
+        Ok(Staged {
+            sha256,
+            staging,
+            id,
+            version,
+            manifest,
+            key,
+        })
+    }
+
+    /// Installs a UI plugin or theme package from a file.
+    pub fn install(&self, package: &Path) -> Result<Entry, StoreError> {
+        self.install_checked(package, "file", None)
+    }
+
+    /// Installs a package; `source` is `file` or `registry+<url>`, and `expected` (from a
+    /// registry) is checked before anything is put in place.
+    pub fn install_checked(
+        &self,
+        package: &Path,
+        source: &str,
+        expected: Option<&Expected>,
+    ) -> Result<Entry, StoreError> {
+        let staged = self.stage(package, expected)?;
+        let id = staged.id.clone();
         if self.bundled.as_ref().is_some_and(|b| b.join(&id).is_dir()) {
             return Err(StoreError::Conflict(format!(
                 "{id} is bundled with the app; disable it instead"
@@ -171,16 +353,110 @@ impl Store {
             )));
         }
         std::fs::create_dir_all(&target)?;
-        std::fs::rename(staging.keep(), target.join(&version))?;
+        std::fs::rename(staged.staging.keep(), target.join(&staged.version))?;
+        let meta = Meta {
+            version: staged.version.clone(),
+            sha256: staged.sha256,
+            source: source.to_owned(),
+            key: staged.key,
+        };
+        self.write_meta(&id, &meta)?;
         Ok(Entry {
+            publisher: publisher(&meta),
             id,
-            version,
+            version: staged.version,
             source: "installed",
-            manifest,
+            manifest: staged.manifest,
         })
     }
 
-    /// Removes an installed plugin (bundled ones can only be disabled).
+    /// Replaces an installed plugin with another version (an update). A package signed by
+    /// another key than the installed one's, or unsigned where it was signed, is untrusted.
+    pub fn replace(
+        &self,
+        id: &str,
+        package: &Path,
+        source: &str,
+        expected: Option<&Expected>,
+    ) -> Result<Entry, StoreError> {
+        let current = self
+            .meta(id)
+            .ok_or_else(|| StoreError::NotFound(format!("{id} is not installed")))?;
+        let staged = self.stage(package, expected)?;
+        if staged.id != id {
+            return Err(StoreError::Invalid(format!(
+                "the package is {}, not {id}",
+                staged.id
+            )));
+        }
+        if staged.version == current.version {
+            return Err(StoreError::Conflict(format!(
+                "{id} {} is already installed",
+                current.version
+            )));
+        }
+        if let Some(pinned) = &current.key
+            && staged.key.as_ref() != Some(pinned)
+        {
+            return Err(StoreError::Untrusted(format!(
+                "untrusted package: {id} {} is not signed by the key of the installed version ({pinned}); if you trust the new one, remove the plugin and install it again",
+                staged.version
+            )));
+        }
+        let dir = self.installed.join(id);
+        std::fs::rename(staged.staging.keep(), dir.join(&staged.version))?;
+        let meta = Meta {
+            version: staged.version.clone(),
+            sha256: staged.sha256,
+            source: source.to_owned(),
+            key: staged.key,
+        };
+        self.write_meta(id, &meta)?;
+        let old = dir.join(&current.version);
+        if old.is_dir() {
+            std::fs::remove_dir_all(old)?;
+        }
+        Ok(Entry {
+            publisher: publisher(&meta),
+            id: id.to_owned(),
+            version: staged.version,
+            source: "installed",
+            manifest: staged.manifest,
+        })
+    }
+
+    /// The client lockfile's text: installed (not bundled) UI plugins and themes.
+    pub fn lock_text(&self) -> String {
+        let mut ids: Vec<String> = std::fs::read_dir(&self.installed)
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect();
+        ids.sort();
+        let plugins = ids
+            .into_iter()
+            .filter_map(|id| {
+                let m = self.meta(&id)?;
+                Some(kumikit_protocol::lockfile::LockEntry {
+                    id,
+                    version: m.version,
+                    sha256: m.sha256,
+                    source: m.source,
+                    key: m.key,
+                    state: None,
+                    granted: None,
+                    enabled: None,
+                    trusted: None,
+                })
+            })
+            .collect();
+        kumikit_protocol::lockfile::render(&kumikit_protocol::lockfile::LockFile {
+            format: kumikit_protocol::lockfile::LOCK_FORMAT,
+            plugins,
+        })
+    }
+
     pub fn remove(&self, id: &str) -> Result<(), StoreError> {
         let target = self.installed.join(id);
         if !valid_id(id) || !target.is_dir() {

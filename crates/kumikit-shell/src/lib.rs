@@ -6,6 +6,7 @@
 /// Serving UI files; shared with the core (`kumikit-assets`).
 pub use kumikit_assets as assets;
 pub mod bridge;
+pub mod client_registry;
 pub mod connections;
 pub mod local;
 pub mod profiles;
