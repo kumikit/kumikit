@@ -121,6 +121,14 @@ is about the code.
   and TLS. The in-flight limit is per plugin across instances (a process-wide map).
 - **Guest HTTP** is `kumikit_plugin::http` over the `wasip2` crate (wasm32 only); natively
   every call fails, so plugin logic stays testable without it.
+- **The client interface** (`runtime/client.rs`) clones what it checks against
+  (`Access`) out of the store before awaiting: `HostState` is not `Sync`, so a `&self`
+  held across an await makes the host future not `Send`. Its subscription is a
+  `wasmtime_wasi::p2::Pollable` that fills a buffer in `ready`; `next` only drains it and
+  re-checks the workspace. The base world imports `wasi:io/poll` through it, so the base
+  linker adds Kumikit's interfaces one by one (`add_base_imports`) next to wasmtime-wasi's.
+- **`wit/kumikit-host@0.2.0/deps/io.wit`** is WASI's `wasi:io@0.2.12`, copied from
+  wasmtime-wasi; the published-WIT hash covers `deps/` too.
 - **Test components in WAT**: an imported instance with no exports is satisfied
   without a definition; give it a function to test a missing import.
 

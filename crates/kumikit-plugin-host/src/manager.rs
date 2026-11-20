@@ -231,6 +231,19 @@ pub fn protocol_permissions(
         },
         secrets: g.secrets.iter().cloned().collect(),
         tools: g.tools,
+        client: g.client.iter().cloned().collect(),
+        workspaces: match g.workspaces {
+            kumikit_kernel::grants::WorkspacesGrant::None => {
+                kumikit_protocol::methods::WorkspacesAccess::None
+            }
+            kumikit_kernel::grants::WorkspacesGrant::Linked => {
+                kumikit_protocol::methods::WorkspacesAccess::Linked
+            }
+            kumikit_kernel::grants::WorkspacesGrant::All => {
+                kumikit_protocol::methods::WorkspacesAccess::All
+            }
+        },
+        schedules: g.schedules,
         limits: manifest.and_then(|m| m.requested().limits),
     }
 }

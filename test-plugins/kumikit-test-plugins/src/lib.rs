@@ -9,6 +9,12 @@ pub const HELLO_WASM: &str = env!("KUMIKIT_TEST_WASM_KUMIKIT_TEST_HELLO");
 /// `kumikit:provider/plugin`; the model selects a scenario.
 pub const PROBE_WASM: &str = env!("KUMIKIT_TEST_WASM_KUMIKIT_TEST_PROBE");
 
+/// A plugin that drives `kumikit:host/client` from its commands (`test-plugins/client`).
+pub const CLIENT_WASM: &str = env!("KUMIKIT_TEST_WASM_KUMIKIT_TEST_CLIENT");
+
+/// The client test plugin's manifest.
+pub const CLIENT_MANIFEST: &str = include_str!("../../client/plugin.toml");
+
 /// The fake agent program (`test-plugins/fake-acp-agent`), built for the host.
 pub const FAKE_ACP_AGENT: &str = env!("KUMIKIT_TEST_BIN_FAKE_ACP_AGENT");
 

@@ -21,6 +21,7 @@ members = [
   "test-plugins/registry-fixture",
   "test-plugins/hello",
   "test-plugins/probe",
+  "test-plugins/client",
   "test-plugins/kumikit-test-plugins",
   "test-plugins/web-relay",
 ]

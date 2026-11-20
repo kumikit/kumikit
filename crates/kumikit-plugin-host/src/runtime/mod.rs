@@ -10,6 +10,7 @@
 //!   mid-call; a trap or limit breach ends the instance and kills its processes.
 
 pub mod bindings;
+pub mod client;
 pub mod host;
 pub mod outbound;
 
@@ -99,6 +100,22 @@ impl std::fmt::Debug for Runtime {
     }
 }
 
+/// The base world's Kumikit imports, one interface at a time: its `wasi:io/poll` import
+/// (through `client`) is already in the linker from wasmtime-wasi.
+fn add_base_imports(l: &mut Linker<HostState>) -> wasmtime::Result<()> {
+    use bindings::base::kumikit::{host, plugin};
+    type D = HasSelf<HostState>;
+    host::types::add_to_linker::<HostState, D>(l, |s| s)?;
+    host::log::add_to_linker::<HostState, D>(l, |s| s)?;
+    host::kv::add_to_linker::<HostState, D>(l, |s| s)?;
+    host::process::add_to_linker::<HostState, D>(l, |s| s)?;
+    host::secrets::add_to_linker::<HostState, D>(l, |s| s)?;
+    host::settings::add_to_linker::<HostState, D>(l, |s| s)?;
+    host::client::add_to_linker::<HostState, D>(l, |s| s)?;
+    plugin::types::add_to_linker::<HostState, D>(l, |s| s)?;
+    Ok(())
+}
+
 fn wasi_linker(engine: &wasmtime::Engine) -> wasmtime::Result<Linker<HostState>> {
     let mut linker = Linker::new(engine);
     wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
@@ -128,11 +145,7 @@ impl Runtime {
                 let engine =
                     PluginEngine::new(&self.config, &self.cache_dir).map_err(|e| e.to_string())?;
                 let mut base = wasi_linker(engine.engine()).map_err(|e| e.to_string())?;
-                bindings::base::Plugin::add_to_linker::<HostState, HasSelf<HostState>>(
-                    &mut base,
-                    |s| s,
-                )
-                .map_err(|e| e.to_string())?;
+                add_base_imports(&mut base).map_err(|e| e.to_string())?;
                 let mut provider = wasi_linker(engine.engine()).map_err(|e| e.to_string())?;
                 bindings::provider::Plugin::add_to_linker::<HostState, HasSelf<HostState>>(
                     &mut provider,

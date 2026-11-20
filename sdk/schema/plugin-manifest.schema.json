@@ -106,6 +106,22 @@
         },
         "tools": {
           "type": "boolean"
+        },
+        "client": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "workspaces": {
+          "enum": [
+            "none",
+            "linked",
+            "all"
+          ]
+        },
+        "schedules": {
+          "type": "boolean"
         }
       }
     },

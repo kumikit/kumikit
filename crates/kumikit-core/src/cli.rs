@@ -14,7 +14,7 @@ use kumikit_plugin_host::manifest::Manifest;
 use kumikit_plugin_host::package;
 use kumikit_protocol::methods::{
     FilesAccess, InstalledPlugin, Method, Permissions, PluginEnable, PluginInstall, PluginList,
-    PluginState, PluginUninstall,
+    PluginState, PluginUninstall, WorkspacesAccess,
 };
 use kumikit_protocol::{ErrorCode, PROTOCOL_VERSION, RpcError};
 use serde_json::{Value, json};
@@ -298,7 +298,29 @@ pub fn describe(p: &Permissions) -> Vec<String> {
         lines.push(format!("can read the secret `{s}`"));
     }
     if p.tools {
-        lines.push("can call tools that other plugins contribute".into());
+        lines.push("can let its agent use tools that other plugins contribute".into());
+    }
+    for op in &p.client {
+        lines.push(
+            match op.as_str() {
+                "workspaces.list" => "can list your workspaces",
+                "threads.read" => "can read threads",
+                "threads.create" => "can start threads",
+                "threads.send" => "can send messages to threads",
+                "threads.cancel" => "can cancel running turns",
+                "approvals.respond" => "can answer approvals (allow or deny)",
+                other => return vec![format!("asks for an unknown client operation `{other}`")],
+            }
+            .into(),
+        );
+    }
+    match p.workspaces {
+        WorkspacesAccess::None => {}
+        WorkspacesAccess::Linked => lines.push("only in the workspaces you link to it".into()),
+        WorkspacesAccess::All => lines.push("in every workspace".into()),
+    }
+    if p.schedules {
+        lines.push("can run on a schedule, even when you are not using Kumikit".into());
     }
     if let Some(l) = p.limits {
         if let Some(mb) = l.memory_mb {

@@ -7,14 +7,14 @@
 
 use std::path::Path;
 
-use kumikit_kernel::grants::{FilesGrant, Grants};
+use kumikit_kernel::grants::Grants;
 use kumikit_kernel::plugins::PluginSource;
 use kumikit_plugin_host::lifecycle::PluginHost;
 use kumikit_plugin_host::manager::{Expected, PluginView, protocol_permissions};
 use kumikit_plugin_host::manifest::PLUGIN_API;
 use kumikit_protocol::methods::{
-    AvailableUpdate, FilesAccess, InstalledPlugin, Permissions, RegistryInfo, RegistryRef,
-    RegistryResult, RegistrySearchResult,
+    AvailableUpdate, InstalledPlugin, Permissions, RegistryInfo, RegistryRef, RegistryResult,
+    RegistrySearchResult,
 };
 use kumikit_protocol::{ErrorCode, RpcError};
 use kumikit_registry::client::{FetchedIndex, default_registry};
@@ -57,21 +57,10 @@ fn api() -> String {
 
 /// Protocol permissions as kernel grants (limits are part of the version, not the grant).
 pub fn to_grants(p: &Permissions) -> Grants {
-    Grants {
-        spawn: p.spawn.iter().cloned().collect(),
-        network: p.network.iter().cloned().collect(),
-        files: match p.files {
-            FilesAccess::None => FilesGrant::None,
-            FilesAccess::ReadWorkspace => FilesGrant::ReadWorkspace,
-            FilesAccess::Workspace => FilesGrant::Workspace,
-        },
-        secrets: p.secrets.iter().cloned().collect(),
-        tools: p.tools,
-    }
+    crate::plugins::grants_of(p)
 }
 
 /// What an installed plugin may do now: its grant, or what it asks for if never granted.
-/// The permissions a plugin holds now: its grant, or what it asks for if not granted.
 pub(crate) fn current_permissions(view: &PluginView) -> Permissions {
     match (&view.record.granted, &view.manifest) {
         (Some(g), m) => protocol_permissions(g, m.as_deref()),

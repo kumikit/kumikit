@@ -1,0 +1,19 @@
+[package]
+name = "kumikit-test-client"
+description = "Test plugin: drives kumikit:host/client from commands, for kernel and host tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+kumikit-plugin = { path = "../../sdk/rust" }
+serde_json = "1.0.154"

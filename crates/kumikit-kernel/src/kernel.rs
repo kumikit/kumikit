@@ -7,7 +7,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use kumikit_protocol::event::{ApprovalResolved, ThreadChange, TurnEnded};
 use kumikit_protocol::methods::ThreadSnapshot;
 use kumikit_protocol::model::{
-    Resolution, Thread, ThreadId, ThreadStatus, Timestamp, TurnOutcome, Workspace, WorkspaceId,
+    ApprovalId, Resolution, Thread, ThreadId, ThreadStatus, Timestamp, TurnOutcome, Workspace,
+    WorkspaceId,
 };
 use kumikit_protocol::{ThreadEvent, WorkspaceEvent};
 use tokio::sync::{broadcast, watch};
@@ -196,6 +197,7 @@ impl Kernel {
                         approval,
                         decision: Resolution::Cancelled,
                         by: None,
+                        plugin: None,
                     }),
                 )
                 .await?;
@@ -259,6 +261,22 @@ impl Kernel {
             return Err(KernelError::Conflict(format!("workspace {id} is closed")));
         }
         Ok(row.workspace)
+    }
+
+    /// The workspace a thread belongs to.
+    pub async fn thread_workspace(&self, thread: &ThreadId) -> KernelResult<WorkspaceId> {
+        Ok(self.thread_row(thread).await?.thread.workspace)
+    }
+
+    /// The thread an approval belongs to.
+    pub async fn approval_thread(&self, approval: &ApprovalId) -> KernelResult<ThreadId> {
+        let id = approval.clone();
+        self.inner
+            .store
+            .read(move |c| repo::approval_get(c, &id))
+            .await?
+            .map(|(thread, _, _)| thread)
+            .ok_or_else(|| KernelError::NotFound(format!("no approval {approval}")))
     }
 
     /// Hides a workspace from the list; its threads and events are kept.

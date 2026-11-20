@@ -1,0 +1,19 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 100,
+    "method": "plugin.workspaces",
+    "params": {
+      "plugin": "kumikit.bot-telegram"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 100,
+    "result": {
+      "workspaces": [
+        "01JCWS0000000000000000000001"
+      ]
+    }
+  }
+]

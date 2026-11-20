@@ -205,10 +205,42 @@ pub struct Permissions {
     /// Secret names it may read.
     #[serde(default)]
     pub secrets: Vec<String>,
-    /// Whether it may call other plugins' tools.
+    /// Whether it may hand other plugins' tools to its agent.
     #[serde(default)]
     pub tools: bool,
+    /// Client operations (`kumikit:host/client`).
+    #[serde(default)]
+    pub client: Vec<String>,
+    /// Where client operations may act.
+    #[serde(default)]
+    pub workspaces: WorkspacesAccess,
+    /// Whether it may run on a schedule.
+    #[serde(default)]
+    pub schedules: bool,
 }
+
+/// `permissions.workspaces`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WorkspacesAccess {
+    /// Nowhere.
+    #[default]
+    None,
+    /// The workspaces the user links to the plugin.
+    Linked,
+    /// Every workspace.
+    All,
+}
+
+/// The client operations a plugin can ask for.
+pub const CLIENT_OPS: &[&str] = &[
+    "workspaces.list",
+    "threads.read",
+    "threads.create",
+    "threads.send",
+    "threads.cancel",
+    "approvals.respond",
+];
 
 impl Permissions {
     /// The grants these permissions ask for.
@@ -223,6 +255,13 @@ impl Permissions {
             },
             secrets: self.secrets.iter().cloned().collect(),
             tools: self.tools,
+            client: self.client.iter().cloned().collect(),
+            workspaces: match self.workspaces {
+                WorkspacesAccess::None => kumikit_kernel::grants::WorkspacesGrant::None,
+                WorkspacesAccess::Linked => kumikit_kernel::grants::WorkspacesGrant::Linked,
+                WorkspacesAccess::All => kumikit_kernel::grants::WorkspacesGrant::All,
+            },
+            schedules: self.schedules,
         }
     }
 }
@@ -446,6 +485,13 @@ impl Manifest {
             },
             secrets: sorted(&self.permissions.secrets),
             tools: self.permissions.tools,
+            client: sorted(&self.permissions.client),
+            workspaces: match self.permissions.workspaces {
+                WorkspacesAccess::None => kumikit_protocol::methods::WorkspacesAccess::None,
+                WorkspacesAccess::Linked => kumikit_protocol::methods::WorkspacesAccess::Linked,
+                WorkspacesAccess::All => kumikit_protocol::methods::WorkspacesAccess::All,
+            },
+            schedules: self.permissions.schedules,
             limits: (l.memory_mb.is_some() || l.call_timeout_s.is_some()).then_some(PLimits {
                 memory_mb: l.memory_mb,
                 call_timeout_s: l.call_timeout_s,
@@ -681,6 +727,22 @@ impl Manifest {
                     "permissions.spawn entry `{prog}` must be a bare program name, not a path"
                 ));
             }
+        }
+        for op in &self.permissions.client {
+            if !CLIENT_OPS.contains(&op.as_str()) {
+                p.push(format!(
+                    "permissions.client entry `{op}` is not one of {}",
+                    CLIENT_OPS.join(", ")
+                ));
+            }
+        }
+        let acts_in_workspaces = self
+            .permissions
+            .client
+            .iter()
+            .any(|op| op != "workspaces.list");
+        if acts_in_workspaces && self.permissions.workspaces == WorkspacesAccess::None {
+            p.push("client operations other than workspaces.list need permissions.workspaces = \"linked\" or \"all\"".into());
         }
         for s in &self.permissions.secrets {
             if !is_secret_name(s) {

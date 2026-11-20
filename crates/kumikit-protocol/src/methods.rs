@@ -159,6 +159,10 @@ methods! {
         SettingsGet = "settings.get" (PluginRef) -> SettingsGetResult;
         /// `settings.set`: replaces a plugin's settings, validated against its schema.
         SettingsSet = "settings.set" (SettingsSetParams) -> Empty;
+        /// `plugin.workspaces`: the workspaces linked to a plugin.
+        PluginWorkspaces = "plugin.workspaces" (PluginRef) -> PluginWorkspacesResult;
+        /// `plugin.setWorkspaces`: replaces the workspaces linked to a plugin.
+        PluginSetWorkspaces = "plugin.setWorkspaces" (PluginSetWorkspacesParams) -> Empty;
         /// `command.list`: the commands of enabled core plugins.
         CommandList = "command.list" (Empty) -> CommandListResult;
         /// `command.run`: runs a core plugin's command.
@@ -373,6 +377,26 @@ pub struct Limits {
     pub call_timeout_s: Option<u32>,
 }
 
+/// Where a plugin's client operations may act.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspacesAccess {
+    /// Nowhere.
+    #[default]
+    None,
+    /// The workspaces the user linked to the plugin.
+    Linked,
+    /// Every workspace.
+    All,
+}
+
+impl WorkspacesAccess {
+    /// Whether it is `none`.
+    pub fn is_none(&self) -> bool {
+        *self == WorkspacesAccess::None
+    }
+}
+
 /// Permissions a plugin requests or was granted.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -390,9 +414,21 @@ pub struct Permissions {
     /// Secret names it may read.
     #[serde(default)]
     pub secrets: Vec<String>,
-    /// Whether it may call tools other plugins contribute.
+    /// Whether it may hand tools other plugins contribute to its agent.
     #[serde(default)]
     pub tools: bool,
+    /// Client operations it may perform (`threads.send`, …).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
+    pub client: Vec<String>,
+    /// Where its client operations may act.
+    #[serde(default, skip_serializing_if = "WorkspacesAccess::is_none")]
+    #[ts(as = "Option<WorkspacesAccess>", optional)]
+    pub workspaces: WorkspacesAccess,
+    /// Whether it may run on a schedule.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub schedules: bool,
     /// Limits above the defaults; absent when it uses the defaults.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limits: Option<Limits>,
@@ -995,6 +1031,24 @@ pub struct SettingsSetParams {
     /// Every value (they replace the stored ones); secret fields are refused.
     #[ts(type = "Record<string, unknown>")]
     pub values: serde_json::Value,
+}
+
+/// Result of `plugin.workspaces`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginWorkspacesResult {
+    /// Linked workspace ids.
+    pub workspaces: Vec<WorkspaceId>,
+}
+
+/// Params of `plugin.setWorkspaces`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginSetWorkspacesParams {
+    /// Plugin id.
+    pub plugin: String,
+    /// The workspaces it may act in when its `permissions.workspaces` is `linked`.
+    pub workspaces: Vec<WorkspaceId>,
 }
 
 /// What a core plugin's command or method acts for.

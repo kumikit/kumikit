@@ -2600,6 +2600,7 @@ dependencies = [
 name = "kumikit-plugin-host"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "bytes",
  "http",
  "http-body-util",
@@ -2728,6 +2729,14 @@ dependencies = [
  "tokio-tungstenite",
  "toml 1.2.1+spec-1.1.0",
  "windows-native-keyring-store",
+]
+
+[[package]]
+name = "kumikit-test-client"
+version = "0.1.0"
+dependencies = [
+ "kumikit-plugin",
+ "serde_json",
 ]
 
 [[package]]

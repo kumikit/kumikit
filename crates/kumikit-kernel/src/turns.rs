@@ -17,6 +17,15 @@ use crate::kernel::{Kernel, Session};
 use crate::provider::{EventSink, Model, Provider, SessionConfig};
 use crate::repo;
 
+/// A message waiting to start a turn: the turn it gets, the input, and the plugin that
+/// sent it, if one did.
+#[derive(Debug, Clone)]
+pub(crate) struct Queued {
+    turn: TurnId,
+    input: UserInput,
+    from: Option<String>,
+}
+
 /// In-memory state of a thread with a running turn.
 #[derive(Debug)]
 pub(crate) struct ThreadRun {
@@ -27,7 +36,7 @@ pub(crate) struct ThreadRun {
     /// Fires to cancel the running turn. Dropping it (kernel close) abandons the turn.
     cancel: Option<oneshot::Sender<()>>,
     /// Messages waiting for the running turn to end.
-    queue: VecDeque<(TurnId, UserInput)>,
+    queue: VecDeque<Queued>,
 }
 
 /// How a turn's provider call ended.
@@ -172,6 +181,17 @@ impl Kernel {
         thread: &ThreadId,
         input: UserInput,
     ) -> KernelResult<ThreadSendResult> {
+        self.thread_send_from(thread, input, None).await
+    }
+
+    /// Like [`Kernel::thread_send`], for a message a plugin sends: `turn.started` records
+    /// it in `from`.
+    pub async fn thread_send_from(
+        &self,
+        thread: &ThreadId,
+        input: UserInput,
+        from: Option<String>,
+    ) -> KernelResult<ThreadSendResult> {
         let row = self.thread_row(thread).await?;
         if row.archived {
             return Err(KernelError::Conflict(format!(
@@ -185,7 +205,11 @@ impl Kernel {
         let cancel_rx = {
             let mut runs = self.lock_runs();
             if let Some(run) = runs.get_mut(thread) {
-                run.queue.push_back((turn.clone(), input));
+                run.queue.push_back(Queued {
+                    turn: turn.clone(),
+                    input,
+                    from,
+                });
                 return Ok(ThreadSendResult { turn, queued: true });
             }
             let (tx, rx) = oneshot::channel();
@@ -201,10 +225,15 @@ impl Kernel {
             rx
         };
         let kernel = self.clone();
-        let (t, first) = (thread.clone(), turn.clone());
+        let t = thread.clone();
+        let first = Queued {
+            turn: turn.clone(),
+            input,
+            from,
+        };
         tokio::spawn(async move {
             kernel
-                .run_turns(t, row.thread, provider, first, input, cancel_rx)
+                .run_turns(t, row.thread, provider, first, cancel_rx)
                 .await
         });
         Ok(ThreadSendResult {
@@ -234,6 +263,33 @@ impl Kernel {
         decision: Decision,
         by: Option<String>,
     ) -> KernelResult<()> {
+        self.respond_approval_as(approval, decision, by, None).await
+    }
+
+    /// Like [`Kernel::respond_approval`], recording the answering plugin. A plugin cannot
+    /// answer `allow_always` (`invalid_params`).
+    pub async fn respond_approval_by_plugin(
+        &self,
+        approval: &ApprovalId,
+        decision: Decision,
+        plugin: &str,
+    ) -> KernelResult<()> {
+        if decision == Decision::AllowAlways {
+            return Err(KernelError::InvalidParams(
+                "a plugin cannot answer allow_always".into(),
+            ));
+        }
+        self.respond_approval_as(approval, decision, None, Some(plugin.to_owned()))
+            .await
+    }
+
+    async fn respond_approval_as(
+        &self,
+        approval: &ApprovalId,
+        decision: Decision,
+        by: Option<String>,
+        plugin: Option<String>,
+    ) -> KernelResult<()> {
         let id = approval.clone();
         let (thread, _turn, _status) = self
             .inner
@@ -248,6 +304,7 @@ impl Kernel {
                 approval: approval.clone(),
                 decision: decision.into(),
                 by,
+                plugin,
             }),
         )
         .await?;
@@ -267,13 +324,13 @@ impl Kernel {
         thread: ThreadId,
         meta: Thread,
         provider: Arc<dyn Provider>,
-        mut turn: TurnId,
-        mut input: UserInput,
+        mut next_up: Queued,
         mut cancel: oneshot::Receiver<()>,
     ) {
         loop {
+            let turn = next_up.turn.clone();
             let finished = self
-                .run_one(&thread, &meta, &provider, &turn, input, &mut cancel)
+                .run_one(&thread, &meta, &provider, next_up, &mut cancel)
                 .await;
             if let Err(e) = &finished {
                 tracing::warn!(%thread, %turn, error = %e, "turn could not be recorded");
@@ -281,11 +338,11 @@ impl Kernel {
             let next = {
                 let mut runs = self.lock_runs();
                 let next = match (&finished, runs.get_mut(&thread)) {
-                    (Ok(true), Some(run)) => run.queue.pop_front().map(|(t, i)| {
+                    (Ok(true), Some(run)) => run.queue.pop_front().map(|q| {
                         let (tx, rx) = oneshot::channel();
-                        run.turn = t.clone();
+                        run.turn = q.turn.clone();
                         run.cancel = Some(tx);
-                        (t, i, rx)
+                        (q, rx)
                     }),
                     _ => None,
                 };
@@ -295,7 +352,7 @@ impl Kernel {
                 next
             };
             match next {
-                Some((t, i, rx)) => (turn, input, cancel) = (t, i, rx),
+                Some((q, rx)) => (next_up, cancel) = (q, rx),
                 None => break,
             }
         }
@@ -308,15 +365,17 @@ impl Kernel {
         thread: &ThreadId,
         meta: &Thread,
         provider: &Arc<dyn Provider>,
-        turn: &TurnId,
-        input: UserInput,
+        queued: Queued,
         cancel: &mut oneshot::Receiver<()>,
     ) -> KernelResult<bool> {
+        let Queued { turn, input, from } = queued;
+        let turn = &turn;
         self.append(
             thread,
             ThreadEvent::TurnStarted(TurnStarted {
                 turn: turn.clone(),
                 input: input.clone(),
+                from: from.map(|plugin| kumikit_protocol::event::MessageFrom { plugin }),
             }),
         )
         .await?;
@@ -363,6 +422,7 @@ impl Kernel {
                         approval,
                         decision: Resolution::Cancelled,
                         by: None,
+                        plugin: None,
                     }),
                 )
                 .await;

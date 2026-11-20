@@ -728,6 +728,27 @@ impl Conn {
                 k.device_revoke(&p.device).await.map_err(kernel_err)?;
                 reply::<m::AuthDevicesRevoke>(Empty {})
             }
+            m::PluginWorkspaces::NAME => {
+                let p = parse::<m::PluginWorkspaces>(params)?;
+                self.host
+                    .manager()
+                    .get(&p.plugin)
+                    .map_err(crate::plugins::host_err)?;
+                let workspaces = k.plugin_workspaces(&p.plugin).await.map_err(kernel_err)?;
+                reply::<m::PluginWorkspaces>(m::PluginWorkspacesResult { workspaces })
+            }
+            m::PluginSetWorkspaces::NAME => {
+                let p = parse::<m::PluginSetWorkspaces>(params)?;
+                self.host
+                    .manager()
+                    .get(&p.plugin)
+                    .map_err(crate::plugins::host_err)?;
+                k.plugin_set_workspaces(&p.plugin, &p.workspaces)
+                    .await
+                    .map_err(kernel_err)?;
+                tracing::info!(device = ?self.device, plugin = %p.plugin, count = p.workspaces.len(), "linked workspaces set");
+                reply::<m::PluginSetWorkspaces>(Empty {})
+            }
             m::CommandList::NAME => {
                 parse::<m::CommandList>(params)?;
                 let commands = self

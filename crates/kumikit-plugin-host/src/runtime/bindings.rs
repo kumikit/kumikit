@@ -8,10 +8,15 @@ pub mod base {
     wasmtime::component::bindgen!({
         path: ["../../wit/kumikit-host@0.2.0", "../../wit/kumikit-plugin@0.2.0"],
         world: "kumikit:plugin/plugin",
-        imports: { default: async },
+        imports: {
+            "kumikit:host/client.[method]subscription.subscribe": async | trappable,
+            default: async,
+        },
         exports: { default: async },
         with: {
             "kumikit:host/process.child": crate::runtime::host::ChildRes,
+            "kumikit:host/client.subscription": crate::runtime::client::SubscriptionRes,
+            "wasi:io/poll": wasmtime_wasi::p2::bindings::io::poll,
         },
     });
 }

@@ -145,6 +145,10 @@ pub fn version_entry(facts: &Facts, url: &str, sha256: &str) -> VersionFile {
                 ),
                 secrets: p.secrets.clone(),
                 tools: p.tools,
+                client: p.client.clone(),
+                workspaces: (!p.workspaces.is_none())
+                    .then(|| kumikit_registry::index::workspaces_word(p.workspaces).to_owned()),
+                schedules: p.schedules,
             }),
             p.limits.map(|l| kumikit_registry::index::LimitsFile {
                 memory_mb: l.memory_mb,

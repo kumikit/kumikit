@@ -26,6 +26,9 @@ pub mod bindings {
         pub_export_macro: true,
         export_macro_name: "__export_base_world",
         default_bindings_module: "kumikit_plugin::bindings",
+        with: {
+            "wasi:io/poll@0.2.12": wasip2::io::poll,
+        },
         generate_all,
     });
 }
@@ -34,8 +37,10 @@ pub mod bindings {
 pub use bindings::__export_base_world;
 pub use bindings::kumikit::host::process::{self, Child, ExitStatus, SpawnRequest};
 pub use bindings::kumikit::host::types::{Error, ErrorCode};
-pub use bindings::kumikit::host::{kv, log, secrets, settings};
+pub use bindings::kumikit::host::{client, kv, log, secrets, settings};
 pub use bindings::kumikit::plugin::types::{CallContext, CommandResult, WorkspaceRef};
+/// `wasi:io/poll`, shared with [`http`]: wait on several pollables with [`poll::poll`].
+pub use wasip2::io::poll;
 
 impl Error {
     /// An error with a code and a message.

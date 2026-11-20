@@ -10,6 +10,7 @@
   import type { ClientPlugin } from '../plugins/client.svelte';
   import { describePermissions, startsPrograms } from '../plugins/permissions';
   import { trapFocus } from './dialog';
+  import LinkedWorkspaces from './LinkedWorkspaces.svelte';
   import RegistryPanel from './RegistryPanel.svelte';
 
   let { kernel, starter = false }: { kernel: Kernel; starter?: boolean } = $props();
@@ -119,6 +120,9 @@
           <ul class="perms" aria-label="Permissions">
             {#each describePermissions(p.granted ?? p.requested) as line (line)}<li>{line}</li>{/each}
           </ul>
+          {#if p.state === 'enabled' && p.granted?.workspaces === 'linked'}
+            <LinkedWorkspaces connection={core.target} plugin={p.id} notify={(m) => kernel.notify(m, 'danger')} />
+          {/if}
           <div class="actions">
             {#if p.state !== 'enabled'}
               <button type="button" class="kk-button primary" onclick={() => (granting = p)}>Enable…</button>

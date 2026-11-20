@@ -124,6 +124,7 @@ mod tests {
             ThreadEvent::TurnStarted(TurnStarted {
                 turn: "u".into(),
                 input: UserInput { text: "hi".into() },
+                from: None,
             }),
             ThreadEvent::TextDelta(TurnText {
                 turn: "u".into(),
@@ -144,6 +145,7 @@ mod tests {
                 approval: "a".into(),
                 decision: Resolution::Allow,
                 by: None,
+                plugin: None,
             }),
         );
         assert_eq!(f.status, ThreadStatus::Running);

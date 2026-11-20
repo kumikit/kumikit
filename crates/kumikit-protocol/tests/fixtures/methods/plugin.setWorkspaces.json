@@ -1,0 +1,40 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 102,
+    "method": "plugin.setWorkspaces",
+    "params": {
+      "plugin": "kumikit.bot-telegram",
+      "workspaces": [
+        "01JCWS0000000000000000000001"
+      ]
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 102,
+    "result": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 103,
+    "method": "plugin.setWorkspaces",
+    "params": {
+      "plugin": "kumikit.bot-telegram",
+      "workspaces": [
+        "01JCWSNOPE"
+      ]
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 103,
+    "error": {
+      "code": -32000,
+      "message": "no workspace 01JCWSNOPE",
+      "data": {
+        "code": "not_found"
+      }
+    }
+  }
+]

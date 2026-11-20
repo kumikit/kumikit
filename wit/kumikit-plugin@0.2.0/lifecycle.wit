@@ -19,6 +19,7 @@ world plugin {
   import kumikit:host/process@0.2.0;
   import kumikit:host/secrets@0.2.0;
   import kumikit:host/settings@0.2.0;
+  import kumikit:host/client@0.2.0;
   export lifecycle;
   export rpc;
   export commands;

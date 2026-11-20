@@ -11,9 +11,21 @@ use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 
 use kumikit::host::types::{Error, ErrorCode};
 
+// Only what hello uses (a component imports only the interfaces its code calls).
 wasmtime::component::bindgen!({
+    inline: "
+        package test:hello;
+        world hello {
+          import kumikit:host/log@0.2.0;
+          import kumikit:host/kv@0.2.0;
+          export kumikit:plugin/lifecycle@0.2.0;
+          export kumikit:plugin/rpc@0.2.0;
+          export kumikit:plugin/commands@0.2.0;
+          export kumikit:plugin/timers@0.2.0;
+        }
+    ",
     path: ["../../wit/kumikit-host@0.2.0", "../../wit/kumikit-plugin@0.2.0"],
-    world: "kumikit:plugin/plugin",
+    world: "test:hello/hello",
     imports: { default: async },
     exports: { default: async },
 });
@@ -64,50 +76,6 @@ impl kumikit::host::kv::Host for State {
         Err(unused())
     }
 }
-impl kumikit::host::secrets::Host for State {
-    async fn get(&mut self, _name: String) -> Result<Option<String>, Error> {
-        Err(unused())
-    }
-}
-impl kumikit::host::settings::Host for State {
-    async fn get(&mut self) -> Result<String, Error> {
-        Err(unused())
-    }
-}
-use kumikit::host::process::{Child, ExitStatus, SpawnRequest};
-use wasmtime::component::Resource;
-impl kumikit::host::process::Host for State {
-    async fn spawn(&mut self, _req: SpawnRequest) -> Result<Resource<Child>, Error> {
-        Err(unused())
-    }
-}
-impl kumikit::host::process::HostChild for State {
-    async fn write_stdin(&mut self, _c: Resource<Child>, _d: Vec<u8>) -> Result<(), Error> {
-        Err(unused())
-    }
-    async fn close_stdin(&mut self, _c: Resource<Child>) {}
-    async fn read_stdout(
-        &mut self,
-        _c: Resource<Child>,
-        _m: u32,
-    ) -> Result<Option<Vec<u8>>, Error> {
-        Err(unused())
-    }
-    async fn read_stderr(
-        &mut self,
-        _c: Resource<Child>,
-        _m: u32,
-    ) -> Result<Option<Vec<u8>>, Error> {
-        Err(unused())
-    }
-    async fn wait(&mut self, _c: Resource<Child>) -> Result<ExitStatus, Error> {
-        Err(unused())
-    }
-    async fn kill(&mut self, _c: Resource<Child>) {}
-    async fn drop(&mut self, _c: Resource<Child>) -> wasmtime::Result<()> {
-        Ok(())
-    }
-}
 impl kumikit::host::log::Host for State {
     async fn log(&mut self, _level: kumikit::host::log::Level, message: String) {
         self.logged.push(message);
@@ -126,8 +94,7 @@ async fn hello_activates_from_the_cache() {
 
     let mut linker = Linker::<State>::new(engine.engine());
     wasmtime_wasi::p2::add_to_linker_async(&mut linker).unwrap();
-    Plugin::add_to_linker::<State, wasmtime::component::HasSelf<State>>(&mut linker, |s| s)
-        .unwrap();
+    Hello::add_to_linker::<State, wasmtime::component::HasSelf<State>>(&mut linker, |s| s).unwrap();
     let _tick = engine.ticking();
 
     let mut times = Vec::new();
@@ -144,7 +111,7 @@ async fn hello_activates_from_the_cache() {
             },
         );
         engine::apply_limits(&mut store);
-        let plugin = Plugin::instantiate_async(&mut store, &component, &linker)
+        let plugin = Hello::instantiate_async(&mut store, &component, &linker)
             .await
             .unwrap();
         plugin

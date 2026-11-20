@@ -26,14 +26,14 @@ use super::bindings::base::kumikit::host::{process as wit_process, secrets, sett
 use super::bindings::provider::kumikit::host::events;
 use crate::engine::{HasLimits, Limits};
 
-fn err(code: ErrorCode, message: impl Into<String>) -> Error {
+pub(crate) fn err(code: ErrorCode, message: impl Into<String>) -> Error {
     Error {
         code,
         message: message.into(),
     }
 }
 
-fn kernel_err(e: KernelError) -> Error {
+pub(crate) fn kernel_err(e: KernelError) -> Error {
     match e {
         KernelError::Limit(m) => err(ErrorCode::Limit, m),
         KernelError::NotFound(m) => err(ErrorCode::NotFound, m),
@@ -200,7 +200,7 @@ impl HasLimits for HostState {
 }
 
 impl HostState {
-    fn deny(&self, op: &str, reason: String) -> Error {
+    pub(crate) fn deny(&self, op: &str, reason: String) -> Error {
         tracing::warn!(
             plugin = %self.id.plugin,
             grants = %self.id.grants_from,

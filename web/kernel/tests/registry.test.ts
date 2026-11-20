@@ -27,6 +27,9 @@ network = []
 files = "read_workspace"
 secrets = []
 tools = false
+client = ["threads.send"]
+workspaces = "linked"
+schedules = true
 
 [[plugin]]
 id = "b.two"
@@ -40,7 +43,16 @@ describe('lockfiles', () => {
   it('read what Kumikit writes', () => {
     const lock = parseLock(LOCK);
     expect(lock.plugins.map((p) => p.id)).toEqual(['a.one', 'b.two']);
-    expect(lock.plugins[0]!.granted).toEqual({ spawn: ['agent'], network: [], files: 'read_workspace', secrets: [], tools: false });
+    expect(lock.plugins[0]!.granted).toEqual({
+      spawn: ['agent'],
+      network: [],
+      files: 'read_workspace',
+      secrets: [],
+      tools: false,
+      client: ['threads.send'],
+      workspaces: 'linked',
+      schedules: true,
+    });
     expect(registryOf(lock.plugins[0]!)).toBe('https://r.example/index.json');
     expect(registryOf(lock.plugins[1]!)).toBeUndefined();
   });

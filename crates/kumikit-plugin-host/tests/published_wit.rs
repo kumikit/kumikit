@@ -13,16 +13,25 @@ fn wit_root() -> PathBuf {
 
 /// SHA-256 over every file in `dir`, in path order, with line endings normalized to `\n`
 /// (a Windows checkout may turn them into `\r\n`).
+/// Every file under `dir`, `deps/` included, as (path relative to `dir` with `/`, path).
+fn files_under(dir: &Path, prefix: &str, out: &mut Vec<(String, PathBuf)>) {
+    for e in fs::read_dir(dir).unwrap() {
+        let path = e.unwrap().path();
+        let name = format!("{prefix}{}", path.file_name().unwrap().to_string_lossy());
+        if path.is_dir() {
+            files_under(&path, &format!("{name}/"), out);
+        } else {
+            out.push((name, path));
+        }
+    }
+}
+
 fn dir_hash(dir: &Path) -> String {
-    let mut files: Vec<PathBuf> = fs::read_dir(dir)
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .filter(|p| p.is_file())
-        .collect();
+    let mut files = Vec::new();
+    files_under(dir, "", &mut files);
     files.sort();
     let mut h = Sha256::new();
-    for f in files {
-        let name = f.file_name().unwrap().to_string_lossy().into_owned();
+    for (name, f) in files {
         let text = fs::read_to_string(&f).unwrap().replace("\r\n", "\n");
         h.update(name.as_bytes());
         h.update([0]);
@@ -75,6 +84,10 @@ fn directories_match_their_package() {
         let expected = format!("package {ns}:{pkg}@{version};");
         for entry in fs::read_dir(&dir).unwrap() {
             let path = entry.unwrap().path();
+            // `deps/` holds other packages this one uses (wasi:io).
+            if path.is_dir() {
+                continue;
+            }
             let text = fs::read_to_string(&path).unwrap();
             assert!(
                 text.lines().any(|l| l.trim() == expected),
