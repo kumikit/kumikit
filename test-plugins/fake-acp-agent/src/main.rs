@@ -81,7 +81,7 @@ fn main() -> ExitCode {
             _ => fail("usage: fake-acp-agent record <transcript> -- <agent> [args…]"),
         },
         Some("replay") => match args.get(1) {
-            Some(path) => replay(path),
+            Some(path) => replay(path, &args[2..]),
             None => fail("usage: fake-acp-agent replay <transcript>"),
         },
         _ => fail(
@@ -168,7 +168,39 @@ fn record(out: &str, agent: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn replay(path: &str) -> ExitCode {
+fn mcp_servers_from_args(extra: &[String]) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    let mut iter = extra.iter();
+    while let Some(arg) = iter.next() {
+        let json_str = if arg == "--mcp-config" {
+            iter.next().map(String::as_str)
+        } else {
+            arg.strip_prefix("--mcp-config=")
+        };
+        if let Some(raw) = json_str
+            && let Ok(v) = serde_json::from_str::<serde_json::Value>(raw)
+            && let Some(servers) = v.get("mcpServers").and_then(|s| s.as_object())
+        {
+            for (name, cfg) in servers {
+                let mut env = Vec::new();
+                if let Some(map) = cfg.get("env").and_then(|e| e.as_object()) {
+                    for (k, val) in map {
+                        env.push(serde_json::json!({ "name": k, "value": val }));
+                    }
+                }
+                out.push(serde_json::json!({
+                    "name": name,
+                    "command": cfg["command"],
+                    "args": cfg["args"],
+                    "env": env,
+                }));
+            }
+        }
+    }
+    out
+}
+
+fn replay(path: &str, extra: &[String]) -> ExitCode {
     use std::collections::HashMap;
     use std::io::BufRead;
 
@@ -190,13 +222,15 @@ fn replay(path: &str) -> ExitCode {
     let stdin = io::stdin();
     let mut lines = stdin.lock().lines();
     let mut out = io::stdout();
-    // Recorded client request id -> the id the client used now.
+    // Recorded client request id -> the id the client used now (ACP JSON-RPC and
+    // Claude Code stream-json control_request ids).
     let mut ids: HashMap<String, Value> = HashMap::new();
+    let mut req_ids: HashMap<String, String> = HashMap::new();
     let cwd = std::env::current_dir()
         .map(|d| d.to_string_lossy().into_owned())
         .unwrap_or_else(|_| "/workspace".to_owned());
-    // The MCP servers the client gave in `session/new` (the tool gateway).
-    let mut mcp_servers: Vec<Value> = Vec::new();
+    // The MCP servers the client gave in `session/new` or `--mcp-config` (the tool gateway).
+    let mut mcp_servers: Vec<Value> = mcp_servers_from_args(extra);
     for (i, entry) in entries.iter().enumerate() {
         let message = &entry["message"];
         if entry["from"] == "mcp" {
@@ -209,9 +243,20 @@ fn replay(path: &str) -> ExitCode {
                 Ok(t) => t,
                 Err(e) => return fail(&format!("entry {i}: {e}")),
             };
-            let chunk = serde_json::json!({ "jsonrpc": "2.0", "method": "session/update", "params": {
-                "sessionId": entry["session"], "update": { "sessionUpdate": "agent_message_chunk",
-                "content": { "type": "text", "text": text } } } });
+            let chunk = if entry["format"].as_str() == Some("stream-json") {
+                serde_json::json!({
+                    "type": "stream_event",
+                    "event": {
+                        "type": "content_block_delta",
+                        "index": 0,
+                        "delta": { "type": "text_delta", "text": text }
+                    }
+                })
+            } else {
+                serde_json::json!({ "jsonrpc": "2.0", "method": "session/update", "params": {
+                    "sessionId": entry["session"], "update": { "sessionUpdate": "agent_message_chunk",
+                    "content": { "type": "text", "text": text } } } })
+            };
             if writeln!(out, "{chunk}").and_then(|()| out.flush()).is_err() {
                 return ExitCode::SUCCESS;
             }
@@ -225,13 +270,29 @@ fn replay(path: &str) -> ExitCode {
                 Ok(v) => v,
                 Err(e) => return fail(&format!("entry {i}: not JSON: {e}")),
             };
-            let same = match message.get("method") {
-                Some(m) => got.get("method") == Some(m),
-                // A response to an agent request: same id, and a result or an error.
-                None => {
-                    got.get("method").is_none()
-                        && got.get("id") == message.get("id")
-                        && (got.get("result").is_some() || got.get("error").is_some())
+            let same = if message.get("jsonrpc").is_some() {
+                match message.get("method") {
+                    Some(m) => got.get("method") == Some(m),
+                    // A response to an agent request: same id, and a result or an error.
+                    None => {
+                        got.get("method").is_none()
+                            && got.get("id") == message.get("id")
+                            && (got.get("result").is_some() || got.get("error").is_some())
+                    }
+                }
+            } else {
+                // Claude Code stream-json message: match type and control subtypes/ids.
+                let same_type = got.get("type") == message.get("type");
+                match message["type"].as_str() {
+                    Some("control_request") => {
+                        same_type && got["request"]["subtype"] == message["request"]["subtype"]
+                    }
+                    Some("control_response") => {
+                        same_type
+                            && got["response"]["subtype"] == message["response"]["subtype"]
+                            && got["response"]["request_id"] == message["response"]["request_id"]
+                    }
+                    _ => same_type,
                 }
             };
             if !same {
@@ -241,6 +302,12 @@ fn replay(path: &str) -> ExitCode {
                 && let (Some(rec), Some(now)) = (message.get("id"), got.get("id"))
             {
                 ids.insert(rec.to_string(), now.clone());
+            }
+            if message["type"].as_str() == Some("control_request")
+                && let (Some(rec), Some(now)) =
+                    (message["request_id"].as_str(), got["request_id"].as_str())
+            {
+                req_ids.insert(rec.to_owned(), now.to_owned());
             }
             if got.get("method").and_then(Value::as_str) == Some("session/new") {
                 mcp_servers = got["params"]["mcpServers"]
@@ -252,11 +319,18 @@ fn replay(path: &str) -> ExitCode {
             let mut message = message.clone();
             rewrite_paths(&mut message, &cwd);
             // A response to a client request takes the id the client used.
-            if message.get("method").is_none()
+            if message.get("jsonrpc").is_some()
+                && message.get("method").is_none()
                 && let Some(id) = message.get("id").map(Value::to_string)
                 && let Some(now) = ids.get(&id)
             {
                 message["id"] = now.clone();
+            }
+            if message["type"].as_str() == Some("control_response")
+                && let Some(id) = message["response"]["request_id"].as_str()
+                && let Some(now) = req_ids.get(id)
+            {
+                message["response"]["request_id"] = Value::String(now.clone());
             }
             if writeln!(out, "{message}")
                 .and_then(|()| out.flush())
