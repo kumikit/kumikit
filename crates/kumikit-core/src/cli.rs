@@ -598,14 +598,59 @@ pub async fn devices_revoke(target: &Target, id: &str, out: &mut dyn Out) -> Res
     Ok(())
 }
 
+/// `kumikit mcp`: what an agent starts as its MCP server for the tool gateway
+/// (`docs/spec/03-kernel.md#tool-gateway`). Connects to the core on this machine, attaches
+/// with `KUMIKIT_MCP_TOKEN`, then copies MCP lines between stdin/stdout and the core.
+/// Nothing but MCP goes to stdout; problems go to stderr.
+pub async fn mcp(target: &Target) -> Result<()> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let token = std::env::var(kumikit_kernel::gateway::TOKEN_VAR).map_err(|_| {
+        anyhow!(
+            "{} is not set; agents get it from their provider",
+            kumikit_kernel::gateway::TOKEN_VAR
+        )
+    })?;
+    let stream = crate::transport::connect(&target.address)
+        .await
+        .map_err(|_| anyhow!("no core is running on this machine (at {})", target.address))?;
+    let (core_read, mut core_write) = tokio::io::split(stream);
+    let attach = serde_json::json!({
+        "jsonrpc": "2.0", "id": 0, "method": "gateway.attach", "params": { "token": token },
+    });
+    core_write
+        .write_all(format!("{attach}\n").as_bytes())
+        .await?;
+    let mut core_read = BufReader::new(core_read);
+    let mut line = String::new();
+    core_read.read_line(&mut line).await?;
+    let answer: serde_json::Value = serde_json::from_str(&line)
+        .map_err(|_| anyhow!("the core did not answer gateway.attach"))?;
+    if let Some(e) = answer.get("error") {
+        return Err(anyhow!(
+            "the core refused the tool gateway: {}",
+            e["message"].as_str().unwrap_or("no reason")
+        ));
+    }
+    copy_lines(core_read, core_write).await
+}
+
 /// `kumikit bridge`: copies JSON-RPC lines between stdin/stdout and the core on this
 /// machine (`docs/spec/02-protocol.md#stdio-over-ssh`). The desktop app runs it over SSH.
 pub async fn bridge(target: &Target) -> Result<()> {
-    use crate::messages::{LineReader, LineWriter, MessageReader, MessageWriter, Received};
     let stream = crate::transport::connect(&target.address)
         .await
         .map_err(|_| anyhow!("no core is running on this machine (at {})", target.address))?;
     let (core_read, core_write) = tokio::io::split(stream);
+    copy_lines(core_read, core_write).await
+}
+
+/// Copies lines between stdin/stdout and a core connection until either side ends.
+async fn copy_lines<R, W>(core_read: R, core_write: W) -> Result<()>
+where
+    R: tokio::io::AsyncRead + Send + Unpin + 'static,
+    W: tokio::io::AsyncWrite + Send + Unpin + 'static,
+{
+    use crate::messages::{LineReader, LineWriter, MessageReader, MessageWriter, Received};
 
     /// Copies whole messages from `from` into a writer task, until the end or an error.
     async fn copy<R: MessageReader, W: MessageWriter>(

@@ -41,6 +41,7 @@ pub const CAPABILITIES: &[&str] = &[
     "settings",
     "commands",
     "schedules",
+    "gateway",
 ];
 
 /// What `core.hello` says about this core.
@@ -139,6 +140,7 @@ pub async fn serve_messages<R, W>(
         plugins_watch: None,
         plugin_changes: None,
     };
+    let mut first = true;
     loop {
         let received = tokio::select! {
             biased;
@@ -170,6 +172,37 @@ pub async fn serve_messages<R, W>(
         };
         if message.is_empty() {
             continue;
+        }
+        // A local connection whose first message is `gateway.attach` carries MCP from
+        // then on (`docs/spec/03-kernel.md#tool-gateway`).
+        if std::mem::take(&mut first)
+            && let Some((id, token)) = attach_request(&message)
+        {
+            let session = match (&conn.device, conn.kernel.gateway_session(&token)) {
+                (Some(_), _) => Err(RpcError::new(
+                    ErrorCode::PermissionDenied,
+                    "the tool gateway is only for local connections",
+                )),
+                (None, None) => Err(RpcError::new(
+                    ErrorCode::Unauthenticated,
+                    "this gateway token is not valid (its session ended, or it never existed)",
+                )),
+                (None, Some(s)) => Ok(s),
+            };
+            match session {
+                Ok(session) => {
+                    let ok = Response::success(id, Value::Object(Default::default()));
+                    if conn.tx.send(encode(&ok)).await.is_ok() {
+                        crate::gateway::serve(conn.host.clone(), session, reader, conn.tx.clone())
+                            .await;
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(device = ?conn.device, "gateway.attach refused");
+                    let _ = conn.tx.send(encode(&Response::error(Some(id), err))).await;
+                }
+            }
+            break;
         }
         if let Some(response) = conn.handle(&message).await
             && conn.tx.send(response).await.is_err()
@@ -285,6 +318,17 @@ fn device_info(d: kumikit_kernel::devices::DeviceRecord, current: Option<&str>) 
         created: d.created,
         last_seen: d.last_seen,
     }
+}
+
+/// The id and token of a `gateway.attach` request; `None` for any other message.
+fn attach_request(message: &[u8]) -> Option<(RequestId, String)> {
+    let request: Request = serde_json::from_slice(message).ok()?;
+    if request.method != m::GatewayAttach::NAME {
+        return None;
+    }
+    let id = request.id?;
+    let params: m::GatewayAttachParams = serde_json::from_value(request.params?).ok()?;
+    Some((id, params.token))
 }
 
 fn check_secret_name(name: &str) -> Result<(), RpcError> {
@@ -807,6 +851,10 @@ impl Conn {
                     .map_err(kernel_err)?;
                 reply::<m::ScheduleRun>(Empty {})
             }
+            m::GatewayAttach::NAME => Err(RpcError::new(
+                ErrorCode::InvalidRequest,
+                "gateway.attach must be a local connection's first message",
+            )),
             m::CommandList::NAME => {
                 parse::<m::CommandList>(params)?;
                 let commands = self

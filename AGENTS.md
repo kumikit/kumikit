@@ -51,7 +51,7 @@ Now:
 - `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace` (builds the test plugins for `wasm32-wasip2`; the target comes
   with `rust-toolchain.toml` under rustup, or a distribution's Rust WASM package)
-- `cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-test-hello -p kumikit-test-probe -p kumikit-provider-acp -- -D warnings`
+- `cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-tool -p kumikit-test-hello -p kumikit-test-probe -p kumikit-test-client -p kumikit-test-tool -p kumikit-provider-acp -- -D warnings`
 - `sh scripts/check-plugin-names.sh`: no plugin id, provider id or backend key in
   `crates/*/src`
 - `cargo run -p kumikit-core -- theme check --strict plugins/theme-default`: the

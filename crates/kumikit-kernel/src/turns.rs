@@ -80,6 +80,15 @@ impl Kernel {
                 }
             }
         }
+        let gone: Vec<ThreadId> = self
+            .lock_sessions()
+            .iter()
+            .filter(|(_, s)| s.provider == id)
+            .map(|(t, _)| t.clone())
+            .collect();
+        for t in &gone {
+            self.gateway_revoke(t);
+        }
         self.lock_sessions().retain(|_, s| s.provider != id);
         removed
     }
@@ -96,6 +105,7 @@ impl Kernel {
     /// unloading the instance that ran it).
     pub fn forget_session(&self, thread: &ThreadId) {
         self.lock_sessions().remove(thread);
+        self.gateway_revoke(thread);
     }
 
     fn provider(&self, id: &str) -> Option<Arc<dyn Provider>> {
@@ -308,6 +318,10 @@ impl Kernel {
             }),
         )
         .await?;
+        // A gateway call's approval is the kernel's own: hand the answer to it.
+        if self.gateway_resolved(approval, decision.into()) {
+            return Ok(());
+        }
         let row = self.thread_row(&thread).await?;
         let session = self.lock_sessions().get(&thread).cloned();
         if let (Some(provider), Some(session)) = (self.provider(&row.thread.provider), session) {
@@ -415,6 +429,8 @@ impl Kernel {
             .read(move |c| repo::pending_approvals_of_turn(c, &t))
             .await?;
         for approval in pending {
+            // A gateway call waiting on it learns that the turn ended.
+            self.gateway_resolved(&approval, Resolution::Cancelled);
             let resolved = self
                 .append(
                     thread,
@@ -463,13 +479,22 @@ impl Kernel {
             .await
             .map_err(|e| e.to_string())?;
         let workspace = workspace.ok_or_else(|| format!("no workspace {}", meta.workspace))?;
+        let mcp_server = self
+            .gateway_for_session(
+                &meta.id,
+                &meta.workspace,
+                &workspace.workspace.root,
+                provider.contributor(),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
         let session = provider
             .start_session(SessionConfig {
                 thread: meta.id.clone(),
                 workspace_root: workspace.workspace.root,
                 model: meta.model.clone(),
                 resume: row.provider_session,
-                mcp_server: None,
+                mcp_server,
                 options: Vec::new(),
             })
             .await

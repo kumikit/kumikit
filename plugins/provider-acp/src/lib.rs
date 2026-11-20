@@ -224,6 +224,12 @@ impl Provider for Acp {
                 cwd: cfg.workspace_root,
                 resume: cfg.resume,
                 mode: config.mode.clone(),
+                mcp: cfg.mcp_server.map(|m| acp::McpStdio {
+                    name: m.name,
+                    command: m.command,
+                    args: m.args,
+                    env: m.env,
+                }),
             }),
             child,
             buf: Vec::new(),

@@ -283,6 +283,7 @@ impl EventSink {
                     call,
                     name,
                     input,
+                    source: None,
                 })
             }
             ProviderEvent::ToolOutput { call, chunk } => {

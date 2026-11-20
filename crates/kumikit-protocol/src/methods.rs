@@ -171,6 +171,9 @@ methods! {
         ScheduleDelete = "schedule.delete" (ScheduleRef) -> Empty;
         /// `schedule.run`: runs a schedule now.
         ScheduleRun = "schedule.run" (ScheduleRef) -> Empty;
+        /// `gateway.attach`: turns a local connection into the tool gateway for one
+        /// provider session (its first message).
+        GatewayAttach = "gateway.attach" (GatewayAttachParams) -> Empty;
         /// `command.list`: the commands of enabled core plugins.
         CommandList = "command.list" (Empty) -> CommandListResult;
         /// `command.run`: runs a core plugin's command.
@@ -1120,6 +1123,21 @@ pub struct ScheduleSetEnabledParams {
     pub key: String,
     /// Run (true) or pause (false).
     pub enabled: bool,
+}
+
+/// Params of `gateway.attach`. The token is never logged.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GatewayAttachParams {
+    /// The session's token (`KUMIKIT_MCP_TOKEN`).
+    pub token: String,
+}
+
+impl std::fmt::Debug for GatewayAttachParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GatewayAttachParams")
+            .finish_non_exhaustive()
+    }
 }
 
 /// What a core plugin's command or method acts for.

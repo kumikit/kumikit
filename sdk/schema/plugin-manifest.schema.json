@@ -229,6 +229,39 @@
               }
             }
           }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "title",
+              "description",
+              "input"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "input": {
+                "type": "string"
+              },
+              "effect": {
+                "enum": [
+                  "read",
+                  "write"
+                ]
+              }
+            }
+          }
         }
       }
     }

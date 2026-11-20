@@ -247,7 +247,7 @@ async fn hello_describes_the_core() {
     assert_eq!(
         r["result"],
         json!({"protocol":"0.6","core":{"version":"0.0.0","name":"test","os":"test"},
-               "plugins":[],"capabilities":["threads","approvals","plugins","providers","workspace_events","secrets","settings","commands","schedules"]})
+               "plugins":[],"capabilities":["threads","approvals","plugins","providers","workspace_events","secrets","settings","commands","schedules","gateway"]})
     );
 }
 
@@ -444,4 +444,21 @@ async fn approvals_record_the_answering_device() {
     tokio::time::timeout(std::time::Duration::from_secs(60), run)
         .await
         .expect("the test exceeded its deadline");
+}
+
+#[tokio::test]
+async fn the_tool_gateway_is_refused_on_remote_connections_and_without_a_token() {
+    let mut remote = client_as(Peer::Device("01JCDV00000000000000000001".into())).await;
+    let r = remote
+        .call("gateway.attach", json!({"token": "anything"}))
+        .await;
+    assert_eq!(code(&r), "permission_denied", "{r}");
+    assert!(remote.recv().await.is_none(), "the connection closes");
+
+    let mut local = client().await;
+    let r = local
+        .call("gateway.attach", json!({"token": "not-a-session"}))
+        .await;
+    assert_eq!(code(&r), "unauthenticated", "{r}");
+    assert!(local.recv().await.is_none(), "the connection closes");
 }

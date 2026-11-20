@@ -143,6 +143,36 @@ pub struct CommandInfo {
     pub when: Option<String>,
 }
 
+/// A tool of an enabled plugin, as the gateway lists it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolInfo {
+    /// The plugin.
+    pub plugin: String,
+    /// Its name in the manifest.
+    pub name: String,
+    /// Its MCP name (`<plugin id with _>__<name>`).
+    pub mcp_name: String,
+    /// Title for people.
+    pub title: String,
+    /// Description for the agent.
+    pub description: String,
+    /// The JSON Schema of its arguments.
+    pub input_schema: serde_json::Value,
+    /// Whether it needs an approval.
+    pub write: bool,
+}
+
+/// What a tool call returned.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolOutcome {
+    /// Text for the agent.
+    pub text: String,
+    /// Structured result, JSON text.
+    pub structured: Option<String>,
+    /// The tool failed.
+    pub is_error: bool,
+}
+
 /// The qualified id of a provider.
 pub fn qualified(plugin: &str, local: &str) -> String {
     format!("{plugin}/{local}")
@@ -435,6 +465,69 @@ impl PluginHost {
             }
         }
         kernel.schedules_changed();
+    }
+
+    /// The tools of every enabled plugin, with their schemas (read from the packages).
+    pub fn tools(&self) -> Vec<ToolInfo> {
+        let mut out = Vec::new();
+        for (record, manifest) in self.inner.manager.enabled() {
+            for t in &manifest.contributes.tools {
+                let path = self
+                    .inner
+                    .manager
+                    .dirs()
+                    .package(&record.id, &record.version)
+                    .join(&t.input);
+                let schema = std::fs::read_to_string(&path)
+                    .ok()
+                    .and_then(|s| serde_json::from_str(&s).ok());
+                let Some(input_schema) = schema else {
+                    tracing::warn!(plugin = %record.id, tool = %t.name, "cannot read the tool's input schema; not listed");
+                    continue;
+                };
+                out.push(ToolInfo {
+                    plugin: record.id.clone(),
+                    name: t.name.clone(),
+                    mcp_name: crate::manifest::mcp_tool_name(&record.id, &t.name),
+                    title: t.title.clone(),
+                    description: t.description.clone(),
+                    input_schema,
+                    write: t.effect == crate::manifest::Effect::Write,
+                });
+            }
+        }
+        out
+    }
+
+    /// Runs a tool in its plugin's control instance, acting for `workspace_root`.
+    pub async fn call_tool(
+        &self,
+        plugin: &str,
+        name: &str,
+        input: &serde_json::Value,
+        thread: &str,
+        workspace_root: &str,
+    ) -> Result<ToolOutcome, HostError> {
+        use crate::runtime::bindings::tool::exports::kumikit::tool::tool::ToolCall;
+        self.enabled_manifest(plugin)?;
+        let control = self
+            .control(plugin)
+            .await
+            .map_err(|e| HostError::PluginFailed(e.to_string()))?;
+        let r = control
+            .call_tool(ToolCall {
+                name: name.to_owned(),
+                input: input.to_string(),
+                thread: thread.to_owned(),
+                workspace_root: workspace_root.to_owned(),
+            })
+            .await;
+        let r = self.guest_result(plugin, r).await?;
+        Ok(ToolOutcome {
+            text: r.text,
+            structured: r.structured,
+            is_error: r.is_error,
+        })
     }
 
     /// The commands of every enabled plugin, by plugin then manifest order.

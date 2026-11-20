@@ -216,8 +216,8 @@ Decided in [ADR 0025](../decisions/0025-tool-gateway.md).
   `notifications/tools/list_changed`. It offers every tool of every enabled plugin.
 - A call is refused unless the session's thread has a running turn. The kernel validates
   the input against the schema, appends `tool.started` with `source`, runs the tool in
-  the tool plugin's instance for that thread (acting for its workspace), and appends
-  `tool.output` and `tool.finished`. A `write` tool first needs an approval (kind `tool`)
+  the tool plugin's control instance acting for the thread's workspace (one call of a
+  plugin at a time), and appends `tool.output` and `tool.finished`. A `write` tool first needs an approval (kind `tool`)
   in the running turn; `allow_always` covers that tool in that thread.
 - Limits: input and result at most 1 MiB each (a longer result is cut and says so), 4
   calls in flight per session, the tool plugin's call limit and 5 minutes of wall time per

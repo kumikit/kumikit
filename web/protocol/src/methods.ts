@@ -11,6 +11,7 @@ import type { DeviceListResult } from "./DeviceListResult";
 import type { DeviceRef } from "./DeviceRef";
 import type { Empty } from "./Empty";
 import type { EventNotification } from "./EventNotification";
+import type { GatewayAttachParams } from "./GatewayAttachParams";
 import type { HelloParams } from "./HelloParams";
 import type { HelloResult } from "./HelloResult";
 import type { PairingCode } from "./PairingCode";
@@ -110,6 +111,7 @@ export type Methods = {
   "schedule.setEnabled": { params: ScheduleSetEnabledParams; result: Empty };
   "schedule.delete": { params: ScheduleRef; result: Empty };
   "schedule.run": { params: ScheduleRef; result: Empty };
+  "gateway.attach": { params: GatewayAttachParams; result: Empty };
   "command.list": { params: Empty; result: CommandListResult };
   "command.run": { params: CommandRunParams; result: CommandResult };
 };

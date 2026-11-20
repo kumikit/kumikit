@@ -55,6 +55,7 @@ fn replay(name: &str, mode: Option<&str>) -> Vec<Value> {
             cwd: "/workspace".into(),
             resume: None,
             mode: mode.map(str::to_owned),
+            mcp: None,
         }),
         writes: VecDeque::new(),
         approvals: HashMap::new(),

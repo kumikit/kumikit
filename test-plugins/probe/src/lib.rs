@@ -17,6 +17,7 @@
 //! - `spawn-secret <var> <secret>`: starts `fake-acp-agent env` with a secret variable.
 //! - `secret <name>`: reads a secret. `log-secret <name>`: reads one and logs its value.
 //! - `settings`: replies with its settings (`kumikit:host/settings`).
+//! - `mcp-info <thread>`: replies with the session's tool gateway record, or `null`.
 //! - `http <url>`: GETs it and replies `<status> <body>` (`wasi:http`).
 //! - `kv`: a set/get/list/delete round trip in its own store.
 //! - `fs-own`: writes and reads a file in its data directory.
@@ -115,6 +116,22 @@ impl Provider for Probe {
     }
 
     fn start_session(_provider: ProviderRef, config: SessionConfig) -> Result<String, Error> {
+        // Kept for `mcp-info`: the tool gateway this session got, if any.
+        let mcp = match &config.mcp_server {
+            Some(m) => {
+                let env: Vec<String> = m.env.iter().map(|(k, v)| format!("{k:?}:{v:?}")).collect();
+                let args: Vec<String> = m.args.iter().map(|a| format!("{a:?}")).collect();
+                format!(
+                    r#"{{"name":{:?},"command":{:?},"args":[{}],"env":{{{}}}}}"#,
+                    m.name,
+                    m.command,
+                    args.join(","),
+                    env.join(",")
+                )
+            }
+            None => "null".into(),
+        };
+        kv::set(&format!("mcp:{}", config.thread), mcp.as_bytes())?;
         Ok(format!("{}:{}", config.model, config.thread))
     }
 
@@ -240,6 +257,11 @@ fn probe(command: &str) -> Result<(), Error> {
                 Err(e) if e.denied => Err(fail(ErrorCode::PermissionDenied, format!("http: {e}"))),
                 Err(e) => Err(fail(ErrorCode::Io, format!("http: {e}"))),
             }
+        }
+        // Replies with the session's tool gateway record (JSON), or `null`.
+        ["mcp-info", thread] => {
+            let v = kv::get(&format!("mcp:{thread}"))?.unwrap_or_else(|| b"null".to_vec());
+            emit(Event::TextDone(String::from_utf8_lossy(&v).into_owned()))
         }
         // Replies with the plugin's own settings (`kumikit:host/settings`).
         ["settings"] => emit(Event::TextDone(settings::get()?)),

@@ -54,6 +54,20 @@ pub struct ToolStarted {
     pub name: String,
     /// Tool input.
     pub input: Value,
+    /// For a call through the tool gateway: the plugin and tool that served it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub source: Option<ToolSource>,
+}
+
+/// Which plugin's tool served a gateway call.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolSource {
+    /// The plugin.
+    pub plugin: String,
+    /// The tool's name in its manifest.
+    pub tool: String,
 }
 
 /// `tool.output`: a chunk of a tool call's output.

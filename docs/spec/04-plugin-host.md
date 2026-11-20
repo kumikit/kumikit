@@ -212,9 +212,8 @@ granted host to a loopback test server after the checks; release builds ignore i
 - An activated plugin runs as one or more component instances. Each instance is driven by
   its own task and handles one call at a time. A provider plugin has a control instance
   (calls outside a session) and one instance per provider session
-  ([ADR 0010](../decisions/0010-wasi-p2-and-session-instances.md)). A tool plugin gets one
-  instance per calling thread for gateway calls; a bot one more for `bot.run`. Method,
-  command and timer calls use the control instance.
+  ([ADR 0010](../decisions/0010-wasi-p2-and-session-instances.md)). Method, command, timer and
+  tool calls use the plugin's control instance, one call at a time.
 - **Acting workspace.** A call acts for at most one workspace: a session's or a gateway
   call's thread workspace, or the workspace of a `workspace`-scoped method or command.
   `process.spawn` needs one (its working directory must be inside it).

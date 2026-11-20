@@ -13,6 +13,7 @@ members = [
   "crates/kumikit-shell",
   "sdk/rust",
   "sdk/rust-provider",
+  "sdk/rust-tool",
   "plugins/provider-acp",
   "test-plugins/fake-acp-agent",
   "test-plugins/fake-ssh",
@@ -22,6 +23,7 @@ members = [
   "test-plugins/hello",
   "test-plugins/probe",
   "test-plugins/client",
+  "test-plugins/tool",
   "test-plugins/kumikit-test-plugins",
   "test-plugins/web-relay",
 ]

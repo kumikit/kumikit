@@ -2522,6 +2522,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jiff",
+ "jsonschema",
  "kumikit-assets",
  "kumikit-kernel",
  "kumikit-plugin-host",
@@ -2560,6 +2561,7 @@ dependencies = [
 name = "kumikit-kernel"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.3.4",
  "jiff",
  "kumikit-protocol",
  "kumikit-test-plugins",
@@ -2793,6 +2795,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumikit-test-tool"
+version = "0.1.0"
+dependencies = [
+ "kumikit-tool",
+ "serde_json",
+]
+
+[[package]]
 name = "kumikit-theme"
 version = "0.1.0"
 dependencies = [
@@ -2801,6 +2811,14 @@ dependencies = [
  "serde_json",
  "tempfile",
  "toml 1.2.1+spec-1.1.0",
+]
+
+[[package]]
+name = "kumikit-tool"
+version = "0.1.0"
+dependencies = [
+ "kumikit-plugin",
+ "wit-bindgen 0.61.1",
 ]
 
 [[package]]

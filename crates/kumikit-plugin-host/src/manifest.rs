@@ -22,8 +22,10 @@ pub const PLUGIN_API: semver::Version = semver::Version::new(0, 2, 0);
 pub const WORLD_PLUGIN: &str = "kumikit:plugin/plugin@0.2.0";
 /// The provider world.
 pub const WORLD_PROVIDER: &str = "kumikit:provider/plugin@0.2.0";
+/// The tool world.
+pub const WORLD_TOOL: &str = "kumikit:tool/plugin@0.1.0";
 /// Worlds this host can run.
-pub const WORLDS: &[&str] = &[WORLD_PLUGIN, WORLD_PROVIDER];
+pub const WORLDS: &[&str] = &[WORLD_PLUGIN, WORLD_PROVIDER, WORLD_TOOL];
 
 /// Manifest file name inside a package.
 pub const MANIFEST_FILE: &str = "plugin.toml";
@@ -297,6 +299,42 @@ pub struct Contributes {
     /// Plugin methods, called as `<plugin id>/<name>`.
     #[serde(default)]
     pub methods: Vec<MethodEntry>,
+    /// Tools for the tool gateway.
+    #[serde(default)]
+    pub tools: Vec<ToolEntry>,
+}
+
+/// Whether a tool only reads.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Effect {
+    /// It only reads; runs without asking.
+    Read,
+    /// It may change things; needs an approval.
+    #[default]
+    Write,
+}
+
+/// A tool for the tool gateway.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ToolEntry {
+    /// `[a-z0-9_]{1,32}`.
+    pub name: String,
+    /// Shown to people.
+    pub title: String,
+    /// Shown to the agent.
+    pub description: String,
+    /// JSON Schema file of its arguments.
+    pub input: String,
+    /// `read` or `write` (the default).
+    #[serde(default)]
+    pub effect: Effect,
+}
+
+/// A tool's MCP name: the plugin id with `.` and `-` as `_`, `__`, the tool's name.
+pub fn mcp_tool_name(plugin: &str, tool: &str) -> String {
+    format!("{}__{tool}", plugin.replace(['.', '-'], "_"))
 }
 
 /// What a method or command acts for.
@@ -459,6 +497,8 @@ impl Manifest {
         rt.wasm.as_ref()?;
         Some(if rt.worlds.iter().any(|w| w == WORLD_PROVIDER) {
             WORLD_PROVIDER
+        } else if rt.worlds.iter().any(|w| w == WORLD_TOOL) {
+            WORLD_TOOL
         } else {
             WORLD_PLUGIN
         })
@@ -698,6 +738,55 @@ impl Manifest {
             if !seen.insert(m.name.as_str()) {
                 p.push(format!("method `{}` appears twice", m.name));
             }
+        }
+        let mut seen = BTreeSet::new();
+        for t in &self.contributes.tools {
+            let ok = !t.name.is_empty()
+                && t.name.len() <= 32
+                && t.name
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
+            if !ok {
+                p.push(format!(
+                    "tool name `{}` is not valid ([a-z0-9_], at most 32)",
+                    t.name
+                ));
+            }
+            if mcp_tool_name(&self.id, &t.name).len() > 64 {
+                p.push(format!(
+                    "tool `{}`: its MCP name is longer than 64 characters",
+                    t.name
+                ));
+            }
+            if !seen.insert(t.name.as_str()) {
+                p.push(format!("tool `{}` appears twice", t.name));
+            }
+            check_file(&mut p, package, "tool input schema", &t.input);
+            if let Some(dir) = package
+                && is_package_path(&t.input)
+                && let Ok(text) = std::fs::read_to_string(dir.join(&t.input))
+            {
+                match serde_json::from_str::<serde_json::Value>(&text) {
+                    Ok(v) if v.get("type").and_then(|t| t.as_str()) == Some("object") => {
+                        if let Err(e) = jsonschema::validator_for(&v) {
+                            p.push(format!(
+                                "tool `{}`: input is not a JSON Schema: {e}",
+                                t.name
+                            ));
+                        }
+                    }
+                    Ok(_) => p.push(format!("tool `{}`: input must describe an object", t.name)),
+                    Err(e) => p.push(format!("tool `{}`: input is not JSON: {e}", t.name)),
+                }
+            }
+        }
+        if !self.contributes.tools.is_empty()
+            && !self
+                .runtime
+                .as_ref()
+                .is_some_and(|r| r.worlds.iter().any(|w| w == WORLD_TOOL))
+        {
+            p.push(format!("a plugin with tools must implement {WORLD_TOOL}"));
         }
         if self.runtime.is_none()
             && !(self.contributes.methods.is_empty() && self.contributes.commands.is_empty())

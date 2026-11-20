@@ -5,6 +5,7 @@ pub mod clock;
 pub mod devices;
 pub mod error;
 pub mod fold;
+pub mod gateway;
 pub mod grants;
 mod kernel;
 pub mod plugins;

@@ -89,6 +89,7 @@ pub(crate) struct Inner {
     pub(crate) secrets: SecretStore,
     pub(crate) supervisor: Supervisor,
     pub(crate) schedules: crate::schedule::State,
+    pub(crate) gateway: crate::gateway::State,
 }
 
 /// A started provider session.
@@ -127,6 +128,7 @@ impl Kernel {
                 secrets: SecretStore::new(config.secrets),
                 supervisor: Supervisor::new(config.supervisor),
                 schedules: Default::default(),
+                gateway: Default::default(),
             }),
         };
         kernel.recover().await?;

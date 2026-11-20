@@ -158,6 +158,34 @@ pub struct Options {
     pub resume: Option<String>,
     /// Session mode to set after opening (`session/set_mode`).
     pub mode: Option<String>,
+    /// The tool gateway, passed to the agent as a stdio MCP server
+    /// (`docs/spec/03-kernel.md#tool-gateway`).
+    pub mcp: Option<McpStdio>,
+}
+
+/// A stdio MCP server for the agent to start (ACP `McpServer` stdio form).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct McpStdio {
+    /// Its name.
+    pub name: String,
+    /// Absolute path of the program.
+    pub command: String,
+    /// Its arguments.
+    pub args: Vec<String>,
+    /// Environment variables (they hold a token: never logged).
+    pub env: Vec<(String, String)>,
+}
+
+impl McpStdio {
+    /// The ACP form: `{ name, command, args, env: [{ name, value }] }`.
+    pub fn to_acp(&self) -> Value {
+        json!({
+            "name": self.name,
+            "command": self.command,
+            "args": self.args,
+            "env": self.env.iter().map(|(k, v)| json!({ "name": k, "value": v })).collect::<Vec<_>>(),
+        })
+    }
 }
 
 /// One ACP session.
@@ -389,7 +417,7 @@ impl Session {
         match method {
             "initialize" => {
                 self.load_supported = result["agentCapabilities"]["loadSession"] == true;
-                let mcp: Vec<Value> = Vec::new();
+                let mcp: Vec<Value> = self.options.mcp.iter().map(McpStdio::to_acp).collect();
                 match self.options.resume.clone() {
                     Some(s) if self.load_supported => {
                         self.phase = Phase::Opening;
@@ -647,11 +675,38 @@ mod tests {
     }
 
     #[test]
+    fn the_gateway_is_passed_as_a_stdio_mcp_server() {
+        let mut s = Session::new(Options {
+            cwd: "/w".into(),
+            mcp: Some(McpStdio {
+                name: "kumikit".into(),
+                command: "/usr/bin/kumikit".into(),
+                args: vec!["mcp".into()],
+                env: vec![("KUMIKIT_MCP_TOKEN".into(), "t0k".into())],
+            }),
+            ..Options::default()
+        });
+        s.start();
+        let out = s.on_line(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}"#);
+        let [Action::Write(line)] = out.as_slice() else {
+            panic!("{out:?}")
+        };
+        let v: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(v["method"], "session/new");
+        assert_eq!(
+            v["params"]["mcpServers"],
+            json!([{ "name": "kumikit", "command": "/usr/bin/kumikit", "args": ["mcp"],
+                     "env": [{ "name": "KUMIKIT_MCP_TOKEN", "value": "t0k" }] }])
+        );
+    }
+
+    #[test]
     fn resume_uses_session_load_when_the_agent_supports_it() {
         let mut s = Session::new(Options {
             cwd: "/w".into(),
             resume: Some("old".into()),
             mode: None,
+            mcp: None,
         });
         s.start();
         let out = s.on_line(

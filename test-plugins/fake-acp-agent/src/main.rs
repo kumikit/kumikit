@@ -195,8 +195,28 @@ fn replay(path: &str) -> ExitCode {
     let cwd = std::env::current_dir()
         .map(|d| d.to_string_lossy().into_owned())
         .unwrap_or_else(|_| "/workspace".to_owned());
+    // The MCP servers the client gave in `session/new` (the tool gateway).
+    let mut mcp_servers: Vec<Value> = Vec::new();
     for (i, entry) in entries.iter().enumerate() {
         let message = &entry["message"];
+        if entry["from"] == "mcp" {
+            // Not recorded traffic: a step that calls a tool through the first MCP server
+            // the client gave, and says the result as an agent message chunk.
+            let Some(server) = mcp_servers.first() else {
+                return fail(&format!("entry {i}: the client gave no MCP server"));
+            };
+            let text = match mcp_call(server, &entry["call"]) {
+                Ok(t) => t,
+                Err(e) => return fail(&format!("entry {i}: {e}")),
+            };
+            let chunk = serde_json::json!({ "jsonrpc": "2.0", "method": "session/update", "params": {
+                "sessionId": entry["session"], "update": { "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": text } } } });
+            if writeln!(out, "{chunk}").and_then(|()| out.flush()).is_err() {
+                return ExitCode::SUCCESS;
+            }
+            continue;
+        }
         if entry["from"] == "client" {
             let Some(Ok(line)) = lines.next() else {
                 return fail(&format!("entry {i}: the client closed stdin early"));
@@ -221,6 +241,12 @@ fn replay(path: &str) -> ExitCode {
                 && let (Some(rec), Some(now)) = (message.get("id"), got.get("id"))
             {
                 ids.insert(rec.to_string(), now.clone());
+            }
+            if got.get("method").and_then(Value::as_str) == Some("session/new") {
+                mcp_servers = got["params"]["mcpServers"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
             }
         } else {
             let mut message = message.clone();
@@ -255,4 +281,64 @@ fn rewrite_paths(v: &mut serde_json::Value, cwd: &str) {
         serde_json::Value::Object(map) => map.values_mut().for_each(|i| rewrite_paths(i, cwd)),
         _ => {}
     }
+}
+
+/// Starts a stdio MCP server (ACP form: `{ command, args, env: [{ name, value }] }`),
+/// initializes it, calls one tool and returns the text of its result (`ERROR: …` when the
+/// result is an error).
+fn mcp_call(server: &serde_json::Value, call: &serde_json::Value) -> Result<String, String> {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    let mut cmd = Command::new(server["command"].as_str().ok_or("no command")?);
+    for a in server["args"].as_array().into_iter().flatten() {
+        cmd.arg(a.as_str().unwrap_or_default());
+    }
+    for e in server["env"].as_array().into_iter().flatten() {
+        cmd.env(
+            e["name"].as_str().unwrap_or_default(),
+            e["value"].as_str().unwrap_or_default(),
+        );
+    }
+    let mut child = cmd
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("starting the MCP server: {e}"))?;
+    let mut stdin = child.stdin.take().ok_or("no stdin")?;
+    let mut lines = BufReader::new(child.stdout.take().ok_or("no stdout")?).lines();
+    let mut ask = |id: u64,
+                   method: &str,
+                   params: serde_json::Value|
+     -> Result<serde_json::Value, String> {
+        let req =
+            serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
+        writeln!(stdin, "{req}").map_err(|e| e.to_string())?;
+        loop {
+            let line = lines
+                .next()
+                .ok_or("the MCP server closed")?
+                .map_err(|e| e.to_string())?;
+            let v: serde_json::Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+            if v["id"] == serde_json::json!(id) {
+                return Ok(v);
+            }
+        }
+    };
+    ask(
+        1,
+        "initialize",
+        serde_json::json!({ "protocolVersion": "2025-06-18", "capabilities": {},
+        "clientInfo": { "name": "fake-acp-agent", "version": "0" } }),
+    )?;
+    let r = ask(2, "tools/call", call.clone())?;
+    drop(child.kill());
+    let text = r["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    Ok(if r["result"]["isError"] == true {
+        format!("ERROR: {text}")
+    } else {
+        text
+    })
 }

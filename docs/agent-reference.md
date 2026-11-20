@@ -134,6 +134,15 @@ is about the code.
   `start_scheduler` only sleeps until `schedule_wake()` and calls it. A finished run
   writes only `last_run`/`last_outcome` (`record_last`): writing `next_run` there raced
   with the tick. The plugin host is the `Runner`; `serve` starts it, CLI paths never do.
+- **The tool gateway.** Tokens live in the kernel (`gateway.rs`), made when a provider
+  session starts (`session_for`) and voided when it is forgotten or its provider goes.
+  A gateway call's approval is the kernel's own: `respond_approval` hands it to the
+  waiting call (`gateway_resolved`) instead of the provider, and a turn ending resolves
+  it as cancelled. `rpc::serve_messages` hands a connection whose first message is
+  `gateway.attach` to `crate::gateway::serve`. Tests act as the agent: the probe's
+  `mcp-info <thread>` replies with its session's `mcp-server` record, and
+  `fake-acp-agent replay` has an `{"from":"mcp", …}` step that calls a tool through the
+  MCP server `session/new` gave it.
 - **Test components in WAT**: an imported instance with no exports is satisfied
   without a definition; give it a function to test a missing import.
 
@@ -205,6 +214,13 @@ is about the code.
 - **`client-store`** installs packages with the shell's store code
   (`scripts/check-templates.sh`). **`test-plugins/ui-panel`** is a sandboxed panel built
   by `bundle.mjs` into `target/bundle/test-ui-plugins/` (never shipped).
+
+## npm workspace
+
+- **Bumping a workspace package's version** (`@kumikit/ui-sdk`) means updating every
+  exact pin on it (`web/kernel`, `plugins/ui-*`) and the lockfile, then `npm ci`: a local
+  `node_modules` keeps working with a stale pin, while CI's `npm ci` asks the npm
+  registry for the old version and fails (M5's first push).
 
 ## UI kernel (`web/kernel`)
 
