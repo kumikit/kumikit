@@ -63,7 +63,7 @@ fn t(s: &str) -> Timestamp {
 async fn no_schedules_arm_no_timer() {
     let dir = tempfile::tempdir().unwrap();
     let k = kernel(&dir).await;
-    k.start_scheduler(Arc::new(FakeRunner::default()));
+    k.set_schedule_runner(Arc::new(FakeRunner::default()));
     assert_eq!(k.schedule_wake().await.unwrap(), None);
     k.schedule_set(
         "a.p",
@@ -93,7 +93,7 @@ async fn a_due_schedule_fires_once_and_moves_on() {
     let dir = tempfile::tempdir().unwrap();
     let k = kernel(&dir).await;
     let runner = Arc::new(FakeRunner::default());
-    k.start_scheduler(runner.clone());
+    k.set_schedule_runner(runner.clone());
     let next = k
         .schedule_set(
             "a.p",
@@ -130,7 +130,7 @@ async fn missed_runs_follow_their_policy_and_never_catch_up_twice() {
     let dir = tempfile::tempdir().unwrap();
     let k = kernel(&dir).await;
     let runner = Arc::new(FakeRunner::default());
-    k.start_scheduler(runner.clone());
+    k.set_schedule_runner(runner.clone());
     let at = t("2026-11-20T08:00:00Z");
     k.schedule_set(
         "a.p",
@@ -191,7 +191,7 @@ async fn a_run_still_going_is_skipped_not_doubled() {
         gate: Some(gate.clone()),
         ..Default::default()
     });
-    k.start_scheduler(runner.clone());
+    k.set_schedule_runner(runner.clone());
     k.schedule_set(
         "a.p",
         "x",
@@ -224,7 +224,7 @@ async fn a_plugin_that_may_not_run_is_left_alone() {
     let k = kernel(&dir).await;
     let runner = Arc::new(FakeRunner::default());
     runner.off.lock().unwrap().push("a.p".into());
-    k.start_scheduler(runner.clone());
+    k.set_schedule_runner(runner.clone());
     k.schedule_set(
         "a.p",
         "x",

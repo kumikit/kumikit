@@ -586,6 +586,13 @@ impl Kernel {
         *lock(&self.schedules().task) = Some(task);
     }
 
+    /// Installs the runner without spawning the wall-clock task, so tests that drive
+    /// `schedule_tick` with explicit timestamps do not race with real time.
+    #[cfg(test)]
+    pub(crate) fn set_schedule_runner(&self, runner: Arc<dyn Runner>) {
+        let _ = self.schedules().runner.set(runner);
+    }
+
     /// Stops the scheduler task (kernel close).
     pub(crate) fn stop_scheduler(&self) {
         if let Some(t) = lock(&self.schedules().task).take() {
