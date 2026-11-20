@@ -43,10 +43,7 @@ programs as the user, and the conversation history.
 | A tool acts outside the calling thread's workspace or unnoticed | The tool runs for that thread's workspace (`spawn` checks the cwd); `write` tools need an approval in the turn; every call is a `tool.*` event with its `source` |
 | A plugin sends data to an undeclared host or into the LAN | `network` allowlist on every request, `https` only, no automatic redirects, resolved addresses must be public unless the entry is a private literal |
 | A token in a request URL reaches a log | Request logs carry only scheme and host; stored secret values are redacted from every log line |
-| A bot or schedule acts beyond its grant | `client` operations and `workspaces` checked by the kernel on every call; no `allow_always` from plugins; actions recorded with the plugin |
-| A stranger messages a bot | Chats are paired with a one-time code shown only in Kumikit (40 bits, 5 minutes, one use, burnt after 5 tries); private chats only; chat and user id checked |
-| A stolen chat account drives the agent | Only linked workspaces; approvals only allow or deny; rate limits; unpairing or disabling the bot stops it at once |
-| Conversation text leaves the machine through a bot | The network host is shown at install and in the README privacy section; nothing is sent before a chat is paired |
+| A plugin acting as a client (a bot, a schedule) goes beyond its grant | `client` operations and `workspaces` checked by the kernel on every call; no `allow_always` from plugins; actions recorded with the plugin |
 | Something runs on a schedule unnoticed | `schedules` permission shown at install; every schedule listed with its next run, pausable and removable; threads say which plugin started them |
 | A git repository's configuration runs programs through the git plugin | It turns off fsmonitor, hooks, external diff and textconv; clean and smudge filters still run, as for any git command; `spawn` says git runs with the user's access |
 | Secrets leak to the UI or logs | Secrets are write-only over the protocol; the logger redacts values of known secrets |

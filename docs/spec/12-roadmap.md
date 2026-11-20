@@ -106,8 +106,10 @@ the `kumikit` publisher is its only (early) publisher so far. Plan:
 - Providers: GitHub Copilot CLI, OpenCode, Gemini CLI and Cursor CLI as declarative ACP
   manifests; Claude Code as a WASM adapter over its `stream-json` protocol, also a provider
   backend (DeepSeek through it as a community example).
-- `kumikit.git` and its panel `kumikit.ui-git`, `kumikit.github`, `kumikit.bot-telegram`,
-  `kumikit.schedules`.
+- `kumikit.git` and its panel `kumikit.ui-git`, `kumikit.github`, `kumikit.schedules`.
+- The first-party plugins live in their own repositories: `kumikit/kumikit-plugin-agents`
+  (every agent provider), `kumikit/kumikit-plugin-git`, `kumikit/kumikit-plugin-github`
+  and `kumikit/kumikit-plugin-schedules`. A Telegram bot comes in a later milestone.
 
 Each is a separate plugin and none needs a kernel special case; where one needs something
 the kernel lacks, a general API lands first.
@@ -121,12 +123,9 @@ the kernel lacks, a general API lands first.
 3. The `ui-git` panel shows the workspace's changes; an agent creates a GitHub pull request
    through the gateway after an approval, against a fake GitHub API; the token reaches no
    log, event or client.
-4. A Telegram chat paired with a code from Kumikit starts a thread in a linked workspace
-   and gets the reply; an approval answered there is recorded with the bot; unpaired chats
-   and unlinked workspaces get nothing (fake Bot API).
-5. A scheduled prompt runs at its time; `schedule.list` shows it; pausing stops it; missed
+4. A scheduled prompt runs at its time; `schedule.list` shows it; pausing stops it; missed
    runs follow their policy; with no schedules no timer is armed.
-6. In the desktop app, a user installs `kumikit.git` and `kumikit.ui-git` from a registry,
+5. In the desktop app, a user installs `kumikit.git` and `kumikit.ui-git` from a registry,
    asks an agent about the workspace's changes, and the agent answers with the git tool
    while the panel shows the same changes.
 

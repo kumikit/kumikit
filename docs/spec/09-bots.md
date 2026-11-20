@@ -7,7 +7,7 @@ events and answers approvals through the same operations the UI uses.
 Bots are the test of the protocol's completeness: if a bot cannot do something a user does
 in the UI, the plugin API is missing it.
 
-## The bot world
+## The bot world (planned)
 
 ```wit
 package kumikit:bot@0.1.0;
@@ -55,22 +55,9 @@ workspaces = "linked"      # only the workspaces the user links to this bot
 
 ## Telegram
 
-`kumikit.bot-telegram` is the first bot.
-
-- **Pairing.** Its command "Telegram: pair a chat" shows a one-time code (8 characters of
-  Crockford base32, valid 5 minutes, one use, burnt after 5 wrong tries, one live code).
-  The user sends `/pair <code>` to the bot from a private chat; the bot records the chat
-  and user id. Group chats are refused. Paired chats are listed on its settings page and
-  can be unpaired.
-- **Use.** `/workspaces`, `/new <workspace> [provider]`, `/threads`, `/use <n>`, plain
-  text (sent to the current thread), `/cancel`. It relays final messages, approval
-  requests (Allow and Deny buttons; on by default) and the end of each turn.
-- **Limits.** Out: 1 message per second per chat, 25 per second in total, waiting on
-  `429`. In: 10 messages per minute per chat; unpaired chats get one "not paired" reply
-  per hour.
-- **Network.** While enabled with a token set, the core keeps a long poll open to
-  `api.telegram.org` (README privacy section). The token is read from the secret store
-  when `run` starts and is never logged.
+A Telegram bot is planned for a milestone after M5. The client interface it needs
+(`kumikit:host/client`, linked workspaces, `from` and `plugin` in the log) is built; the bot
+world above is not yet.
 
 ## Webhooks
 

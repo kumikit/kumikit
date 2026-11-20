@@ -49,3 +49,4 @@ Small, local choices do not need one; a clear commit message is enough.
 | [0023](0023-outgoing-http-for-plugins.md) | Outgoing HTTP for plugins: wasi:http with the host's policy | Proposed |
 | [0024](0024-schedules.md) | Schedules: kernel-owned timers that wake plugins | Proposed |
 | [0025](0025-tool-gateway.md) | The tool gateway: MCP over stdio through the core's socket | Proposed |
+| [0026](0026-first-party-plugins-in-their-own-repositories.md) | First-party plugins live in their own repositories | Proposed |

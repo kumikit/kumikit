@@ -24,7 +24,7 @@ install that has `provider-acp` built for 0.1.0 would never get the rebuilt one.
 ## Decision
 
 - New versions: `kumikit:host@0.2.0`, `kumikit:plugin@0.2.0`, `kumikit:provider@0.2.0`,
-  and new packages `kumikit:tool@0.1.0` and `kumikit:bot@0.1.0`. They grow during M5 on
+  and a new package `kumikit:tool@0.1.0` (`kumikit:bot` waits for the bot, after M5). They grow during M5 on
   its branch and are recorded in `wit/PUBLISHED` when M5 merges. The 0.1.0 directories
   stay as they are.
 - `kumikit:host@0.2.0` keeps the 0.1.0 interfaces unchanged and adds `settings`, `timers`
