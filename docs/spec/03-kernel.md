@@ -184,12 +184,16 @@ Decided in [ADR 0024](../decisions/0024-schedules.md).
   replay. One scheduler task sleeps until the earliest enabled next run and wakes on
   changes; with no enabled schedule it arms no timer.
 - When one is due the kernel activates the plugin and calls `kumikit:plugin/timers.fire`.
-  It does not fire while its previous call is still running (`skipped`). A time that does
-  not exist (DST) runs at the next valid minute; a repeated hour runs once.
+  It does not fire while its previous call is still running (`skipped`). A time skipped
+  by a DST change runs as if the clocks had not moved (02:30 becomes 03:30); a repeated
+  hour runs once, at its first occurrence.
 - Runs missed while the core was down, or by a wake more than 5 minutes late, follow the
   policy: `skip` records `missed`; `once` runs once, never more.
-- `schedule.list`, `schedule.setEnabled` and `schedule.delete` show, pause and remove
-  them. Disabling a plugin stops its schedules; uninstalling deletes them.
+- `schedule.list`, `schedule.setEnabled`, `schedule.delete` and `schedule.run` show,
+  pause, remove and run them now; `ui-settings` has a Schedules page for the active core.
+  Disabling a plugin stops its schedules (its runs are not counted as missed until it is
+  enabled again); uninstalling deletes them. Only `kumikit serve` runs the scheduler, not
+  CLI commands that open the data directory.
 
 ## Tool gateway
 

@@ -710,12 +710,28 @@ impl Manifest {
                 None => matches!(trigger.as_str(), "startup" | "workspace" | "rpc"),
                 Some(("provider", id)) => provider_ids.contains(id),
                 Some(("command", id)) => !id.is_empty(),
-                Some(("schedule", cron)) => !cron.trim().is_empty(),
+                Some(("schedule", cron)) => match kumikit_kernel::schedule::cron::Cron::parse(cron)
+                {
+                    Ok(_) => true,
+                    Err(e) => {
+                        p.push(format!("activation trigger `{trigger}`: {e}"));
+                        true
+                    }
+                },
                 Some(_) => false,
             };
             if !ok {
                 p.push(format!("activation trigger `{trigger}` is not valid"));
             }
+        }
+        if self
+            .activation
+            .on
+            .iter()
+            .any(|t| t.starts_with("schedule:"))
+            && !self.permissions.schedules
+        {
+            p.push("`schedule:` triggers need permissions.schedules = true".into());
         }
         if self.runtime.is_none() && !self.activation.on.is_empty() {
             p.push("activation triggers need a runtime".into());

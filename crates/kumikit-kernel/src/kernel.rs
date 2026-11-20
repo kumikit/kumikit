@@ -88,6 +88,7 @@ pub(crate) struct Inner {
     sessions: Mutex<HashMap<ThreadId, Session>>,
     pub(crate) secrets: SecretStore,
     pub(crate) supervisor: Supervisor,
+    pub(crate) schedules: crate::schedule::State,
 }
 
 /// A started provider session.
@@ -101,7 +102,7 @@ pub(crate) struct Session {
 
 /// Locks a mutex, recovering from poisoning. Every kernel mutex guards plain maps or
 /// lists that stay consistent even if a holder panicked mid-update.
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
 
@@ -125,6 +126,7 @@ impl Kernel {
                 sessions: Mutex::new(HashMap::new()),
                 secrets: SecretStore::new(config.secrets),
                 supervisor: Supervisor::new(config.supervisor),
+                schedules: Default::default(),
             }),
         };
         kernel.recover().await?;
@@ -138,6 +140,7 @@ impl Kernel {
     /// provider sessions and subscriptions, kills supervised processes, and closes the
     /// database after queued writes.
     pub async fn close(&self) {
+        self.stop_scheduler();
         self.stop_turns().await;
         self.inner.supervisor.shutdown().await;
         self.lock_heads().clear();

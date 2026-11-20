@@ -12,6 +12,7 @@ pub mod process;
 pub mod provider;
 pub mod redact;
 pub mod repo;
+pub mod schedule;
 pub mod secrets;
 pub mod store;
 mod turns;

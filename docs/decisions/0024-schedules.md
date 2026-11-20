@@ -34,6 +34,7 @@ that runs on a schedule.
 ## Consequences
 
 - Plugins that run on a schedule cost nothing between runs.
-- DST: a time that does not exist runs at the next valid minute; a repeated hour runs once.
+- DST: a time skipped by a DST change runs as if the clocks had not moved (02:30 → 03:30);
+  a repeated hour runs once.
 - `jiff` adds to the core binary and reads the system time-zone database (bundled on
   Windows).

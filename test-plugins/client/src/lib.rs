@@ -7,9 +7,14 @@
 //! - `send { thread, text }`, `cancel { thread }`, `respond { approval, decision }`
 //! - `follow { topic, after, count }`: subscribes and waits (on the pollable) until
 //!   `count` events arrived, then returns their kinds.
+//! - `timer-set { key, cron, job }`: stores `job` (`{ workspace, provider, model, text }`)
+//!   and sets the schedule; when it fires, the plugin starts a thread in that workspace
+//!   with that text and remembers the due time. `timer-delete { key }`, `timers`,
+//!   `fired` (keys and due times so far).
 
 use kumikit_plugin::client::{self, Decision};
-use kumikit_plugin::{CallContext, CommandResult, Error, ErrorCode, Plugin, poll};
+use kumikit_plugin::timers::{self, Missed, Schedule};
+use kumikit_plugin::{CallContext, CommandResult, Error, ErrorCode, Plugin, kv, poll};
 use serde_json::{Value, json};
 
 struct Client;
@@ -76,6 +81,36 @@ fn run(id: &str, args: &Value) -> Result<Value, Error> {
             }
             Value::Array(kinds)
         }
+        "timer-set" => {
+            let key = arg(args, "key")?;
+            let job = args.get("job").cloned().unwrap_or(Value::Null);
+            kv::set(&format!("job:{key}"), job.to_string().as_bytes())?;
+            json!(timers::set(
+                key,
+                &Schedule {
+                    cron: arg(args, "cron")?.to_owned(),
+                    time_zone: opt(args, "zone"),
+                    description: format!("test job {key}"),
+                    missed: Missed::Skip,
+                }
+            )?)
+        }
+        "timer-delete" => {
+            timers::delete(arg(args, "key")?)?;
+            Value::Null
+        }
+        "timers" => Value::from_iter(timers::list()?.into_iter().map(|i| json!(i.key))),
+        "fired" => {
+            let mut out = Vec::new();
+            for k in kv::list("fired:")? {
+                let due = kv::get(&k)?.unwrap_or_default();
+                out.push(json!([
+                    k.trim_start_matches("fired:"),
+                    String::from_utf8_lossy(&due)
+                ]));
+            }
+            Value::Array(out)
+        }
         other => {
             return Err(Error::new(
                 ErrorCode::NotFound,
@@ -85,12 +120,33 @@ fn run(id: &str, args: &Value) -> Result<Value, Error> {
     })
 }
 
+/// A schedule fired: start its job's thread, then remember that it ran.
+fn fire(key: &str, due: &str) -> Result<(), Error> {
+    if let Some(job) = kv::get(&format!("job:{key}"))? {
+        let job: Value = serde_json::from_slice(&job).unwrap_or(Value::Null);
+        if let Ok(workspace) = arg(&job, "workspace") {
+            let t = client::create_thread(
+                workspace,
+                opt(&job, "provider").as_deref(),
+                opt(&job, "model").as_deref(),
+                Some(&format!("Scheduled: {key}")),
+            )?;
+            client::send(&t.id, arg(&job, "text")?)?;
+        }
+    }
+    kv::set(&format!("fired:{key}"), due.as_bytes())
+}
+
 impl Plugin for Client {
     fn activate() -> Result<(), Error> {
         Ok(())
     }
 
     fn deactivate() {}
+
+    fn fire(key: String, due: String) -> Result<(), Error> {
+        fire(&key, &due)
+    }
 
     fn run_command(id: String, args: String, _ctx: CallContext) -> Result<CommandResult, Error> {
         let args: Value = serde_json::from_str(&args).unwrap_or(Value::Null);

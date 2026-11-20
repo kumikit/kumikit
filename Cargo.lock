@@ -2521,6 +2521,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "jiff",
  "kumikit-assets",
  "kumikit-kernel",
  "kumikit-plugin-host",
@@ -2559,6 +2560,7 @@ dependencies = [
 name = "kumikit-kernel"
 version = "0.1.0"
 dependencies = [
+ "jiff",
  "kumikit-protocol",
  "kumikit-test-plugins",
  "rusqlite",
@@ -2605,6 +2607,7 @@ dependencies = [
  "http",
  "http-body-util",
  "hyper",
+ "jiff",
  "jsonschema",
  "kumikit-kernel",
  "kumikit-package",

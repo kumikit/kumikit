@@ -10,6 +10,7 @@ worlds = ["kumikit:plugin/plugin@0.2.0"]
 [permissions]
 client = ["workspaces.list", "threads.read", "threads.create", "threads.send", "threads.cancel", "approvals.respond"]
 workspaces = "linked"
+schedules = true
 [contributes]
 commands = [
   { id = "workspaces", title = "Workspaces" },
@@ -21,4 +22,8 @@ commands = [
   { id = "cancel", title = "Cancel" },
   { id = "respond", title = "Answer an approval" },
   { id = "follow", title = "Follow a topic" },
+  { id = "timer-set", title = "Set a timer" },
+  { id = "timer-delete", title = "Delete a timer" },
+  { id = "timers", title = "Timers" },
+  { id = "fired", title = "Fired timers" },
 ]

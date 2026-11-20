@@ -1,0 +1,16 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 115,
+    "method": "schedule.run",
+    "params": {
+      "plugin": "kumikit.schedules",
+      "key": "01JCSC0000000000000000000001"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 115,
+    "result": {}
+  }
+]

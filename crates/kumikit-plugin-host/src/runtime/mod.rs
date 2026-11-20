@@ -112,6 +112,7 @@ fn add_base_imports(l: &mut Linker<HostState>) -> wasmtime::Result<()> {
     host::secrets::add_to_linker::<HostState, D>(l, |s| s)?;
     host::settings::add_to_linker::<HostState, D>(l, |s| s)?;
     host::client::add_to_linker::<HostState, D>(l, |s| s)?;
+    host::timers::add_to_linker::<HostState, D>(l, |s| s)?;
     plugin::types::add_to_linker::<HostState, D>(l, |s| s)?;
     Ok(())
 }

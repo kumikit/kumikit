@@ -40,6 +40,7 @@ pub const CAPABILITIES: &[&str] = &[
     "secrets",
     "settings",
     "commands",
+    "schedules",
 ];
 
 /// What `core.hello` says about this core.
@@ -748,6 +749,63 @@ impl Conn {
                     .map_err(kernel_err)?;
                 tracing::info!(device = ?self.device, plugin = %p.plugin, count = p.workspaces.len(), "linked workspaces set");
                 reply::<m::PluginSetWorkspaces>(Empty {})
+            }
+            m::ScheduleList::NAME => {
+                parse::<m::ScheduleList>(params)?;
+                let schedules = k
+                    .schedule_list()
+                    .await
+                    .map_err(kernel_err)?
+                    .into_iter()
+                    .map(|r| m::ScheduleInfo {
+                        missed: match r.spec.missed {
+                            kumikit_kernel::schedule::Missed::Skip => "skip".into(),
+                            kumikit_kernel::schedule::Missed::Once => "once".into(),
+                        },
+                        source: match r.source {
+                            kumikit_kernel::schedule::Source::Manifest => "manifest".into(),
+                            kumikit_kernel::schedule::Source::Plugin => "plugin".into(),
+                        },
+                        plugin: r.plugin,
+                        key: r.key,
+                        description: r.spec.description,
+                        cron: r.spec.cron,
+                        time_zone: r.spec.zone,
+                        enabled: r.enabled,
+                        next_run: r.next_run,
+                        last_run: r.last_run,
+                        last_outcome: r.last_outcome,
+                    })
+                    .collect();
+                reply::<m::ScheduleList>(m::ScheduleListResult { schedules })
+            }
+            m::ScheduleSetEnabled::NAME => {
+                let p = parse::<m::ScheduleSetEnabled>(params)?;
+                k.schedule_set_enabled(&p.plugin, &p.key, p.enabled, jiff::Timestamp::now())
+                    .await
+                    .map_err(kernel_err)?;
+                tracing::info!(device = ?self.device, plugin = %p.plugin, key = %p.key, enabled = p.enabled, "schedule changed");
+                reply::<m::ScheduleSetEnabled>(Empty {})
+            }
+            m::ScheduleDelete::NAME => {
+                let p = parse::<m::ScheduleDelete>(params)?;
+                if p.key.starts_with(kumikit_kernel::schedule::MANIFEST_PREFIX) {
+                    return Err(RpcError::new(
+                        ErrorCode::Conflict,
+                        "a manifest schedule cannot be deleted; pause it instead",
+                    ));
+                }
+                k.schedule_delete(&p.plugin, &p.key)
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::ScheduleDelete>(Empty {})
+            }
+            m::ScheduleRun::NAME => {
+                let p = parse::<m::ScheduleRun>(params)?;
+                k.schedule_run_now(&p.plugin, &p.key, jiff::Timestamp::now())
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::ScheduleRun>(Empty {})
             }
             m::CommandList::NAME => {
                 parse::<m::CommandList>(params)?;

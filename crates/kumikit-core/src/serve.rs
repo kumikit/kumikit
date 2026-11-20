@@ -118,6 +118,9 @@ pub async fn serve(
             )
         }),
     });
+    // Schedules run only in a serving core; the first tick handles runs missed while it
+    // was down.
+    host.start_scheduler();
     // Seeding compiles components, so it runs after the core accepts connections;
     // clients learn about the new plugins through `core.pluginsChanged`.
     let seeding = options

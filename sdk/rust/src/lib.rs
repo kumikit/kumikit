@@ -37,7 +37,7 @@ pub mod bindings {
 pub use bindings::__export_base_world;
 pub use bindings::kumikit::host::process::{self, Child, ExitStatus, SpawnRequest};
 pub use bindings::kumikit::host::types::{Error, ErrorCode};
-pub use bindings::kumikit::host::{client, kv, log, secrets, settings};
+pub use bindings::kumikit::host::{client, kv, log, secrets, settings, timers};
 pub use bindings::kumikit::plugin::types::{CallContext, CommandResult, WorkspaceRef};
 /// `wasi:io/poll`, shared with [`http`]: wait on several pollables with [`poll::poll`].
 pub use wasip2::io::poll;

@@ -303,6 +303,7 @@ impl Kernel {
             .write(move |c| {
                 let n = c.execute("DELETE FROM plugins WHERE id = ?1", [&id])?;
                 c.execute("DELETE FROM plugin_workspaces WHERE plugin = ?1", [&id])?;
+                c.execute("DELETE FROM schedules WHERE plugin = ?1", [&id])?;
                 if n == 0 {
                     return Err(KernelError::NotFound(format!("no plugin {id}")));
                 }

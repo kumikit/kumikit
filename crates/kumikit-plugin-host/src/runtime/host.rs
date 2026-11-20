@@ -551,3 +551,100 @@ impl tokio::io::AsyncWrite for LogStream {
         Poll::Ready(Ok(()))
     }
 }
+
+// ---- timers ----
+
+impl super::bindings::base::kumikit::host::timers::Host for HostState {
+    async fn set(
+        &mut self,
+        key: String,
+        schedule: super::bindings::base::kumikit::host::timers::Schedule,
+    ) -> Result<Option<String>, Error> {
+        use super::bindings::base::kumikit::host::timers::Missed;
+        use kumikit_kernel::schedule as ks;
+        if !self.id.grants.schedules {
+            return Err(self.deny("timers.set", "permissions.schedules is not granted".into()));
+        }
+        if key.starts_with(ks::MANIFEST_PREFIX) {
+            return Err(err(
+                ErrorCode::InvalidArgument,
+                format!(
+                    "keys starting with `{}` belong to the manifest",
+                    ks::MANIFEST_PREFIX
+                ),
+            ));
+        }
+        let spec = ks::Spec {
+            cron: schedule.cron,
+            zone: schedule.time_zone,
+            description: schedule.description,
+            missed: match schedule.missed {
+                Missed::Skip => ks::Missed::Skip,
+                Missed::Once => ks::Missed::Once,
+            },
+        };
+        let kernel = self.kernel.clone();
+        let plugin = self.id.plugin.clone();
+        kernel
+            .schedule_set(
+                &plugin,
+                &key,
+                spec,
+                ks::Source::Plugin,
+                jiff::Timestamp::now(),
+            )
+            .await
+            .map_err(kernel_err)
+    }
+
+    async fn delete(&mut self, key: String) -> Result<(), Error> {
+        if !self.id.grants.schedules {
+            return Err(self.deny(
+                "timers.delete",
+                "permissions.schedules is not granted".into(),
+            ));
+        }
+        if key.starts_with(kumikit_kernel::schedule::MANIFEST_PREFIX) {
+            return Err(err(
+                ErrorCode::InvalidArgument,
+                "manifest schedules cannot be deleted",
+            ));
+        }
+        let kernel = self.kernel.clone();
+        let plugin = self.id.plugin.clone();
+        kernel
+            .schedule_delete(&plugin, &key)
+            .await
+            .map_err(kernel_err)
+    }
+
+    async fn list(
+        &mut self,
+    ) -> Result<Vec<super::bindings::base::kumikit::host::timers::Info>, Error> {
+        use super::bindings::base::kumikit::host::timers::{Info, Missed, Schedule};
+        if !self.id.grants.schedules {
+            return Err(self.deny("timers.list", "permissions.schedules is not granted".into()));
+        }
+        let kernel = self.kernel.clone();
+        let plugin = self.id.plugin.clone();
+        let rows = kernel.schedule_list().await.map_err(kernel_err)?;
+        Ok(rows
+            .into_iter()
+            .filter(|r| r.plugin == plugin)
+            .map(|r| Info {
+                key: r.key,
+                schedule: Schedule {
+                    cron: r.spec.cron,
+                    time_zone: r.spec.zone,
+                    description: r.spec.description,
+                    missed: match r.spec.missed {
+                        kumikit_kernel::schedule::Missed::Skip => Missed::Skip,
+                        kumikit_kernel::schedule::Missed::Once => Missed::Once,
+                    },
+                },
+                enabled: r.enabled,
+                next_run: r.next_run,
+            })
+            .collect())
+    }
+}

@@ -406,6 +406,37 @@ impl PluginHost {
         })
     }
 
+    /// Starts the kernel's scheduler with this host as its runner (`kumikit serve` only:
+    /// CLI commands that open the data directory must not run schedules).
+    pub fn start_scheduler(&self) {
+        let runner = ScheduleRunner {
+            host: Arc::downgrade(&self.inner),
+        };
+        self.inner
+            .manager
+            .kernel()
+            .start_scheduler(Arc::new(runner));
+    }
+
+    /// Makes enabled plugins' `schedule:<cron>` triggers their manifest schedules, and
+    /// wakes the scheduler (a plugin may have been enabled or disabled).
+    async fn sync_schedules(&self, enabled: &[(PluginRecord, Arc<Manifest>)]) {
+        let kernel = self.inner.manager.kernel();
+        let now = jiff::Timestamp::now();
+        for (record, manifest) in enabled {
+            let crons: Vec<String> = manifest
+                .activation
+                .on
+                .iter()
+                .filter_map(|t| t.strip_prefix("schedule:").map(|c| c.trim().to_owned()))
+                .collect();
+            if let Err(e) = kernel.schedule_sync_manifest(&record.id, &crons, now).await {
+                tracing::warn!(plugin = %record.id, error = %e, "cannot record the manifest's schedules");
+            }
+        }
+        kernel.schedules_changed();
+    }
+
     /// The commands of every enabled plugin, by plugin then manifest order.
     pub fn commands(&self) -> Vec<CommandInfo> {
         self.inner
@@ -551,6 +582,7 @@ impl PluginHost {
     /// unregisters the difference with the kernel.
     async fn reconcile(&self) {
         let enabled = self.inner.manager.enabled();
+        self.sync_schedules(&enabled).await;
         // key -> (backend plugin, its version, its schema file)
         let mut backends: HashMap<String, (String, String, Option<PathBuf>)> = HashMap::new();
         for (record, manifest) in &enabled {
@@ -1166,6 +1198,42 @@ impl Provider for WasmProvider {
             )
             .await;
             host.drop_instance(&s.instance).await;
+        })
+    }
+}
+
+/// Wakes plugins for the kernel's scheduler (`docs/spec/03-kernel.md#schedules`).
+struct ScheduleRunner {
+    host: Weak<Inner>,
+}
+
+impl kumikit_kernel::schedule::Runner for ScheduleRunner {
+    fn runnable(&self, plugin: &str) -> bool {
+        let Some(inner) = self.host.upgrade() else {
+            return false;
+        };
+        inner
+            .manager
+            .enabled()
+            .iter()
+            .any(|(r, _)| r.id == plugin && r.granted.as_ref().is_some_and(|g| g.schedules))
+    }
+
+    fn fire(
+        &self,
+        plugin: String,
+        key: String,
+        due: String,
+    ) -> kumikit_kernel::provider::BoxFuture<'static, Result<(), String>> {
+        let host = self.host.upgrade().map(|inner| PluginHost { inner });
+        Box::pin(async move {
+            let host = host.ok_or("the plugin host has stopped")?;
+            tracing::info!(%plugin, %key, %due, "a schedule is due");
+            let control = host.control(&plugin).await.map_err(|e| e.to_string())?;
+            let r = control.fire_timer(key, due).await;
+            host.guest_result(&plugin, r)
+                .await
+                .map_err(|e| e.to_string())
         })
     }
 }

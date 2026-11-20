@@ -218,6 +218,7 @@ and both sides ignore fields they do not know.
 | `schedule.list` | — | `schedules`: `{ plugin, key, description, cron, timeZone, enabled, missed, nextRun?, lastRun?, lastOutcome?, source }` (`source`: `manifest` or `plugin`; `lastOutcome`: `ran`, `failed`, `missed`, `skipped`) |
 | `schedule.setEnabled` | `plugin`, `key`, `enabled` | `{}` |
 | `schedule.delete` | `plugin`, `key` | `{}`. Manifest schedules cannot be deleted (`conflict`); pause them instead. |
+| `schedule.run` | `plugin`, `key` | `{}`, once the run has started. `conflict` while its last run is still going or the plugin is not enabled with `schedules`. |
 | `gateway.attach` | `token` | `{}`, then the connection carries MCP for that token's provider session ([03](03-kernel.md#tool-gateway)). Local connections only, as their first message (it needs no `core.hello`); remote ones get `permission_denied`, an unknown or void token `unauthenticated`. |
 
 New capabilities: `secrets`, `settings`, `commands`, `schedules`, `gateway`.

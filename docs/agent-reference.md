@@ -129,6 +129,11 @@ is about the code.
   linker adds Kumikit's interfaces one by one (`add_base_imports`) next to wasmtime-wasi's.
 - **`wit/kumikit-host@0.2.0/deps/io.wit`** is WASI's `wasi:io@0.2.12`, copied from
   wasmtime-wasi; the published-WIT hash covers `deps/` too.
+- **Schedules** (`kumikit-kernel/src/schedule/`): `schedule_tick(now)` holds every timing
+  rule and takes the time as an argument, so kernel tests use explicit times; the task in
+  `start_scheduler` only sleeps until `schedule_wake()` and calls it. A finished run
+  writes only `last_run`/`last_outcome` (`record_last`): writing `next_run` there raced
+  with the tick. The plugin host is the `Runner`; `serve` starts it, CLI paths never do.
 - **Test components in WAT**: an imported instance with no exports is satisfied
   without a definition; give it a function to test a missing import.
 

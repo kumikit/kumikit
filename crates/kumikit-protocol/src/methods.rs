@@ -163,6 +163,14 @@ methods! {
         PluginWorkspaces = "plugin.workspaces" (PluginRef) -> PluginWorkspacesResult;
         /// `plugin.setWorkspaces`: replaces the workspaces linked to a plugin.
         PluginSetWorkspaces = "plugin.setWorkspaces" (PluginSetWorkspacesParams) -> Empty;
+        /// `schedule.list`: every schedule on the core.
+        ScheduleList = "schedule.list" (Empty) -> ScheduleListResult;
+        /// `schedule.setEnabled`: pauses or resumes a schedule.
+        ScheduleSetEnabled = "schedule.setEnabled" (ScheduleSetEnabledParams) -> Empty;
+        /// `schedule.delete`: removes a plugin's own schedule.
+        ScheduleDelete = "schedule.delete" (ScheduleRef) -> Empty;
+        /// `schedule.run`: runs a schedule now.
+        ScheduleRun = "schedule.run" (ScheduleRef) -> Empty;
         /// `command.list`: the commands of enabled core plugins.
         CommandList = "command.list" (Empty) -> CommandListResult;
         /// `command.run`: runs a core plugin's command.
@@ -1049,6 +1057,69 @@ pub struct PluginSetWorkspacesParams {
     pub plugin: String,
     /// The workspaces it may act in when its `permissions.workspaces` is `linked`.
     pub workspaces: Vec<WorkspaceId>,
+}
+
+/// A schedule as `schedule.list` shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ScheduleInfo {
+    /// The owning plugin.
+    pub plugin: String,
+    /// Its key.
+    pub key: String,
+    /// What it does, in the plugin's words.
+    pub description: String,
+    /// The cron expression.
+    pub cron: String,
+    /// IANA time zone; absent for the core's local zone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_zone: Option<String>,
+    /// False while paused.
+    pub enabled: bool,
+    /// `skip` or `once`.
+    pub missed: String,
+    /// `manifest` or `plugin`.
+    pub source: String,
+    /// Next run, RFC 3339 UTC.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_run: Option<String>,
+    /// Last run, RFC 3339 UTC.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_run: Option<String>,
+    /// `ran`, `failed`, `missed` or `skipped`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_outcome: Option<String>,
+}
+
+/// Result of `schedule.list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduleListResult {
+    /// Every schedule, by plugin and key.
+    pub schedules: Vec<ScheduleInfo>,
+}
+
+/// Params naming one schedule.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduleRef {
+    /// The plugin.
+    pub plugin: String,
+    /// The schedule's key.
+    pub key: String,
+}
+
+/// Params of `schedule.setEnabled`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduleSetEnabledParams {
+    /// The plugin.
+    pub plugin: String,
+    /// The schedule's key.
+    pub key: String,
+    /// Run (true) or pause (false).
+    pub enabled: bool,
 }
 
 /// What a core plugin's command or method acts for.

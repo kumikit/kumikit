@@ -14,6 +14,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0005_plugin_publisher.sql"),
     include_str!("../../migrations/0006_plugin_settings.sql"),
     include_str!("../../migrations/0007_plugin_workspaces.sql"),
+    include_str!("../../migrations/0008_schedules.sql"),
 ];
 
 /// Applies the migrations `conn` has not seen yet, each in its own transaction. Fails
@@ -46,19 +47,19 @@ mod tests {
     #[test]
     fn fresh_database_reaches_latest() {
         let mut conn = Connection::open_in_memory().unwrap();
-        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 7);
-        assert_eq!(version(&conn), 7);
+        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 8);
+        assert_eq!(version(&conn), 8);
         let tables: i64 = conn
             .query_row(
                 "SELECT count(*) FROM sqlite_master WHERE type = 'table'
                  AND name IN ('workspaces','threads','events','turns','approvals',
                               'plugins','plugin_kv','seeded_plugins','devices',
-                              'plugin_settings','plugin_workspaces')",
+                              'plugin_settings','plugin_workspaces','schedules')",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(tables, 11);
+        assert_eq!(tables, 12);
     }
 
     #[test]
@@ -70,7 +71,7 @@ mod tests {
             [],
         )
         .unwrap();
-        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 7);
+        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 8);
         let n: i64 = conn
             .query_row("SELECT count(*) FROM workspaces", [], |r| r.get(0))
             .unwrap();
@@ -141,11 +142,11 @@ mod tests {
     #[test]
     fn refuses_newer_database() {
         let mut conn = Connection::open_in_memory().unwrap();
-        conn.pragma_update(None, "user_version", 8).unwrap();
+        conn.pragma_update(None, "user_version", 9).unwrap();
         let err = migrate(&mut conn, MIGRATIONS).unwrap_err();
         assert!(matches!(
             err,
-            StoreError::NewerSchema { found: 8, known: 7 }
+            StoreError::NewerSchema { found: 9, known: 8 }
         ));
     }
 }

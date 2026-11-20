@@ -1,0 +1,38 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 110,
+    "method": "schedule.list",
+    "params": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 110,
+    "result": {
+      "schedules": [
+        {
+          "plugin": "kumikit.schedules",
+          "key": "01JCSC0000000000000000000001",
+          "description": "Summarise yesterday's commits in proj",
+          "cron": "0 9 * * 1-5",
+          "timeZone": "Europe/Belgrade",
+          "enabled": true,
+          "missed": "once",
+          "source": "plugin",
+          "nextRun": "2026-11-23T08:00:00Z",
+          "lastRun": "2026-11-20T08:00:00Z",
+          "lastOutcome": "ran"
+        },
+        {
+          "plugin": "acme.cleanup",
+          "key": "manifest:0",
+          "description": "On the schedule `@daily` from its manifest",
+          "cron": "@daily",
+          "enabled": false,
+          "missed": "skip",
+          "source": "manifest"
+        }
+      ]
+    }
+  }
+]
