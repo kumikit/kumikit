@@ -528,3 +528,21 @@ async fn a_checked_delegated_entry_is_not_checked_again_after_a_restart() {
         .unwrap();
     assert_eq!(declarative.providers, ["test.declarative/delegated"]);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn uninstalling_stops_running_instances_before_deleting_data() {
+    let e = env().await;
+    e.install_probe().await;
+    let t = e.thread("test.probe/probe", "probe").await;
+    let events = e.turn(&t, 0, "kv").await;
+    assert_eq!(ended(&events).0, TurnOutcome::Done, "{:?}", ended(&events));
+    assert_eq!(e.host.instances("test.probe"), (true, 1));
+    let data = e.host.manager().dirs().plugin_data("test.probe");
+    assert!(data.is_dir());
+
+    // On Windows an active WASI preopened_dir handle keeps remove_dir_all from
+    // removing the plugin's data directory unless instances are stopped first.
+    e.host.uninstall("test.probe", true).await.unwrap();
+    assert_eq!(e.host.instances("test.probe"), (false, 0));
+    assert!(!data.exists());
+}

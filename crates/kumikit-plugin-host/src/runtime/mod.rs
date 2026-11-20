@@ -270,6 +270,7 @@ pub struct Instance {
 #[derive(Debug)]
 struct InstanceInner {
     jobs: mpsc::Sender<Job>,
+    stopped: tokio::sync::watch::Receiver<bool>,
     plugin: String,
     owner: OwnerId,
     kernel: Kernel,
@@ -370,15 +371,23 @@ impl Instance {
         .map_err(|e| trap(&plugin, &store, &e))?;
 
         let (jobs, rx) = mpsc::channel::<Job>(8);
-        tokio::spawn(run(store, bindings, rx, tick));
+        let (stopped_tx, stopped) = tokio::sync::watch::channel(false);
+        tokio::spawn(run(store, bindings, rx, tick, stopped_tx));
         Ok(Instance {
             inner: Arc::new(InstanceInner {
                 jobs,
+                stopped,
                 plugin,
                 owner,
                 kernel,
             }),
         })
+    }
+
+    /// Becomes `true` once the instance's task has dropped its store (closing its
+    /// preopened data directory handle on Windows).
+    pub fn stopped(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.inner.stopped.clone()
     }
 
     /// The supervisor owner of this instance's processes.
@@ -725,6 +734,7 @@ async fn run(
     bindings: Bindings,
     mut jobs: mpsc::Receiver<Job>,
     _tick: TickGuard,
+    stopped: tokio::sync::watch::Sender<bool>,
 ) {
     while let Some(job) = jobs.recv().await {
         if !job(&mut store, &bindings).await {
@@ -734,5 +744,6 @@ async fn run(
     let owner = store.data().owner.clone();
     let kernel = store.data().kernel.clone();
     drop(store);
+    let _ = stopped.send(true);
     kernel.supervisor().kill_owner(&owner).await;
 }

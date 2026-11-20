@@ -392,13 +392,16 @@ impl PluginHost {
     pub async fn uninstall(&self, id: &str, delete_data: bool) -> Result<(), HostError> {
         let was_enabled = self.inner.manager.get(id)?.record.state
             == kumikit_kernel::plugins::PluginState::Enabled;
-        self.inner.manager.uninstall(id, delete_data).await?;
-        self.reconcile().await;
         if was_enabled {
-            self.inner.changed.send_modify(|v| *v += 1);
+            self.inner.manager.disable(id).await?;
+            self.reconcile().await;
         }
         self.unload(id, "removed").await;
         lock(&self.inner.runs).remove(id);
+        self.inner.manager.uninstall(id, delete_data).await?;
+        if was_enabled {
+            self.inner.changed.send_modify(|v| *v += 1);
+        }
         Ok(())
     }
 
@@ -964,10 +967,24 @@ impl PluginHost {
         };
         for s in sessions {
             self.kernel().forget_session(&s.thread);
+            let mut stopped = s.instance.stopped();
             self.drop_instance(&s.instance).await;
+            drop(s);
+            let _ = tokio::time::timeout(
+                self.inner.config.deactivate_limit,
+                stopped.wait_for(|&done| done),
+            )
+            .await;
         }
         if let Some(i) = control {
+            let mut stopped = i.stopped();
             self.drop_instance(&i).await;
+            drop(i);
+            let _ = tokio::time::timeout(
+                self.inner.config.deactivate_limit,
+                stopped.wait_for(|&done| done),
+            )
+            .await;
         }
         tracing::info!(plugin, why, "plugin unloaded");
     }
