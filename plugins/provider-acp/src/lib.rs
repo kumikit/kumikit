@@ -224,6 +224,7 @@ impl Provider for Acp {
                 cwd: cfg.workspace_root,
                 resume: cfg.resume,
                 mode: config.mode.clone(),
+                auth_method: config.auth_method.clone(),
                 mcp: cfg.mcp_server.map(|m| acp::McpStdio {
                     name: m.name,
                     command: m.command,

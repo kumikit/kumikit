@@ -35,8 +35,10 @@ the local id; the protocol and the stored `Thread.provider` use the qualified on
    (variable name → secret name, checked against `permissions.secrets`), `models` (a
    list of `{ id, label, capabilities }`; default: one model, `default`), `model-arg` (a
    flag that passes the chosen model on the agent's command line, for example
-   `--model`; ACP itself has no model selection) and `mode` (a session mode to set after
-   opening, for agents whose default mode never asks for approval). The table is
+   `--model`; ACP itself has no model selection), `mode` (a session mode to set after
+   opening, for agents whose default mode never asks for approval) and `auth-method` (an
+   ACP authentication method id to call with `authenticate` after `initialize`, for
+   agents that require it before opening a session). The table is
    checked against the plugin's `acp.schema.json`. `provider-acp` starts the agent in the thread's workspace, with the
    contributing plugin's permissions, and translates ACP session updates into kernel
    events: message chunks to `text.delta`/`text.done`, thought chunks to
@@ -47,10 +49,10 @@ the local id; the protocol and the stored `Thread.provider` use the qualified on
    dropped. It offers the agent no file-system or terminal client capabilities.
    `plugins/provider-acp/examples/claude-code` is a complete declarative provider for
    Claude Code through its ACP adapter. The first-party declarative providers are
-   `kumikit.provider-copilot` (`copilot --acp`), `kumikit.provider-opencode` (`opencode
-   acp`), `kumikit.provider-gemini` (`gemini --acp`) and `kumikit.provider-cursor`
-   (`cursor-agent acp`). When the session has a tool gateway, `provider-acp` passes it to
-   the agent in `mcpServers`.
+   `kumikit.provider-antigravity` (`agy acp`), `kumikit.provider-copilot` (`copilot
+   --acp`), `kumikit.provider-cursor` (`cursor-agent acp`) and
+   `kumikit.provider-opencode` (`opencode acp`). When the session
+   has a tool gateway, `provider-acp` passes it to the agent in `mcpServers`.
 2. **WASM adapter.** For agents with their own stream format (for example JSON-lines
    output or an app-server protocol), a plugin implements `kumikit:provider` and spawns
    the CLI through `kumikit:host/process`. `kumikit.provider-claude` runs Claude Code

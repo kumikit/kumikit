@@ -39,7 +39,19 @@ mod tests;
 /// Environment variables copied from the core into every child, when set. A trailing
 /// `*` matches any suffix.
 pub const ENV_ALLOWLIST: &[&str] = &[
-    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_*", "TERM", "TMPDIR", "XDG_*",
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "LANG",
+    "LC_*",
+    "TERM",
+    "TMPDIR",
+    "XDG_*",
+    "DISPLAY",
+    "WAYLAND_DISPLAY",
+    "DBUS_SESSION_BUS_ADDRESS",
 ];
 
 /// Windows variables copied as well (matched without regard to case).

@@ -142,7 +142,8 @@ that do not understand one skip it; a UI plugin can register a renderer for it.
   thread workspace) and defaults to its root; paths are canonicalized before the check. A
   plugin acting for no workspace cannot spawn.
 - The environment starts empty and gets, in order: an allowlist copied from the core
-  (`PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `LANG`, `LC_*`, `TERM`, `TMPDIR`, `XDG_*`;
+  (`PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `LANG`, `LC_*`, `TERM`, `TMPDIR`, `XDG_*`,
+  `DISPLAY`, `WAYLAND_DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`;
   on Windows `SystemRoot`, `windir`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`,
   `ProgramData`, `ProgramFiles*`, `PATHEXT`, `COMSPEC`, `TEMP`, `TMP`, `USERNAME`,
   `HOMEDRIVE`, `HOMEPATH`); variables the plugin sets explicitly (dynamic-loader variables
