@@ -21,7 +21,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tempfile = "3.27.0"
 thiserror = "2.0.21"
-tokio = { version = "1.54.1", features = ["sync", "rt", "macros", "time"] }
+tokio = { version = "1.54.1", features = ["sync", "rt", "macros", "time", "net"] }
 toml = "1.2.1"
 tracing = "0.1.44"
 wasmtime = { version = "50.0.1", default-features = false, features = [
@@ -39,6 +39,12 @@ wasmtime-wasi = { version = "50.0.1", default-features = false, features = ["p2"
 # Outgoing HTTP for plugins (ADR 0023); its default sender is off, the host sends requests itself.
 wasmtime-wasi-http = { version = "50.0.1", default-features = false, features = ["p2"] }
 http = "1"
+bytes = "1"
+http-body-util = "0.1.5"
+hyper = { version = "1.12.0", features = ["client", "http1"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std"] }
+rustls-native-certs = "0.8"
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring"] }
 
 [dev-dependencies]
 sha2 = "0.10.9"

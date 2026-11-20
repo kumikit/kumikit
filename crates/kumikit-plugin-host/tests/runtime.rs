@@ -205,13 +205,13 @@ async fn sockets_are_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_component_importing_wasi_http_is_refused_when_prepared() {
+async fn a_component_with_a_malformed_wasi_http_import_is_refused_when_prepared() {
     let e = env().await;
     let wat = e.dir.path().join("http.wat");
     std::fs::write(
         &wat,
-        // Like a real wasi:http import, the instance has a function in it (an empty
-        // instance import is satisfied without any definition).
+        // wasi:http is linked (ADR 0023), but this `handle` has the wrong type. (An empty
+        // instance import would be satisfied without any definition.)
         r#"(component (import "wasi:http/outgoing-handler@0.2.0" (instance (export "handle" (func)))))"#,
     )
     .unwrap();

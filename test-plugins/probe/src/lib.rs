@@ -17,6 +17,7 @@
 //! - `spawn-secret <var> <secret>`: starts `fake-acp-agent env` with a secret variable.
 //! - `secret <name>`: reads a secret. `log-secret <name>`: reads one and logs its value.
 //! - `settings`: replies with its settings (`kumikit:host/settings`).
+//! - `http <url>`: GETs it and replies `<status> <body>` (`wasi:http`).
 //! - `kv`: a set/get/list/delete round trip in its own store.
 //! - `fs-own`: writes and reads a file in its data directory.
 //! - `fs-escape <path>`: tries to read a file outside the sandbox.
@@ -228,6 +229,18 @@ fn probe(command: &str) -> Result<(), Error> {
             spawn(req, false)
         }
         ["secret", name] => secrets::get(name).map(|_| ()),
+        // GETs a URL and replies `<status> <body>`; a refusal is `permission_denied`.
+        ["http", url] => {
+            match kumikit_provider::http::send(&kumikit_provider::http::Request::get(*url)) {
+                Ok(r) => emit(Event::TextDone(format!(
+                    "{} {}",
+                    r.status,
+                    String::from_utf8_lossy(&r.body)
+                ))),
+                Err(e) if e.denied => Err(fail(ErrorCode::PermissionDenied, format!("http: {e}"))),
+                Err(e) => Err(fail(ErrorCode::Io, format!("http: {e}"))),
+            }
+        }
         // Replies with the plugin's own settings (`kumikit:host/settings`).
         ["settings"] => emit(Event::TextDone(settings::get()?)),
         // Logs a secret's value, so a test can prove the core's log redacts it.

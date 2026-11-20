@@ -311,6 +311,7 @@ impl Instance {
             http: wasmtime_wasi_http::WasiHttpCtx::new(),
             outbound: outbound::Outbound {
                 plugin: config.identity.plugin.clone(),
+                network: config.identity.grants.network.clone(),
             },
             table: ResourceTable::new(),
             limits: Limits::new(config.memory, config.call_timeout),

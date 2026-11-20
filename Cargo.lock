@@ -2592,6 +2592,7 @@ dependencies = [
 name = "kumikit-plugin"
 version = "0.1.0"
 dependencies = [
+ "wasip2",
  "wit-bindgen 0.61.1",
 ]
 
@@ -2599,12 +2600,17 @@ dependencies = [
 name = "kumikit-plugin-host"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "http",
+ "http-body-util",
+ "hyper",
  "jsonschema",
  "kumikit-kernel",
  "kumikit-package",
  "kumikit-protocol",
  "kumikit-test-plugins",
+ "rustls",
+ "rustls-native-certs",
  "semver",
  "serde",
  "serde_json",
@@ -2612,6 +2618,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-rustls",
  "toml 1.2.1+spec-1.1.0",
  "tracing",
  "wasmtime",
@@ -6780,6 +6787,9 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
+dependencies = [
+ "bitflags 2.13.2",
+]
 
 [[package]]
 name = "wit-bindgen"

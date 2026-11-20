@@ -371,8 +371,12 @@ async fn core_footprint_is_within_budget() {
     }
 
     println!("core binary: {:.1} MiB", bytes as f64 / (1024.0 * 1024.0));
-    assert!(
-        bytes <= BINARY_BUDGET_BYTES,
-        "core binary {bytes} bytes exceeds {BINARY_BUDGET_BYTES} bytes"
-    );
+    // Reported, not gated, during M5: the binary may pass its budget while M5's plugins
+    // land, and is optimised afterwards as a separate task (the user's decision of
+    // 2026-11-19, docs/plans/2026-11-19-m5-plugins.md). Put the assert back then.
+    if bytes > BINARY_BUDGET_BYTES {
+        println!(
+            "core binary {bytes} bytes is over its {BINARY_BUDGET_BYTES}-byte budget (reported, not gated during M5)"
+        );
+    }
 }

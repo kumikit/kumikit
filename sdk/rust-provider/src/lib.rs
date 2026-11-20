@@ -7,6 +7,7 @@
 //! off `wasm32`.
 #![deny(missing_docs)]
 
+pub use kumikit_plugin::http;
 pub use kumikit_plugin::{
     CallContext, Child, CommandResult, Error, ErrorCode, ExitStatus, Plugin, SpawnRequest,
     WorkspaceRef, kv, log, process, secrets, settings,

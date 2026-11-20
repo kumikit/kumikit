@@ -15,6 +15,8 @@
 //! host calls (see `plugins/provider-acp` for the pattern).
 #![deny(missing_docs)]
 
+pub mod http;
+
 /// Generated bindings for the base world.
 #[allow(missing_docs, clippy::all, unsafe_code)]
 pub mod bindings {

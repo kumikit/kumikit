@@ -113,6 +113,14 @@ is about the code.
   forwards to the plugin's `Plugin` impl (`__forward_plugin_exports!`), whose defaults
   answer `not-found`. `Instance::handle_rpc`/`run_command` set the acting workspace in the
   store for that one call (`act_for`) and restore it after.
+- **Outgoing HTTP** (`runtime/outbound.rs`): the policy (`check_target`, `is_public`) is
+  pure and unit-tested; `send` resolves, checks every address, then connects (TLS with
+  the OS roots, loaded once). `is_supported_scheme` keeps its default so plain `http`
+  reaches the policy and is denied (and logged) rather than failing as a protocol error.
+  `KUMIKIT_TEST_HTTP_ROUTES` is read once, in debug builds only; a routed host skips DNS
+  and TLS. The in-flight limit is per plugin across instances (a process-wide map).
+- **Guest HTTP** is `kumikit_plugin::http` over the `wasip2` crate (wasm32 only); natively
+  every call fails, so plugin logic stays testable without it.
 - **Test components in WAT**: an imported instance with no exports is satisfied
   without a definition; give it a function to test a missing import.
 

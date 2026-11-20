@@ -130,7 +130,9 @@ the kernel lacks, a general API lands first.
    asks an agent about the workspace's changes, and the agent answers with the git tool
    while the panel shows the same changes.
 
-Plan: [M5 — Plugins](../plans/2026-11-19-m5-plugins.md).
+**Status:** in progress. While M5 lands, the core binary is allowed past its 32 MiB budget
+(reported by `scripts/footprint.sh`, not gated); optimising it is a separate task after
+M5. Plan: [M5 — Plugins](../plans/2026-11-19-m5-plugins.md).
 
 ## Open questions
 
