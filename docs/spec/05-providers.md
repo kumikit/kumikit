@@ -58,9 +58,9 @@ the local id; the protocol and the stored `Thread.provider` use the qualified on
    the CLI through `kumikit:host/process`. `kumikit.provider-claude` runs Claude Code
    this way, over its `stream-json` input and output with permission requests on the same
    stream, and passes the gateway with `--mcp-config`. It is also a provider backend (key
-   `claude`: `command`, `args`, `env`, `secret-env`, `models`), so a manifest can run
+   `claude`: `command`, `args`, `env`, `secret-env`, `models`, `model-arg`, `permission-mode`), so a manifest can run
    Claude Code against another Anthropic-compatible endpoint;
-   `plugins/provider-claude/examples/deepseek` does that for DeepSeek.
+   `providers/claude/examples/deepseek` in `kumikit/kumikit-plugin-agents` does that for DeepSeek.
 3. **API provider.** A plugin that calls a model API over `wasi:http` and runs its own
    agent loop, using the tool gateway for tools (when `http` is supported).
 
