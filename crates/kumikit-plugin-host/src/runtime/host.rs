@@ -273,6 +273,8 @@ impl secrets::Host for HostState {
     }
 }
 
+impl super::bindings::base::kumikit::plugin::types::Host for HostState {}
+
 // ---- settings ----
 
 impl settings::Host for HostState {

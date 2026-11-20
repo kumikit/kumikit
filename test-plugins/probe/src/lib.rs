@@ -27,8 +27,8 @@
 //!   when the child's stdout closes (the host killed it after the grace period).
 
 use kumikit_provider::{
-    Error, ErrorCode, Event, Lifecycle, Model, Provider, ProviderRef, SessionConfig, SpawnRequest,
-    UserInput, events, kv, log, process, secrets, settings,
+    CallContext, CommandResult, Error, ErrorCode, Event, Model, Plugin, Provider, ProviderRef,
+    SessionConfig, SpawnRequest, UserInput, events, kv, log, process, secrets, settings,
 };
 
 struct Probe;
@@ -46,12 +46,60 @@ fn emit(e: Event) -> Result<(), Error> {
     events::emit(&e)
 }
 
-impl Lifecycle for Probe {
+impl Plugin for Probe {
     fn activate() -> Result<(), Error> {
         Ok(())
     }
 
     fn deactivate() {}
+
+    /// Methods: `echo` (core) returns its params; `cwd` (workspace) and `cwd-core` (core)
+    /// run `fake-acp-agent cwd` and return its output as `{ "cwd": … }`; `fail` returns a
+    /// guest error with the code named in `params.code`.
+    fn handle(method: String, params: String, ctx: CallContext) -> Result<String, Error> {
+        match method.as_str() {
+            "echo" => Ok(params),
+            "cwd" | "cwd-core" => {
+                let child = process::spawn(&request("fake-acp-agent", &["cwd"]))?;
+                child.close_stdin();
+                let mut out = Vec::new();
+                while let Some(chunk) = child.read_stdout(64 * 1024)? {
+                    out.extend(chunk);
+                }
+                child.wait()?;
+                let cwd = String::from_utf8_lossy(&out).trim().to_owned();
+                let ws = ctx.workspace.map(|w| w.id).unwrap_or_default();
+                Ok(format!(r#"{{"cwd":{cwd:?},"workspace":{ws:?}}}"#))
+            }
+            "fail" => Err(fail(
+                if params.contains("not_found") {
+                    ErrorCode::NotFound
+                } else {
+                    ErrorCode::Internal
+                },
+                "scripted",
+            )),
+            _ => Err(fail(ErrorCode::NotFound, format!("no method {method}"))),
+        }
+    }
+
+    /// Commands: `greet` shows a message and a form whose submit runs `greet-submit`,
+    /// which answers with the submitted args.
+    fn run_command(id: String, args: String, _ctx: CallContext) -> Result<CommandResult, Error> {
+        match id.as_str() {
+            "greet" => Ok(CommandResult {
+                message: Some("hello from the probe".into()),
+                view: Some(
+                    r#"{"model":"form","schema":{"type":"object","properties":{"name":{"type":"string","title":"Name"}}},"values":{},"submit":"greet-submit"}"#.into(),
+                ),
+            }),
+            "greet-submit" => Ok(CommandResult {
+                message: Some(format!("submitted {args}")),
+                view: None,
+            }),
+            _ => Err(fail(ErrorCode::NotFound, format!("no command {id}"))),
+        }
+    }
 }
 
 impl Provider for Probe {

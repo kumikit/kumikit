@@ -11,7 +11,8 @@ interface lifecycle {
   deactivate: func();
 }
 
-/// The base world: imports every plugin may use, and the lifecycle exports.
+/// The base world: imports every plugin may use, and its exports. Every plugin exports
+/// all of them; the SDK answers `not-found` for those a plugin does not implement.
 world plugin {
   import kumikit:host/log@0.2.0;
   import kumikit:host/kv@0.2.0;
@@ -19,4 +20,7 @@ world plugin {
   import kumikit:host/secrets@0.2.0;
   import kumikit:host/settings@0.2.0;
   export lifecycle;
+  export rpc;
+  export commands;
+  export timers;
 }

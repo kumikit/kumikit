@@ -88,6 +88,15 @@ fn contributions(host: &PluginHost, id: &str, manifest: Option<&Manifest>) -> Co
             })
             .unwrap_or_default(),
         settings: manifest.is_some_and(|m| m.contributes.settings.is_some()),
+        methods: manifest
+            .map(|m| {
+                m.contributes
+                    .methods
+                    .iter()
+                    .map(|x| x.name.clone())
+                    .collect()
+            })
+            .unwrap_or_default(),
     }
 }
 
@@ -162,6 +171,13 @@ pub fn infos(host: &PluginHost) -> Vec<PluginInfo> {
                     .map(|c| c.id.clone())
                     .collect(),
                 settings: p.manifest.contributes.settings.is_some(),
+                methods: p
+                    .manifest
+                    .contributes
+                    .methods
+                    .iter()
+                    .map(|m| m.name.clone())
+                    .collect(),
             },
         })
         .collect()

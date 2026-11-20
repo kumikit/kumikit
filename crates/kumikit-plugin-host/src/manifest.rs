@@ -255,6 +255,31 @@ pub struct Contributes {
     /// Backend keys this plugin serves for other plugins' provider entries.
     #[serde(default)]
     pub provider_backends: Vec<BackendEntry>,
+    /// Plugin methods, called as `<plugin id>/<name>`.
+    #[serde(default)]
+    pub methods: Vec<MethodEntry>,
+}
+
+/// What a method or command acts for.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Scope {
+    /// The core: no workspace.
+    #[default]
+    Core,
+    /// The workspace it is called in; the plugin acts for it.
+    Workspace,
+}
+
+/// A plugin method.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MethodEntry {
+    /// The name after `<plugin id>/`.
+    pub name: String,
+    /// What it acts for.
+    #[serde(default)]
+    pub scope: Scope,
 }
 
 /// A provider entry. Keys other than `id` and `name` name a provider backend.
@@ -284,6 +309,12 @@ pub struct CommandEntry {
     pub id: String,
     /// Title shown to users.
     pub title: String,
+    /// What it acts for.
+    #[serde(default)]
+    pub scope: Scope,
+    /// A UI condition for showing it (`docs/spec/07-ui-plugins.md`).
+    #[serde(default)]
+    pub when: Option<String>,
 }
 
 /// A provider backend this plugin serves.
@@ -295,6 +326,15 @@ pub struct BackendEntry {
     /// JSON Schema file for the entries' tables.
     #[serde(default)]
     pub schema: Option<String>,
+}
+
+/// A method, command or tool name: `[a-z][a-z0-9_.-]*`, at most 64 characters.
+pub fn is_name(s: &str) -> bool {
+    s.len() <= 64
+        && s.starts_with(|c: char| c.is_ascii_lowercase())
+        && s.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'.' | b'-')
+        })
 }
 
 fn is_word(s: &str) -> bool {
@@ -587,6 +627,36 @@ impl Manifest {
         }
         if self.runtime.is_none() && !self.contributes.provider_backends.is_empty() {
             p.push("provider backends need a runtime".into());
+        }
+
+        let mut seen = BTreeSet::new();
+        for c in &self.contributes.commands {
+            if !is_name(&c.id) {
+                p.push(format!(
+                    "command id `{}` is not valid ([a-z][a-z0-9_.-]*)",
+                    c.id
+                ));
+            }
+            if !seen.insert(c.id.as_str()) {
+                p.push(format!("command `{}` appears twice", c.id));
+            }
+        }
+        let mut seen = BTreeSet::new();
+        for m in &self.contributes.methods {
+            if !is_name(&m.name) {
+                p.push(format!(
+                    "method name `{}` is not valid ([a-z][a-z0-9_.-]*)",
+                    m.name
+                ));
+            }
+            if !seen.insert(m.name.as_str()) {
+                p.push(format!("method `{}` appears twice", m.name));
+            }
+        }
+        if self.runtime.is_none()
+            && !(self.contributes.methods.is_empty() && self.contributes.commands.is_empty())
+        {
+            p.push("methods and commands need a runtime".into());
         }
 
         for trigger in &self.activation.on {

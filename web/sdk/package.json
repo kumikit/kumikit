@@ -1,6 +1,6 @@
 {
   "name": "@kumikit/ui-sdk",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "The Kumikit UI plugin SDK: types and helpers for UI plugins. Framework-agnostic.",
   "license": "MIT",
   "private": true,

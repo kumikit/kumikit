@@ -30,9 +30,10 @@ install that has `provider-acp` built for 0.1.0 would never get the rebuilt one.
 - `kumikit:host@0.2.0` keeps the 0.1.0 interfaces unchanged and adds `settings`, `timers`
   and `client`. Outgoing HTTP is `wasi:http` ([ADR 0023](0023-outgoing-http-for-plugins.md)),
   not a Kumikit interface.
-- `kumikit:plugin@0.2.0` adds optional exports `rpc`, `commands` and `timers`. A
-  component must export the ones its manifest's contributions need (methods → `rpc`,
-  commands → `commands`, schedules → `timers`); the host checks this at enable.
+- `kumikit:plugin@0.2.0` adds exports `rpc`, `commands` and `timers`, which every world
+  (base and provider) exports. WIT cannot make an export optional, so the Rust SDK's
+  `Plugin` trait gives each a default that answers `not-found`; a plugin overrides what
+  its manifest declares.
 - `kumikit:provider@0.2.0` replaces `session-config.mcp-endpoint` (a string) with
   `mcp-server: option<mcp-server>` (`name`, `command`, `args`, `env`).
 - The kernel plugin API becomes 0.2 (`api = "^0.2"`). **The host links only 0.2.0

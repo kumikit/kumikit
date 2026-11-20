@@ -49,6 +49,9 @@ pub enum HostError {
     /// its hash or its entry.
     #[error("{0}")]
     Untrusted(String),
+    /// A plugin's call was refused by its permissions.
+    #[error("{0}")]
+    Denied(String),
 }
 
 impl HostError {
@@ -62,6 +65,7 @@ impl HostError {
             HostError::Kernel(e) => e.code(),
             HostError::Io(_) => ErrorCode::Internal,
             HostError::Untrusted(_) => ErrorCode::Untrusted,
+            HostError::Denied(_) => ErrorCode::PermissionDenied,
         }
     }
 }

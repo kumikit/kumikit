@@ -28,7 +28,10 @@ use kumikit_protocol::model::{ApprovalId, Decision, ThreadId, UserInput};
 use crate::manager::{HostError, Manager, PluginView};
 use crate::manifest::{Manifest, check_backend_entry};
 use crate::runtime::bindings::provider::kumikit::provider::types as wit;
-use crate::runtime::{CallError, Identity, Instance, InstanceConfig, SessionShared};
+use crate::runtime::{
+    CallContext, CallError, CommandResult, Identity, Instance, InstanceConfig, SessionShared,
+    WorkspaceRef,
+};
 
 /// Lifecycle settings.
 #[derive(Clone)]
@@ -108,6 +111,36 @@ fn guest_message(e: crate::runtime::bindings::base::kumikit::host::types::Error)
         ErrorCode::PermissionDenied => format!("permission_denied: {}", e.message),
         _ => e.message,
     }
+}
+
+/// A guest's error as a host error: the codes clients can act on keep their meaning.
+fn guest_error(
+    plugin: &str,
+    e: crate::runtime::bindings::base::kumikit::host::types::Error,
+) -> HostError {
+    use crate::runtime::bindings::base::kumikit::host::types::ErrorCode as C;
+    match e.code {
+        C::PermissionDenied => HostError::Denied(format!("permission_denied: {}", e.message)),
+        C::NotFound => HostError::NotFound(e.message),
+        C::InvalidArgument | C::Limit => HostError::Invalid(e.message),
+        C::Conflict | C::Cancelled => HostError::Conflict(e.message),
+        _ => HostError::PluginFailed(format!("{plugin}: {}", e.message)),
+    }
+}
+
+/// A command a plugin contributes, as `command.list` shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandInfo {
+    /// The plugin.
+    pub plugin: String,
+    /// The command id.
+    pub id: String,
+    /// Its title.
+    pub title: String,
+    /// Whether it acts for a workspace.
+    pub workspace: bool,
+    /// Its UI condition.
+    pub when: Option<String>,
 }
 
 /// The qualified id of a provider.
@@ -371,6 +404,140 @@ impl PluginHost {
             message,
             retry_in: run.retry_at.and_then(|t| t.checked_duration_since(now)),
         })
+    }
+
+    /// The commands of every enabled plugin, by plugin then manifest order.
+    pub fn commands(&self) -> Vec<CommandInfo> {
+        self.inner
+            .manager
+            .enabled()
+            .into_iter()
+            .flat_map(|(record, manifest)| {
+                manifest
+                    .contributes
+                    .commands
+                    .iter()
+                    .map(|c| CommandInfo {
+                        plugin: record.id.clone(),
+                        id: c.id.clone(),
+                        title: c.title.clone(),
+                        workspace: c.scope == crate::manifest::Scope::Workspace,
+                        when: c.when.clone(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    /// An enabled plugin's manifest, for routing calls to it.
+    fn enabled_manifest(&self, plugin: &str) -> Result<Arc<Manifest>, HostError> {
+        self.inner
+            .manager
+            .enabled()
+            .into_iter()
+            .find(|(r, _)| r.id == plugin)
+            .map(|(_, m)| m)
+            .ok_or_else(|| HostError::NotFound(format!("plugin {plugin} is not enabled")))
+    }
+
+    /// Whether `method` is a `workspace`-scoped method of the enabled `plugin`; `None` if
+    /// the plugin does not declare it (or is not enabled).
+    pub fn method_scope(&self, plugin: &str, method: &str) -> Option<bool> {
+        let m = self.enabled_manifest(plugin).ok()?;
+        m.contributes
+            .methods
+            .iter()
+            .find(|x| x.name == method)
+            .map(|x| x.scope == crate::manifest::Scope::Workspace)
+    }
+
+    /// Whether `command` is a `workspace`-scoped command of the enabled `plugin`.
+    pub fn command_scope(&self, plugin: &str, command: &str) -> Result<bool, HostError> {
+        let m = self.enabled_manifest(plugin)?;
+        m.contributes
+            .commands
+            .iter()
+            .find(|x| x.id == command)
+            .map(|x| x.scope == crate::manifest::Scope::Workspace)
+            .ok_or_else(|| HostError::NotFound(format!("{plugin} has no command {command}")))
+    }
+
+    /// Calls a plugin method in its control instance (`<plugin>/<method>`), acting for
+    /// `workspace`. `params` and the result are JSON.
+    pub async fn call_method(
+        &self,
+        plugin: &str,
+        method: &str,
+        params: &serde_json::Value,
+        workspace: Option<WorkspaceRef>,
+    ) -> Result<serde_json::Value, HostError> {
+        self.enabled_manifest(plugin)?;
+        let control = self
+            .control(plugin)
+            .await
+            .map_err(|e| HostError::PluginFailed(e.to_string()))?;
+        let ctx = CallContext { workspace };
+        let r = control
+            .handle_rpc(method.to_owned(), params.to_string(), ctx)
+            .await;
+        let text = self.guest_result(plugin, r).await?;
+        serde_json::from_str(&text).map_err(|e| {
+            HostError::PluginFailed(format!(
+                "{plugin}/{method} answered something that is not JSON: {e}"
+            ))
+        })
+    }
+
+    /// Runs a plugin command in its control instance, acting for `workspace`. Returns the
+    /// message and the view (JSON) it shows.
+    pub async fn run_command(
+        &self,
+        plugin: &str,
+        command: &str,
+        args: &serde_json::Value,
+        workspace: Option<WorkspaceRef>,
+    ) -> Result<(Option<String>, Option<serde_json::Value>), HostError> {
+        self.command_scope(plugin, command)?;
+        let control = self
+            .control(plugin)
+            .await
+            .map_err(|e| HostError::PluginFailed(e.to_string()))?;
+        let ctx = CallContext { workspace };
+        let r = control
+            .run_command(command.to_owned(), args.to_string(), ctx)
+            .await;
+        let CommandResult { message, view } = self.guest_result(plugin, r).await?;
+        let view = view
+            .map(|v| {
+                serde_json::from_str(&v).map_err(|e| {
+                    HostError::PluginFailed(format!(
+                        "{plugin}: command {command} gave a view that is not JSON: {e}"
+                    ))
+                })
+            })
+            .transpose()?;
+        Ok((message, view))
+    }
+
+    /// Maps an export call's result; a trap fails the plugin.
+    async fn guest_result<T>(
+        &self,
+        plugin: &str,
+        r: Result<
+            Result<T, crate::runtime::bindings::base::kumikit::host::types::Error>,
+            CallError,
+        >,
+    ) -> Result<T, HostError> {
+        match r {
+            Ok(Ok(v)) => Ok(v),
+            Ok(Err(e)) => Err(guest_error(plugin, e)),
+            Err(e) => {
+                if matches!(e, CallError::Trap { .. }) {
+                    self.failed(plugin, &e.to_string()).await;
+                }
+                Err(HostError::PluginFailed(e.to_string()))
+            }
+        }
     }
 
     /// Instances running for a plugin: (control instance, sessions).

@@ -27,6 +27,7 @@ use wasmtime_wasi::{FsPerms, WasiCtx};
 use crate::engine::{self, EngineConfig, Limits, PluginEngine, TickGuard};
 use crate::manifest::{WORLD_PLUGIN, WORLD_PROVIDER};
 use bindings::base::kumikit::host::types::Error as GuestError;
+pub use bindings::base::kumikit::plugin::types::{CallContext, CommandResult, WorkspaceRef};
 use bindings::provider::kumikit::provider::types::{Model, ProviderRef, SessionConfig, UserInput};
 pub use host::{HostState, Identity, SessionShared};
 
@@ -427,6 +428,93 @@ impl Instance {
         .await
     }
 
+    /// Calls `rpc.handle`, acting for `workspace` (its root) during the call.
+    pub async fn handle_rpc(
+        &self,
+        method: String,
+        params: String,
+        ctx: CallContext,
+    ) -> Result<Result<String, GuestError>, CallError> {
+        let plugin = self.inner.plugin.clone();
+        self.call(move |store, b| {
+            Box::pin(async move {
+                let acting = act_for(store, &ctx);
+                let r = match b {
+                    Bindings::Base(p) => {
+                        p.kumikit_plugin_rpc()
+                            .call_handle(&mut *store, &method, &params, &ctx)
+                            .await
+                    }
+                    Bindings::Provider(p) => {
+                        p.kumikit_plugin_rpc()
+                            .call_handle(&mut *store, &method, &params, &ctx)
+                            .await
+                    }
+                };
+                store.data_mut().id.workspaces = acting;
+                finish(&plugin, store, r)
+            })
+        })
+        .await
+    }
+
+    /// Calls `commands.run`, acting for the context's workspace during the call.
+    pub async fn run_command(
+        &self,
+        id: String,
+        args: String,
+        ctx: CallContext,
+    ) -> Result<Result<CommandResult, GuestError>, CallError> {
+        let plugin = self.inner.plugin.clone();
+        self.call(move |store, b| {
+            Box::pin(async move {
+                let acting = act_for(store, &ctx);
+                let r = match b {
+                    Bindings::Base(p) => {
+                        p.kumikit_plugin_commands()
+                            .call_run(&mut *store, &id, &args, &ctx)
+                            .await
+                    }
+                    Bindings::Provider(p) => {
+                        p.kumikit_plugin_commands()
+                            .call_run(&mut *store, &id, &args, &ctx)
+                            .await
+                    }
+                };
+                store.data_mut().id.workspaces = acting;
+                finish(&plugin, store, r)
+            })
+        })
+        .await
+    }
+
+    /// Calls `timers.fire`.
+    pub async fn fire_timer(
+        &self,
+        key: String,
+        due: String,
+    ) -> Result<Result<(), GuestError>, CallError> {
+        let plugin = self.inner.plugin.clone();
+        self.call(move |store, b| {
+            Box::pin(async move {
+                let r = match b {
+                    Bindings::Base(p) => {
+                        p.kumikit_plugin_timers()
+                            .call_fire(&mut *store, &key, &due)
+                            .await
+                    }
+                    Bindings::Provider(p) => {
+                        p.kumikit_plugin_timers()
+                            .call_fire(&mut *store, &key, &due)
+                            .await
+                    }
+                };
+                finish(&plugin, store, r)
+            })
+        })
+        .await
+    }
+
     /// Calls `list-models`.
     pub async fn list_models(
         &self,
@@ -512,6 +600,17 @@ impl Instance {
 }
 
 /// Turns a call's outcome into the caller's result and whether the instance survives.
+/// Makes the instance act for the context's workspace (or none) for one call; returns
+/// what it acted for before, to restore afterwards.
+fn act_for(store: &mut Store<HostState>, ctx: &CallContext) -> Vec<PathBuf> {
+    let now = ctx
+        .workspace
+        .as_ref()
+        .map(|w| vec![PathBuf::from(&w.root)])
+        .unwrap_or_default();
+    std::mem::replace(&mut store.data_mut().id.workspaces, now)
+}
+
 fn finish<T>(
     plugin: &str,
     store: &Store<HostState>,

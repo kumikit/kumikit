@@ -5,12 +5,12 @@
 //! every host call is checked against what the user granted.
 
 use kumikit_provider::{
-    Error, Event, Lifecycle, Model, Provider, ProviderRef, SessionConfig, UserInput, events,
+    Error, Event, Plugin, Model, Provider, ProviderRef, SessionConfig, UserInput, events,
 };
 
 struct Echo;
 
-impl Lifecycle for Echo {
+impl Plugin for Echo {
     fn activate() -> Result<(), Error> {
         Ok(())
     }

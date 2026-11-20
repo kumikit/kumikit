@@ -39,6 +39,7 @@ pub const CAPABILITIES: &[&str] = &[
     "workspace_events",
     "secrets",
     "settings",
+    "commands",
 ];
 
 /// What `core.hello` says about this core.
@@ -727,11 +728,94 @@ impl Conn {
                 k.device_revoke(&p.device).await.map_err(kernel_err)?;
                 reply::<m::AuthDevicesRevoke>(Empty {})
             }
-            other => Err(RpcError::new(
-                ErrorCode::MethodNotFound,
-                format!("no method {other}"),
-            )),
+            m::CommandList::NAME => {
+                parse::<m::CommandList>(params)?;
+                let commands = self
+                    .host
+                    .commands()
+                    .into_iter()
+                    .map(|c| m::CommandInfo {
+                        plugin: c.plugin,
+                        id: c.id,
+                        title: c.title,
+                        scope: if c.workspace {
+                            m::Scope::Workspace
+                        } else {
+                            m::Scope::Core
+                        },
+                        when: c.when,
+                    })
+                    .collect();
+                reply::<m::CommandList>(m::CommandListResult { commands })
+            }
+            m::CommandRun::NAME => {
+                let p = parse::<m::CommandRun>(params)?;
+                let scoped = self
+                    .host
+                    .command_scope(&p.plugin, &p.command)
+                    .map_err(crate::plugins::host_err)?;
+                let workspace = self.acting_workspace(scoped, p.workspace.as_ref()).await?;
+                let args = p.args.unwrap_or_else(|| Value::Object(Default::default()));
+                let (message, view) = self
+                    .host
+                    .run_command(&p.plugin, &p.command, &args, workspace)
+                    .await
+                    .map_err(crate::plugins::host_err)?;
+                reply::<m::CommandRun>(m::CommandResult { message, view })
+            }
+            other => match other.split_once('/') {
+                Some((plugin, name)) => self.plugin_method(plugin, name, params).await,
+                None => Err(RpcError::new(
+                    ErrorCode::MethodNotFound,
+                    format!("no method {other}"),
+                )),
+            },
         }
+    }
+
+    /// The workspace a `workspace`-scoped call acts for: required, open, with its root.
+    async fn acting_workspace(
+        &self,
+        scoped: bool,
+        workspace: Option<&WorkspaceId>,
+    ) -> Result<Option<kumikit_plugin_host::runtime::WorkspaceRef>, RpcError> {
+        if !scoped {
+            return Ok(None);
+        }
+        let id = workspace.ok_or_else(|| {
+            RpcError::new(ErrorCode::InvalidParams, "this call needs a workspace")
+        })?;
+        let ws = self.kernel.workspace_get(id).await.map_err(kernel_err)?;
+        Ok(Some(kumikit_plugin_host::runtime::WorkspaceRef {
+            id: ws.id.0,
+            root: ws.root,
+        }))
+    }
+
+    /// `<plugin id>/<name>`: a method the enabled plugin declares
+    /// (`docs/spec/02-protocol.md#methods-added-in-06`).
+    async fn plugin_method(
+        &self,
+        plugin: &str,
+        name: &str,
+        params: Option<Value>,
+    ) -> Result<Value, RpcError> {
+        let Some(scoped) = self.host.method_scope(plugin, name) else {
+            return Err(RpcError::new(
+                ErrorCode::MethodNotFound,
+                format!("no method {plugin}/{name}"),
+            ));
+        };
+        let params = params.unwrap_or_else(|| Value::Object(Default::default()));
+        let workspace = match params.get("workspace") {
+            Some(Value::String(w)) => Some(WorkspaceId(w.clone())),
+            _ => None,
+        };
+        let workspace = self.acting_workspace(scoped, workspace.as_ref()).await?;
+        self.host
+            .call_method(plugin, name, &params, workspace)
+            .await
+            .map_err(crate::plugins::host_err)
     }
 
     fn start(&mut self, topic: String, deferred: Deferred) {

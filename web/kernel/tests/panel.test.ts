@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { tokenProperty } from '@kumikit/ui-sdk/panel';
-import { PANEL_SLOTS, panelRefusal, topicRefusal, type PanelScope } from '../src/plugins/panel';
+import { PANEL_SLOTS, panelMethodParams, panelRefusal, topicRefusal, type PanelScope } from '../src/plugins/panel';
 
 const scope: PanelScope = {
   workspace: 'w1',
@@ -68,5 +68,13 @@ describe('the panel policy', () => {
   it('token names become the theme’s custom properties', () => {
     expect(tokenProperty('surface.panel')).toBe('--kk-surface-panel');
     expect(tokenProperty('motion.ease.out')).toBe('--kk-motion-ease-out');
+  });
+});
+
+describe('plugin method calls from panels', () => {
+  it('act for the tab’s workspace whatever the panel says', () => {
+    expect(panelMethodParams({ path: '.', workspace: 'other' }, 'w1')).toEqual({ path: '.', workspace: 'w1' });
+    expect(panelMethodParams({ workspace: 'other' }, undefined)).toEqual({});
+    expect(panelMethodParams([1], 'w1')).toEqual({ workspace: 'w1' });
   });
 });

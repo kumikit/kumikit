@@ -4,6 +4,9 @@ import type { AuthPairParams } from "./AuthPairParams";
 import type { AuthPairResult } from "./AuthPairResult";
 import type { AuthTokenParams } from "./AuthTokenParams";
 import type { AuthTokenResult } from "./AuthTokenResult";
+import type { CommandListResult } from "./CommandListResult";
+import type { CommandResult } from "./CommandResult";
+import type { CommandRunParams } from "./CommandRunParams";
 import type { DeviceListResult } from "./DeviceListResult";
 import type { DeviceRef } from "./DeviceRef";
 import type { Empty } from "./Empty";
@@ -96,6 +99,8 @@ export type Methods = {
   "settings.schema": { params: PluginRef; result: SettingsSchemaResult };
   "settings.get": { params: PluginRef; result: SettingsGetResult };
   "settings.set": { params: SettingsSetParams; result: Empty };
+  "command.list": { params: Empty; result: CommandListResult };
+  "command.run": { params: CommandRunParams; result: CommandResult };
 };
 
 /** Every notification the core sends, with its params type. */

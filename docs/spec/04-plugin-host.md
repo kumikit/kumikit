@@ -136,7 +136,7 @@ types). A component imports only the interfaces its code calls.
 | Package | What it is |
 |---|---|
 | `kumikit:host@0.2.0` | Host imports, each gated by permissions: `types`, `log`, `kv`, `secrets`, `events`, `process` (as in 0.1.0), and `settings` (own settings), `timers` (`permissions.schedules`), `client` (`permissions.client` and `workspaces`). `files` comes later. |
-| `kumikit:plugin@0.2.0` | Exports: `lifecycle` (`activate`, `deactivate`), and the optional `rpc` (`handle`), `commands` (`run`) and `timers` (`fire`). A component must export those its manifest needs (methods, commands, schedules); the host checks it at enable. |
+| `kumikit:plugin@0.2.0` | Exports every plugin world has: `lifecycle` (`activate`, `deactivate`), `rpc` (`handle`), `commands` (`run`) and `timers` (`fire`). The Rust SDK's `Plugin` trait answers `not-found` for the ones a plugin does not implement. |
 | `kumikit:provider@0.2.0` | The provider world ([05](05-providers.md)) |
 | `kumikit:tool@0.1.0` | Tool contribution: `tool.call` ([03](03-kernel.md#tool-gateway)) |
 | `kumikit:bot@0.1.0` | The bot world ([09](09-bots.md)): the base imports, `client` and `wasi:http`, and `bot.run` |

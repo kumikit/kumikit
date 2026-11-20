@@ -247,7 +247,7 @@ async fn hello_describes_the_core() {
     assert_eq!(
         r["result"],
         json!({"protocol":"0.6","core":{"version":"0.0.0","name":"test","os":"test"},
-               "plugins":[],"capabilities":["threads","approvals","plugins","providers","workspace_events","secrets","settings"]})
+               "plugins":[],"capabilities":["threads","approvals","plugins","providers","workspace_events","secrets","settings","commands"]})
     );
 }
 

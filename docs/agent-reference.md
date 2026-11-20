@@ -108,6 +108,11 @@ is about the code.
   interfaces once, in `base`, and maps them into `provider` with `with:`; a new world does
   the same, so one `HostState` impl serves all. `tests/activation.rs` has its own bindgen
   of the base world, with stubs for the imports hello does not use.
+- **Every world exports `rpc`, `commands` and `timers`.** WIT has no optional exports,
+  so the SDK's `export_plugin!`/`export_provider!` generate a private exports type that
+  forwards to the plugin's `Plugin` impl (`__forward_plugin_exports!`), whose defaults
+  answer `not-found`. `Instance::handle_rpc`/`run_command` set the acting workspace in the
+  store for that one call (`act_for`) and restore it after.
 - **Test components in WAT**: an imported instance with no exports is satisfied
   without a definition; give it a function to test a missing import.
 

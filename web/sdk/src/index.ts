@@ -198,6 +198,13 @@ export type DeclarativeView =
   | { model: 'form'; schema: SettingsSchema; values: Record<string, unknown>; submit?: string }
   | { model: 'progress'; label: string; value?: number };
 
+/** What a core plugin's command returns (`command.run`; since 0.1.2): a line the UI
+ * kernel shows, and a view it opens. */
+export interface CommandResult {
+  message?: string;
+  view?: DeclarativeView;
+}
+
 /** A declarative status bar item. */
 export interface StatusItem {
   id: string;

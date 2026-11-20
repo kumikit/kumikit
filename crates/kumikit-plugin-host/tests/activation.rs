@@ -41,6 +41,7 @@ impl HasLimits for State {
 }
 
 impl kumikit::host::types::Host for State {}
+impl kumikit::plugin::types::Host for State {}
 
 fn unused() -> Error {
     Error {

@@ -5,6 +5,7 @@
   import Palette from './Palette.svelte';
   import PluginsView from './PluginsView.svelte';
   import CoresView from './CoresView.svelte';
+  import CoreView from './CoreView.svelte';
   import OpenFolder from './OpenFolder.svelte';
   import PairBrowser from './PairBrowser.svelte';
   import SettingsView from './SettingsView.svelte';
@@ -51,6 +52,10 @@
         <PluginsView {kernel} starter={mainView.starter ?? false} />
       {:else if mainView.kind === 'cores'}
         <CoresView {kernel} />
+      {:else if mainView.kind === 'core-view'}
+        {#key mainView.view}
+          <CoreView {kernel} view={mainView.view} />
+        {/key}
       {:else if mainView.kind === 'view' && pluginView}
         <SlotHost plugin={pluginView.plugin} contribution={pluginView.contribution} props={{ args: mainView.args }} slots={kernel.slots} label={pluginView.contribution.title} />
       {:else}

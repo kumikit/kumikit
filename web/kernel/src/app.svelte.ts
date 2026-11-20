@@ -7,6 +7,7 @@ import type { Thread } from '@kumikit/protocol';
 import type { Connection, Slot, ThreadAddress } from '@kumikit/ui-sdk';
 
 import { CommandRegistry, type WhenContext } from './commands/registry.svelte';
+import { CoreCommands, type CoreView } from './commands/core.svelte';
 import { ClientPlugins } from './plugins/client.svelte';
 import { CorePlugins } from './plugins/core.svelte';
 import { Registries } from './plugins/registry.svelte';
@@ -35,7 +36,8 @@ export type MainView =
   | { kind: 'settings'; page?: string }
   | { kind: 'plugins'; starter?: boolean }
   | { kind: 'cores' }
-  | { kind: 'view'; id: string; args?: unknown };
+  | { kind: 'view'; id: string; args?: unknown }
+  | { kind: 'core-view'; view: CoreView };
 
 /** A dialog the kernel shows over everything. */
 export type Dialog =
@@ -73,6 +75,8 @@ export class Kernel {
   readonly corePlugins: CorePlugins;
   readonly registries: Registries;
   main = $state.raw<MainView>({ kind: 'tab' });
+  /** Core plugins' commands for the active tab's core. */
+  readonly coreCommands: CoreCommands;
   dialog = $state.raw<Dialog>(undefined);
   toasts = $state.raw<Toast[]>([]);
   #toastId = 0;
@@ -93,7 +97,9 @@ export class Kernel {
     this.clientPlugins = new ClientPlugins(this);
     this.corePlugins = new CorePlugins(this);
     this.registries = new Registries(this);
+    this.coreCommands = new CoreCommands(this);
     this.#registerCommands();
+    this.coreCommands.watch();
   }
 
   /** Called when the slot registry disables a plugin; the plugin manager replaces it. */

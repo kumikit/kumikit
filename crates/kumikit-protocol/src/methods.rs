@@ -159,6 +159,10 @@ methods! {
         SettingsGet = "settings.get" (PluginRef) -> SettingsGetResult;
         /// `settings.set`: replaces a plugin's settings, validated against its schema.
         SettingsSet = "settings.set" (SettingsSetParams) -> Empty;
+        /// `command.list`: the commands of enabled core plugins.
+        CommandList = "command.list" (Empty) -> CommandListResult;
+        /// `command.run`: runs a core plugin's command.
+        CommandRun = "command.run" (CommandRunParams) -> CommandResult;
     }
     notifications {
         /// `events.event`: one event on a subscribed topic.
@@ -303,6 +307,10 @@ pub struct Contributions {
     /// Whether the plugin has settings.
     #[serde(default)]
     pub settings: bool,
+    /// Plugin method names, called as `<plugin id>/<name>`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
+    pub methods: Vec<String>,
 }
 
 /// A plugin installed on the core.
@@ -987,6 +995,75 @@ pub struct SettingsSetParams {
     /// Every value (they replace the stored ones); secret fields are refused.
     #[ts(type = "Record<string, unknown>")]
     pub values: serde_json::Value,
+}
+
+/// What a core plugin's command or method acts for.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum Scope {
+    /// The core.
+    #[default]
+    Core,
+    /// The workspace it runs in.
+    Workspace,
+}
+
+/// A command a core plugin contributes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandInfo {
+    /// The plugin.
+    pub plugin: String,
+    /// Command id.
+    pub id: String,
+    /// Title.
+    pub title: String,
+    /// What it acts for.
+    pub scope: Scope,
+    /// A UI condition for showing it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub when: Option<String>,
+}
+
+/// Result of `command.list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandListResult {
+    /// Commands of enabled plugins.
+    pub commands: Vec<CommandInfo>,
+}
+
+/// Params of `command.run`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandRunParams {
+    /// The plugin.
+    pub plugin: String,
+    /// Command id.
+    pub command: String,
+    /// Arguments (a JSON object), for example a submitted form's values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "Record<string, unknown>")]
+    pub args: Option<serde_json::Value>,
+    /// The workspace, for `workspace` commands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub workspace: Option<WorkspaceId>,
+}
+
+/// What running a command shows (`command.run`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandResult {
+    /// A line to show the user.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub message: Option<String>,
+    /// A declarative view to show (`docs/spec/07-ui-plugins.md`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "Record<string, unknown>")]
+    pub view: Option<serde_json::Value>,
 }
 
 #[cfg(test)]

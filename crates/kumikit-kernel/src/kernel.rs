@@ -245,6 +245,22 @@ impl Kernel {
         self.inner.store.read(repo::workspace_list).await
     }
 
+    /// An open workspace: `not_found` if there is none with this id, `conflict` if it is
+    /// closed.
+    pub async fn workspace_get(&self, id: &WorkspaceId) -> KernelResult<Workspace> {
+        let ws = id.clone();
+        let row = self
+            .inner
+            .store
+            .read(move |c| repo::workspace_get(c, &ws))
+            .await?
+            .ok_or_else(|| KernelError::NotFound(format!("no workspace {id}")))?;
+        if row.closed {
+            return Err(KernelError::Conflict(format!("workspace {id} is closed")));
+        }
+        Ok(row.workspace)
+    }
+
     /// Hides a workspace from the list; its threads and events are kept.
     pub async fn workspace_close(&self, id: &WorkspaceId) -> KernelResult<()> {
         let id = id.clone();

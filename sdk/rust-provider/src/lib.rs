@@ -2,13 +2,14 @@
 //! `kumikit:provider/plugin@0.2.0` (`docs/spec/05-providers.md`), on top of the
 //! `kumikit-plugin` crate, whose types it shares.
 //!
-//! Export a type implementing [`Lifecycle`] and [`Provider`] with [`export_provider!`].
+//! Export a type implementing [`Plugin`] and [`Provider`] with [`export_provider!`].
 //! Like `kumikit-plugin`, it builds natively too; the export macro expands to nothing
 //! off `wasm32`.
 #![deny(missing_docs)]
 
 pub use kumikit_plugin::{
-    Child, Error, ErrorCode, ExitStatus, SpawnRequest, kv, log, process, secrets, settings,
+    CallContext, Child, CommandResult, Error, ErrorCode, ExitStatus, Plugin, SpawnRequest,
+    WorkspaceRef, kv, log, process, secrets, settings,
 };
 
 /// Generated bindings for the provider world. Interfaces it shares with the base world
@@ -32,6 +33,7 @@ pub mod bindings {
             "kumikit:host/process@0.2.0": kumikit_plugin::bindings::kumikit::host::process,
             "kumikit:host/secrets@0.2.0": kumikit_plugin::bindings::kumikit::host::secrets,
             "kumikit:host/settings@0.2.0": kumikit_plugin::bindings::kumikit::host::settings,
+            "kumikit:plugin/types@0.2.0": kumikit_plugin::bindings::kumikit::plugin::types,
         },
         generate_all,
     });
@@ -39,24 +41,48 @@ pub mod bindings {
 
 #[doc(hidden)]
 pub use bindings::__export_provider_world;
-pub use bindings::exports::kumikit::plugin::lifecycle::Guest as Lifecycle;
 pub use bindings::exports::kumikit::provider::provider::Guest as Provider;
 pub use bindings::kumikit::host::events::{self, Decision, Event};
 pub use bindings::kumikit::provider::types::{
     McpServer, Model, ProviderRef, SessionConfig, UserInput,
 };
+#[doc(hidden)]
+pub use kumikit_plugin::__forward_plugin_exports;
 
-/// Exports a type implementing [`Lifecycle`] and [`Provider`] (both from this crate) as
-/// the plugin's `kumikit:provider/plugin` world. Expands to nothing when not compiling
-/// for `wasm32`.
+/// Exports a type implementing [`Plugin`] and [`Provider`] (both from this crate) as the
+/// plugin's `kumikit:provider/plugin` world. Expands to nothing when not compiling for
+/// `wasm32`.
 #[macro_export]
 macro_rules! export_provider {
     ($ty:ident) => {
         #[cfg(target_arch = "wasm32")]
-        $crate::__export_provider_world!($ty);
+        const _: () = {
+            struct __KumikitExports;
+            $crate::__forward_plugin_exports!(__KumikitExports, $ty, $crate::bindings);
+            impl $crate::Provider for __KumikitExports {
+                fn list_models(
+                    p: $crate::ProviderRef,
+                ) -> Result<Vec<$crate::Model>, $crate::Error> {
+                    <$ty as $crate::Provider>::list_models(p)
+                }
+                fn start_session(
+                    p: $crate::ProviderRef,
+                    c: $crate::SessionConfig,
+                ) -> Result<String, $crate::Error> {
+                    <$ty as $crate::Provider>::start_session(p, c)
+                }
+                fn send(s: String, i: $crate::UserInput) -> Result<(), $crate::Error> {
+                    <$ty as $crate::Provider>::send(s, i)
+                }
+                fn end_session(s: String) {
+                    <$ty as $crate::Provider>::end_session(s)
+                }
+            }
+    $crate::__export_provider_world!(__KumikitExports with_types_in $crate::bindings);
+        };
         #[cfg(not(target_arch = "wasm32"))]
         const _: () = {
-            let _ = <$ty as $crate::Lifecycle>::activate;
+            let _ = <$ty as $crate::Plugin>::activate;
             let _ = <$ty as $crate::Provider>::send;
         };
     };

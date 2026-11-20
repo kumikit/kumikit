@@ -35,6 +35,7 @@ pub mod provider {
             "kumikit:host/process": super::base::kumikit::host::process,
             "kumikit:host/secrets": super::base::kumikit::host::secrets,
             "kumikit:host/settings": super::base::kumikit::host::settings,
+            "kumikit:plugin/types": super::base::kumikit::plugin::types,
         },
     });
 }
