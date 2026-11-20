@@ -103,7 +103,7 @@ the `kumikit` publisher is its only (early) publisher so far. Plan:
   a client interface with linked workspaces; schedules
   ([ADR 0024](../decisions/0024-schedules.md)); the tool gateway
   ([ADR 0025](../decisions/0025-tool-gateway.md)).
-- Providers: GitHub Copilot CLI, OpenCode, Gemini CLI and Cursor CLI as declarative ACP
+- Providers: Antigravity, GitHub Copilot CLI, Cursor CLI and OpenCode as declarative ACP
   manifests; Claude Code as a WASM adapter over its `stream-json` protocol, also a provider
   backend (DeepSeek through it as a community example).
 - `kumikit.git` and its panel `kumikit.ui-git`, `kumikit.github`, `kumikit.schedules`.
@@ -129,9 +129,15 @@ the kernel lacks, a general API lands first.
    asks an agent about the workspace's changes, and the agent answers with the git tool
    while the panel shows the same changes.
 
-**Status:** in progress. While M5 lands, the core binary is allowed past its 32 MiB budget
-(reported by `scripts/footprint.sh`, not gated); optimising it is a separate task after
-M5. Plan: [M5 — Plugins](../plans/2026-11-19-m5-plugins.md).
+**Status:** built. The exit tests pass on the core (`crates/kumikit-core/tests/exit_m5.rs`),
+in the browser build (`web/e2e/tests/exit-m5.spec.ts`, Chromium locally and WebKit in CI),
+and on the real desktop app over WebDriver (`web/e2e-desktop/exit-m5.test.mjs`, Linux
+locally and Windows in CI), and each first-party plugin repository passes its own CI
+(`kumikit-plugin-agents`, `kumikit-plugin-git`, `kumikit-plugin-github`,
+`kumikit-plugin-schedules`). The core release binary is 33.9 MiB (allowed past its 32 MiB
+budget during M5; reported by `scripts/footprint.sh`, not gated); optimising it is a
+separate task after M5. Plan: [M5 — Plugins](../plans/2026-11-19-m5-plugins.md); interface
+freeze review: [freeze review](../plans/2026-11-20-freeze-review.md).
 
 ## Open questions
 

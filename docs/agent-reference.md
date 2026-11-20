@@ -67,7 +67,9 @@ is about the code.
   handle drops, when its owner is killed, or at shutdown. Tests prove a whole tree died
   by reading stdout to EOF: `fake-acp-agent tree` gives a grandchild the same stdout, so
   EOF means every holder exited (no sleeps). The core's environment is injected
-  (`SupervisorConfig::env`), so tests control `PATH`.
+  (`SupervisorConfig::env`), so tests control `PATH`. `ENV_ALLOWLIST` copies desktop
+  session variables (`DISPLAY`, `WAYLAND_DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`) so spawned
+  CLIs that read credentials from the desktop keyring do not hang.
 - **Devices** (`devices.rs`) store only the token's hash. Revocation deletes the row, then
   broadcasts the id; a listener that lags must check `device_exists`, not trust the
   broadcast.
@@ -130,10 +132,12 @@ is about the code.
 - **`wit/kumikit-host@0.2.0/deps/io.wit`** is WASI's `wasi:io@0.2.12`, copied from
   wasmtime-wasi; the published-WIT hash covers `deps/` too.
 - **Schedules** (`kumikit-kernel/src/schedule/`): `schedule_tick(now)` holds every timing
-  rule and takes the time as an argument, so kernel tests use explicit times; the task in
-  `start_scheduler` only sleeps until `schedule_wake()` and calls it. A finished run
-  writes only `last_run`/`last_outcome` (`record_last`): writing `next_run` there raced
-  with the tick. The plugin host is the `Runner`; `serve` starts it, CLI paths never do.
+  rule and takes the time as an argument, so kernel tests use explicit times and install
+  the fake runner with `set_schedule_runner` (without spawning the wall-clock task, which
+  would race past-dated fixtures); the task in `start_scheduler` only sleeps until
+  `schedule_wake()` and calls it. A finished run writes only `last_run`/`last_outcome`
+  (`record_last`): writing `next_run` there raced with the tick. The plugin host is the
+  `Runner`; `serve` starts it, CLI paths never do.
 - **The tool gateway.** Tokens live in the kernel (`gateway.rs`), made when a provider
   session starts (`session_for`) and voided when it is forgotten or its provider goes.
   A gateway call's approval is the kernel's own: `respond_approval` hands it to the
@@ -273,7 +277,10 @@ is about the code.
 - **End-to-end ACP tests** (`tests/exit_m1.rs`) run `fake-acp-agent replay
   <transcript>` as the agent, found on the core's `PATH` (`Core::start_with_path`). The
   fake checks each client message's method in order and rewrites the recorded
-  `/workspace` to its working directory. The probe's manifest is
+  `/workspace` to its working directory; it also replays Claude Code `stream-json`
+  control requests/responses and parses `--mcp-config` for `{"from":"mcp",…}` steps.
+  `provider-acp` supports an optional `auth-method` in its `acp` config table for CLIs
+  that require ACP `authenticate` after `initialize`. The probe's manifest is
   `test-plugins/probe/plugin.toml`, read by the tests and by `check-plugin-names.sh`.
 - **Test client notifications.** `tests/support::Client::event` sets aside
   notifications other than `events.event` (`core.pluginsChanged`); read them with
