@@ -88,7 +88,7 @@ cargo run -p kumikit-core -- serve       # a core on this machine's local socket
 `kumikit serve` prints `ready <address>` once it accepts connections and keeps your data
 in the platform's data directory ([01-architecture](spec/01-architecture.md#data-directories));
 `--data-dir` and `--socket` move both, which is handy for a throwaway core. `kumikit --help`
-lists the other commands (`plugin`, `pair`, `devices`, `bridge`).
+lists the other commands (`plugin`, `theme`, `pair`, `devices`, `bridge`, `mcp`).
 
 ### 3. The UI bundle
 
@@ -187,7 +187,8 @@ The ones that need more setup:
 - **Web:** `npm run check` and `npm test`.
 - **Browser end-to-end (Playwright, pinned to 1.63.0):** once, `npx playwright install
   chromium webkit` in `web/e2e`; then `node scripts/bundle.mjs && cargo build -p
-  kumikit-core -p kumikit-web-relay` and `npx playwright test` in `web/e2e`.
+  kumikit-core -p kumikit-web-relay -p kumikit-test-registry-fixture -p
+  kumikit-test-plugins` and `npx playwright test` in `web/e2e`.
 - **Desktop end-to-end:** Linux, in the container: `sh scripts/desktop/run.sh sh
   scripts/desktop/e2e.sh` after `node scripts/bundle.mjs`. Windows runs it in CI.
 - **Footprint:** `sh scripts/footprint.sh` (release build; core budgets, Linux numbers are

@@ -129,15 +129,19 @@ the kernel lacks, a general API lands first.
    asks an agent about the workspace's changes, and the agent answers with the git tool
    while the panel shows the same changes.
 
-**Status:** built. The exit tests pass on the core (`crates/kumikit-core/tests/exit_m5.rs`),
-in the browser build (`web/e2e/tests/exit-m5.spec.ts`, Chromium locally and WebKit in CI),
-and on the real desktop app over WebDriver (`web/e2e-desktop/exit-m5.test.mjs`, Linux
-locally and Windows in CI), and each first-party plugin repository passes its own CI
-(`kumikit-plugin-agents`, `kumikit-plugin-git`, `kumikit-plugin-github`,
-`kumikit-plugin-schedules`). The core release binary is 33.9 MiB (allowed past its 32 MiB
-budget during M5; reported by `scripts/footprint.sh`, not gated); optimising it is a
-separate task after M5. Plan: [M5 — Plugins](../plans/2026-11-19-m5-plugins.md); interface
-freeze review: [freeze review](../plans/2026-11-20-freeze-review.md).
+**Status:** done (`v0.1.0-m5`, merged to `main`). All 19 CI jobs pass across Linux, macOS
+and Windows: exit tests on the core (`crates/kumikit-core/tests/exit_m5.rs`), in the
+browser build (`web/e2e/tests/exit-m5.spec.ts`, Chromium and WebKit), and on the real
+desktop app over WebDriver (`web/e2e-desktop/exit-m5.test.mjs`, Linux and Windows), and
+each first-party plugin repository passes its own CI (`kumikit-plugin-agents`,
+`kumikit-plugin-git`, `kumikit-plugin-github`, `kumikit-plugin-schedules`). All nine
+signed first-party plugins are live in `github.com/kumikit/registry`
+(`https://kumikit.github.io/registry/index.json`) and its starter pack, with automated
+per-repository signing, GitHub Releases and registry PR workflows. The core release binary
+is 33.7–33.9 MiB (allowed past its 32 MiB budget during M5; reported by
+`scripts/footprint.sh`, not gated); optimising it is a separate task after M5. Plan:
+[M5 — Plugins](../plans/2026-11-19-m5-plugins.md); interface freeze review:
+[freeze review](../plans/2026-11-20-freeze-review.md).
 
 ## Open questions
 

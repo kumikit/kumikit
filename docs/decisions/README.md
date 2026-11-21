@@ -45,8 +45,8 @@ Small, local choices do not need one; a clear commit message is enough.
 | [0019](0019-sandboxed-panels.md) | Sandboxed panels: iframes, a CSP per panel, a narrow bridge | Accepted |
 | [0020](0020-interface-freeze-after-m5.md) | Freeze WIT and the UI SDK after M5; early publishers until then | Accepted |
 | [0021](0021-no-sidecars-in-1-0.md) | No sidecar plugins in 1.0 | Accepted |
-| [0022](0022-wit-0-2-and-dropping-0-1.md) | WIT 0.2.0, and the host drops 0.1.0 | Proposed |
-| [0023](0023-outgoing-http-for-plugins.md) | Outgoing HTTP for plugins: wasi:http with the host's policy | Proposed |
-| [0024](0024-schedules.md) | Schedules: kernel-owned timers that wake plugins | Proposed |
-| [0025](0025-tool-gateway.md) | The tool gateway: MCP over stdio through the core's socket | Proposed |
-| [0026](0026-first-party-plugins-in-their-own-repositories.md) | First-party plugins live in their own repositories | Proposed |
+| [0022](0022-wit-0-2-and-dropping-0-1.md) | WIT 0.2.0, and the host drops 0.1.0 | Accepted |
+| [0023](0023-outgoing-http-for-plugins.md) | Outgoing HTTP for plugins: wasi:http with the host's policy | Accepted |
+| [0024](0024-schedules.md) | Schedules: kernel-owned timers that wake plugins | Accepted |
+| [0025](0025-tool-gateway.md) | The tool gateway: MCP over stdio through the core's socket | Accepted |
+| [0026](0026-first-party-plugins-in-their-own-repositories.md) | First-party plugins live in their own repositories | Accepted |

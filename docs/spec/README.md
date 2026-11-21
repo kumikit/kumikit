@@ -23,7 +23,7 @@ with the spec is a bug in one of them: fix whichever is wrong in the same change
 | [05-providers.md](05-providers.md) | Agent providers as plugins |
 | [06-client.md](06-client.md) | Desktop shell, Svelte UI kernel, connections and tabs |
 | [07-ui-plugins.md](07-ui-plugins.md) | UI plugins: slots, declarative UI, isolation |
-| [08-themes.md](08-themes.md) | Themes as data: tokens, validation, import |
+| [08-themes.md](08-themes.md) | Themes as data: tokens, validation |
 | [09-bots.md](09-bots.md) | Bots as core plugins |
 | [10-distribution.md](10-distribution.md) | Packages, registry, signing, lockfiles, preinstalled set |
 | [11-security.md](11-security.md) | Threat model and the controls that answer it |
@@ -33,6 +33,9 @@ Decisions behind the spec are recorded in [../decisions/](../decisions/).
 
 ## Status
 
-M0 (protocol and kernel), M1 (plugin host), M2 (client), M3 (multiple cores) and M4 (ecosystem) are built; later milestones are not. Interfaces shown here (WIT, JSON, TOML) are the
-intended shape, not frozen APIs. They freeze at version 1.0 of each interface; until then
-they may change, with the change recorded in the spec and, when significant, in an ADR.
+M0 (protocol and kernel), M1 (plugin host), M2 (client), M3 (multiple cores), M4
+(ecosystem) and M5 (plugins) are built, and the official registry
+(`github.com/kumikit/registry`) is live with the first-party starter pack. Interfaces
+shown here (WIT, JSON, TOML) are the intended shape, not frozen APIs. They freeze at
+version 1.0 of each interface; until then they may change, with the change recorded in
+the spec and, when significant, in an ADR.

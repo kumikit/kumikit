@@ -1,6 +1,6 @@
 # 0024 — Schedules: kernel-owned timers that wake plugins
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-19
 
 ## Context
