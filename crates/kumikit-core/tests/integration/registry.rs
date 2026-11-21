@@ -2,7 +2,7 @@
 //! registry on loopback, signed with keys made here, and a real core.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-mod support;
+use crate::support;
 
 use std::path::PathBuf;
 

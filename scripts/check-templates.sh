@@ -16,7 +16,9 @@ cleanup() {
 trap cleanup EXIT
 rm -rf "$work"
 mkdir -p "$work"
-cargo build -q -p kumikit-core -p kumikit-test-client-store
+if [ "${KUMIKIT_SKIP_BUILD:-0}" != "1" ]; then
+  cargo build -q -p kumikit-core -p kumikit-test-client-store
+fi
 kumikit="$root/target/debug/kumikit"
 store="$root/target/debug/client-store"
 "$kumikit" plugin keygen --out "$keys/template.key" >/dev/null

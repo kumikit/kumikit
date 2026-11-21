@@ -5,7 +5,7 @@
 // Integration-test crate: clippy's allow-*-in-tests does not cover helper functions.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-mod support;
+use crate::support;
 
 use serde_json::{Value, json};
 use support::{Client, Core, DEADLINE, Dirs, install, kkp, probe_kkp};

@@ -6,7 +6,7 @@
 // Integration-test crate: clippy's allow-*-in-tests does not cover helper functions.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-mod support;
+use crate::support;
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
