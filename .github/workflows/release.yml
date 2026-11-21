@@ -145,7 +145,7 @@ jobs:
           cp test-plugins/probe/plugin.toml "$kit/test-plugins/probe/"
           cp web/sdk/package.json web/sdk/tsconfig.json web/sdk/theme-rules.json "$kit/web/sdk/"
           cp -r web/sdk/src web/sdk/api "$kit/web/sdk/"
-          cp LICENSE "$kit/"
+          cp tsconfig.base.json LICENSE "$kit/"
 
           "$kit/target/debug/kumikit${BIN_EXT}" --version
 
