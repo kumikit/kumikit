@@ -11,6 +11,11 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Enables test-only hooks (KUMIKIT_TEST_HTTP_ROUTES) in non-debug builds for the
+# prebuilt kumikit-test-kit archive. Never enabled in the released kumikit binary.
+test-hooks = []
+
 [dependencies]
 jsonschema = { version = "0.61.2", default-features = false }
 kumikit-kernel.workspace = true

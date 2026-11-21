@@ -1,0 +1,234 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing v* tag to build and publish assets for'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Build Linux x86_64 on Ubuntu 22.04 so binaries run on glibc 2.35 and newer.
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            ext: tar.gz
+            bin_ext: ''
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            ext: tar.gz
+            bin_ext: ''
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            ext: tar.gz
+            bin_ext: ''
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: zip
+            bin_ext: .exe
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Resolve release tag
+        id: tag
+        run: |
+          tag="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          case "$tag" in
+            v*) ;;
+            *)
+              echo "::error::Release tag must start with 'v', got: $tag"
+              exit 1
+              ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Verify toolchain
+        run: |
+          rustup show active-toolchain
+          host=$(rustc -vV | sed -n 's/^host: //p')
+          if [ "$host" != "${{ matrix.target }}" ]; then
+            echo "::error::Expected host ${{ matrix.target }}, got $host"
+            exit 1
+          fi
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Build production binaries (kumikit, kumikit-registry, fake-acp-agent)
+        run: |
+          cargo build --locked --release \
+            -p kumikit-core \
+            -p kumikit-registry-tool \
+            -p kumikit-fake-acp-agent
+
+      - name: Stage and pack production kumikit and kumikit-registry
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          TARGET: ${{ matrix.target }}
+          EXT: ${{ matrix.ext }}
+          BIN_EXT: ${{ matrix.bin_ext }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist stage/cli stage/registry
+
+          cp "target/release/kumikit${BIN_EXT}" LICENSE stage/cli/
+          cp "target/release/kumikit-registry${BIN_EXT}" LICENSE stage/registry/
+
+          # Smoke-check the production binaries.
+          "./stage/cli/kumikit${BIN_EXT}" --version
+          "./stage/registry/kumikit-registry${BIN_EXT}" --help >/dev/null
+
+          pack_dir() {
+            local src="$1"
+            local out="$2"
+            if [ "$EXT" = "tar.gz" ]; then
+              tar -C "$src" -czf "$out" .
+            else
+              (cd "$src" && 7z a -tzip "$GITHUB_WORKSPACE/$out" .) >/dev/null
+            fi
+          }
+
+          pack_dir stage/cli "dist/kumikit-${TAG}-${TARGET}.${EXT}"
+          pack_dir stage/registry "dist/kumikit-registry-${TAG}-${TARGET}.${EXT}"
+
+      - name: Build test-kit WASM plugins and test-hooks core
+        run: |
+          cargo build --locked --release --target wasm32-wasip2 \
+            -p kumikit-provider-acp \
+            -p kumikit-test-probe
+          # Reuses compiled dependencies; only recompiles kumikit-plugin-host and kumikit-core.
+          cargo build --locked --release -p kumikit-core --features test-hooks
+
+      - name: Stage and pack kumikit-test-kit
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          TARGET: ${{ matrix.target }}
+          EXT: ${{ matrix.ext }}
+          BIN_EXT: ${{ matrix.bin_ext }}
+        run: |
+          set -euo pipefail
+          kit="stage/test-kit"
+          mkdir -p \
+            "$kit/target/debug" \
+            "$kit/target/kumikit-test/release" \
+            "$kit/target/kumikit-test/wasm32-wasip2/release" \
+            "$kit/plugins/provider-acp" \
+            "$kit/test-plugins/probe" \
+            "$kit/web/sdk"
+
+          cp "target/release/kumikit${BIN_EXT}" "$kit/target/debug/kumikit${BIN_EXT}"
+          cp "target/release/fake-acp-agent${BIN_EXT}" "$kit/target/kumikit-test/release/fake-acp-agent${BIN_EXT}"
+          cp target/wasm32-wasip2/release/kumikit_provider_acp.wasm "$kit/target/kumikit-test/wasm32-wasip2/release/"
+          cp target/wasm32-wasip2/release/kumikit_test_probe.wasm "$kit/target/kumikit-test/wasm32-wasip2/release/"
+          cp plugins/provider-acp/plugin.toml plugins/provider-acp/acp.schema.json "$kit/plugins/provider-acp/"
+          cp test-plugins/probe/plugin.toml "$kit/test-plugins/probe/"
+          cp web/sdk/package.json web/sdk/tsconfig.json web/sdk/theme-rules.json "$kit/web/sdk/"
+          cp -r web/sdk/src web/sdk/api "$kit/web/sdk/"
+          cp LICENSE "$kit/"
+
+          "$kit/target/debug/kumikit${BIN_EXT}" --version
+
+          out="dist/kumikit-test-kit-${TAG}-${TARGET}.${EXT}"
+          if [ "$EXT" = "tar.gz" ]; then
+            tar -C "$kit" -czf "$out" .
+          else
+            (cd "$kit" && 7z a -tzip "$GITHUB_WORKSPACE/$out" .) >/dev/null
+          fi
+          ls -lh dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Resolve release tag
+        id: tag
+        run: |
+          tag="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS.txt
+        run: |
+          set -euo pipefail
+          cd release-assets
+          LC_ALL=C sha256sum *.tar.gz *.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            release-assets/*.tar.gz
+            release-assets/*.zip
+            release-assets/SHA256SUMS.txt
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            notes=$(printf '%s\n' \
+              "Prebuilt Kumikit CLI, registry tool, and plugin test kit archives for \`${TAG}\`." \
+              "" \
+              "### Assets" \
+              "- \`kumikit-${TAG}-<target>\`: production \`kumikit\` core and CLI binary" \
+              "- \`kumikit-registry-${TAG}-<target>\`: \`kumikit-registry\` checker and index builder" \
+              "- \`kumikit-test-kit-${TAG}-<target>\`: prebuilt \`KUMIKIT_DIR\` bundle for plugin e2e tests and UI builds" \
+              "- \`SHA256SUMS.txt\`: SHA-256 checksums for every archive (also attested via GitHub build provenance)" \
+              "" \
+              "### Use in GitHub Actions" \
+              '```yaml' \
+              "- uses: kumikit/kumikit/.github/actions/setup-kumikit@${TAG}" \
+              "  with:" \
+              "    tools: kumikit,test-kit" \
+              '```')
+            extra_flags=""
+            case "$TAG" in
+              *-*) extra_flags="--prerelease" ;;
+            esac
+            # shellcheck disable=SC2086
+            gh release create "$TAG" release-assets/* \
+              --title "Kumikit ${TAG}" \
+              --notes "$notes" \
+              $extra_flags
+          fi

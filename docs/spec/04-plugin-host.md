@@ -204,8 +204,9 @@ with `wasi:http/outgoing-handler` (WASI 0.2); the host sends them itself, after 
 
 A refused request fails with a wasi:http error and is logged with the plugin id. Logs give
 only the scheme and host of a request, never its path, headers or body. In debug builds
-only, `KUMIKIT_TEST_HTTP_ROUTES=<host>=<http://127.0.0.1:port>,…` sends requests for a
-granted host to a loopback test server after the checks; release builds ignore it.
+and `test-hooks` builds (never enabled in the released `kumikit` binary),
+`KUMIKIT_TEST_HTTP_ROUTES=<host>=<http://127.0.0.1:port>,…` sends requests for a granted
+host to a loopback test server after the checks; release builds ignore it.
 
 ## Execution model
 

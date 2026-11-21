@@ -178,6 +178,31 @@ runs on glibc 2.35 and newer) and then repacked with `node scripts/repack-appima
 <file>` ([10-distribution](spec/10-distribution.md#desktop-installers)). The installers
 are unsigned.
 
+## Prebuilt binaries and CI action
+
+Tagged releases on GitHub (`https://github.com/kumikit/kumikit/releases`) attach prebuilt
+archives with `SHA256SUMS.txt` and build provenance attestations for Linux (`x86_64`,
+`aarch64`), macOS (`aarch64`) and Windows (`x86_64`):
+
+- **`kumikit-<tag>-<target>`**: the production `kumikit` CLI and core binary.
+- **`kumikit-registry-<tag>-<target>`**: the `kumikit-registry` checker and index builder.
+- **`kumikit-test-kit-<tag>-<target>`**: a `KUMIKIT_DIR`-compatible bundle (`kumikit` built
+  with `test-hooks`, `fake-acp-agent`, `kumikit_provider_acp.wasm`,
+  `kumikit_test_probe.wasm`, their manifests, and `web/sdk`) for running plugin end-to-end
+  tests and UI builds without checking out or compiling `kumikit/kumikit`.
+
+Plugin and registry workflows can install and verify these archives with the bundled
+composite action:
+
+```yaml
+- uses: kumikit/kumikit/.github/actions/setup-kumikit@v0.1.0-m5.1
+  with:
+    tools: kumikit,test-kit   # any combination of: kumikit, kumikit-registry, test-kit
+```
+
+When `test-kit` is requested, the action exports `KUMIKIT_DIR` and `KUMIKIT_UI_SDK` for
+subsequent steps.
+
 ## Tests
 
 The full list of checks, with when each applies, is [AGENTS.md → Verify](../AGENTS.md#verify).
