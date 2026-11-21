@@ -328,25 +328,30 @@ async fn connection<S>(
     }
     // Subscribed before the token is checked, so a revocation in between is not missed.
     let revocations = kernel.device_revocations();
-    let device =
-        match tokio::time::timeout_at(deadline, gate(&mut ws, &kernel, &shared.remote)).await {
-            Ok(Ok(device)) => device,
-            Ok(Err(reason)) => {
-                tracing::debug!(reason, "remote authentication failed");
-                let _ = ws
-                    .send(Message::Close(Some(CloseFrame {
-                        code: CloseCode::Policy,
-                        reason: reason.into(),
-                    })))
-                    .await;
-                return;
-            }
-            Err(_) => {
-                tracing::debug!("remote authentication timed out");
-                let _ = ws.close(None).await;
-                return;
-            }
-        };
+    let mut permit = Some(permit);
+    let device = match tokio::time::timeout_at(
+        deadline,
+        gate(&mut ws, &kernel, &shared.remote, &mut permit),
+    )
+    .await
+    {
+        Ok(Ok(device)) => device,
+        Ok(Err(reason)) => {
+            tracing::debug!(reason, "remote authentication failed");
+            let _ = ws
+                .send(Message::Close(Some(CloseFrame {
+                    code: CloseCode::Policy,
+                    reason: reason.into(),
+                })))
+                .await;
+            return;
+        }
+        Err(_) => {
+            tracing::debug!("remote authentication timed out");
+            let _ = ws.close(None).await;
+            return;
+        }
+    };
     drop(permit);
     serve(ws, &shared, kernel, device, revocations).await;
 }
@@ -403,6 +408,7 @@ async fn gate<S>(
     ws: &mut WebSocketStream<S>,
     kernel: &Kernel,
     remote: &Remote,
+    permit: &mut Option<OwnedSemaphorePermit>,
 ) -> Result<String, &'static str>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -440,6 +446,9 @@ where
             let Some(id) = id else {
                 return Err("no request id");
             };
+            // Release the pre-auth slot before replying so a client that opens the next
+            // connection immediately on receiving the reply cannot race with the drop.
+            drop(permit.take());
             let line = serde_json::to_string(&RpcResponse::success(id, result)).unwrap_or_default();
             if ws.send(Message::text(line)).await.is_err() {
                 return Err("closed while authenticating");
