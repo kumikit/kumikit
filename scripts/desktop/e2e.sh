@@ -5,8 +5,10 @@
 set -eu
 # Absolute paths: the app and the core it starts do not run in this directory.
 target=$(cd "${CARGO_TARGET_DIR:-target}" 2>/dev/null && pwd || echo "$PWD/target")
-cargo build -q -p kumikit-core -p kumikit-test-plugins -p kumikit-test-registry-fixture
-cargo build -q -p kumikit-shell --features test-hooks
+if [ "${KUMIKIT_SKIP_BUILD:-0}" != "1" ]; then
+  cargo build -q -p kumikit-core -p kumikit-test-plugins -p kumikit-test-registry-fixture
+  cargo build -q -p kumikit-shell --features test-hooks
+fi
 agent=$(cd "$(dirname "$(find "$target/kumikit-test" -type f -name fake-acp-agent | head -n 1)")" && pwd)
 netcut="$(cd "$(dirname "$(find "$target/kumikit-test" -type f -name net-cut | head -n 1)")" && pwd)/net-cut"
 export KK_REGISTRY_FIXTURE="$target/debug/registry-fixture"

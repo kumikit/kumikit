@@ -10,7 +10,7 @@ use serde_json::Value;
 #[test]
 fn wording_matches_the_shared_fixture() {
     let fixture: Value =
-        serde_json::from_str(include_str!("fixtures/permission-wording.json")).unwrap();
+        serde_json::from_str(include_str!("../fixtures/permission-wording.json")).unwrap();
     for case in fixture["cases"].as_array().unwrap() {
         let p: Permissions = serde_json::from_value(case["permissions"].clone()).unwrap();
         let lines: Vec<String> = serde_json::from_value(case["lines"].clone()).unwrap();

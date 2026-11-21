@@ -5,7 +5,7 @@
 // Integration-test crate: clippy's allow-*-in-tests does not cover helper functions.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-mod support;
+use crate::support;
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};

@@ -84,7 +84,7 @@ macOS. Plan: [M3 — Multiple cores](../plans/2026-11-17-m3-multiple-cores.md).
 with its permissions shown and enforced.
 
 **Status:** built. The exit test runs three ways: on the core through the CLI and the
-protocol (`crates/kumikit-core/tests/exit_m4.rs`), in the browser build
+protocol (`crates/kumikit-core/tests/integration/exit_m4.rs`), in the browser build
 (`web/e2e/tests/exit-m4.spec.ts`), and on the real desktop app over WebDriver
 (`web/e2e-desktop/exit-m4.test.mjs`, Linux and Windows). Each one uses a third-party
 publisher whose key is made for the test, a fixture registry on loopback that its own
@@ -129,8 +129,8 @@ the kernel lacks, a general API lands first.
    asks an agent about the workspace's changes, and the agent answers with the git tool
    while the panel shows the same changes.
 
-**Status:** done (`v0.1.0-m5`, merged to `main`). All 19 CI jobs pass across Linux, macOS
-and Windows: exit tests on the core (`crates/kumikit-core/tests/exit_m5.rs`), in the
+**Status:** done (`v0.1.0-m5`, merged to `main`). All CI checks pass across Linux, macOS
+and Windows: exit tests on the core (`crates/kumikit-core/tests/integration/exit_m5.rs`), in the
 browser build (`web/e2e/tests/exit-m5.spec.ts`, Chromium and WebKit), and on the real
 desktop app over WebDriver (`web/e2e-desktop/exit-m5.test.mjs`, Linux and Windows), and
 each first-party plugin repository passes its own CI (`kumikit-plugin-agents`,

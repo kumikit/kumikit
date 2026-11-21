@@ -4,9 +4,8 @@
 
 // Integration-test crate: clippy's allow-*-in-tests does not cover helper functions.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
-#![cfg(unix)]
 
-mod support;
+use crate::support;
 
 use support::{Core, Dirs};
 

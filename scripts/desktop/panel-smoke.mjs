@@ -44,8 +44,13 @@ const finished = new Promise((done) => {
   });
   child.on('exit', () => done('exited'));
 });
-const deadline = new Promise((done) => setTimeout(() => done('deadline'), 90_000));
+let timer;
+const deadline = new Promise((done) => {
+  timer = setTimeout(() => done('deadline'), 90_000);
+  timer.unref?.();
+});
 const how = await Promise.race([finished, deadline]);
+clearTimeout(timer);
 child.kill();
 await new Promise((done) => (child.exitCode !== null ? done() : child.once('exit', done)));
 

@@ -8,10 +8,115 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  changes:
+    # On pull requests, skip unaffected heavy jobs. On main, every job runs unconditionally.
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      web: ${{ steps.filter.outputs.web }}
+      protocol: ${{ steps.filter.outputs.protocol }}
+      templates: ${{ steps.filter.outputs.templates }}
+      licenses: ${{ steps.filter.outputs.licenses }}
+      installers: ${{ steps.filter.outputs.installers }}
+      e2e: ${{ steps.filter.outputs.e2e }}
+      installer-matrix: ${{ steps.matrix.outputs.installers }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            rust:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'crates/**'
+              - 'sdk/**'
+              - 'wit/**'
+              - 'plugins/provider-acp/**'
+              - 'test-plugins/**'
+              - '.github/workflows/ci.yml'
+            web:
+              - 'package.json'
+              - 'package-lock.json'
+              - 'tsconfig*.json'
+              - 'web/**'
+              - 'plugins/ui-*/**'
+              - 'plugins/theme-*/**'
+              - 'test-plugins/ui-panel/**'
+              - 'scripts/bundle.mjs'
+              - '.github/workflows/ci.yml'
+            protocol:
+              - 'crates/kumikit-protocol/**'
+              - 'web/protocol/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
+            templates:
+              - 'templates/**'
+              - 'sdk/**'
+              - 'wit/**'
+              - 'web/sdk/**'
+              - 'crates/kumikit-core/**'
+              - 'crates/kumikit-package/**'
+              - 'crates/kumikit-plugin-host/**'
+              - 'crates/kumikit-theme/**'
+              - 'scripts/check-templates.sh'
+              - 'scripts/template-turn.mjs'
+              - '.github/workflows/ci.yml'
+            licenses:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'deny.toml'
+              - '.github/workflows/ci.yml'
+            installers:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'crates/kumikit-shell/**'
+              - 'crates/kumikit-core/**'
+              - 'web/**'
+              - 'plugins/**'
+              - 'scripts/bundle.mjs'
+              - 'scripts/repack-appimage.mjs'
+              - 'scripts/smoke-appimage.sh'
+              - 'scripts/check-installer-size.mjs'
+              - '.github/workflows/ci.yml'
+            e2e:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'tsconfig*.json'
+              - 'crates/**'
+              - 'sdk/**'
+              - 'wit/**'
+              - 'web/**'
+              - 'plugins/**'
+              - 'test-plugins/**'
+              - 'scripts/bundle.mjs'
+              - 'scripts/desktop/**'
+              - 'scripts/footprint.sh'
+              - '.github/workflows/ci.yml'
+      - id: matrix
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo 'installers=[{"os":"ubuntu-22.04","bundles":"deb,rpm,appimage"}]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'installers=[{"os":"ubuntu-22.04","bundles":"deb,rpm,appimage"},{"os":"macos-latest","bundles":"dmg"},{"os":"windows-latest","bundles":"nsis"}]' >> "$GITHUB_OUTPUT"
+          fi
+
   docs:
     runs-on: ubuntu-latest
     steps:
@@ -20,48 +125,21 @@ jobs:
       - run: sh scripts/check-plugin-names.sh
       - run: sh scripts/check-no-keys.sh
 
-  rust:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      # rustup on the runner reads rust-toolchain.toml and installs the pinned toolchain.
-      - run: rustup show active-toolchain
-      # The desktop shell (a workspace member) links WebKitGTK on Linux.
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      # Guest crates (SDK, plugins, test plugins) also build for the plugin target.
-      - run: cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-tool -p kumikit-test-hello -p kumikit-test-probe -p kumikit-test-client -p kumikit-test-tool -p kumikit-provider-acp -- -D warnings
-      - run: cargo test --workspace --no-fail-fast
-      - if: runner.os == 'Linux'
-        # The first-party theme passes the checks third-party themes must pass (08-themes).
-        run: cargo run -q -p kumikit-core -- theme check --strict plugins/theme-default
-
-  footprint:
+  protocol-ts:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.protocol == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev xvfb
-      - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: sh scripts/footprint.sh
-      # The desktop shell's memory (ADR 0015) and the UI kernel's compressed size.
-      - run: node scripts/bundle.mjs
-      - run: sh scripts/desktop/footprint.sh
-      - run: node scripts/size.mjs
-        working-directory: web/kernel
+      # The generated package must type-check; the version matches web/protocol/package.json.
+      - run: npx --yes -p typescript@7.0.2 tsc --noEmit -p web/protocol
 
   web:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,9 +151,115 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: node scripts/check-npm-licenses.mjs
+      # The UI kernel's compressed JS size against its budget (00-overview).
+      - run: node scripts/size.mjs
+        working-directory: web/kernel
+
+  licenses:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.licenses == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses bans sources
+
+  rust:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      # Faster host linking on Linux without affecting wasm32-wasip2 or other platforms.
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=mold
+    steps:
+      - uses: actions/checkout@v4
+      # rustup on the runner reads rust-toolchain.toml and installs the pinned toolchain.
+      - run: rustup show active-toolchain
+      # The desktop shell (a workspace member) links WebKitGTK on Linux.
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev mold
+      - uses: taiki-e/install-action@nextest
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-debug
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      # Guest crates (SDK, plugins, test plugins) also build for the plugin target.
+      - run: cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-tool -p kumikit-test-hello -p kumikit-test-probe -p kumikit-test-client -p kumikit-test-tool -p kumikit-provider-acp -- -D warnings
+      - run: cargo nextest run --workspace --no-fail-fast
+      - run: cargo test --workspace --doc
+
+  build-linux:
+    # Builds the OS-independent UI bundle and Linux debug test binaries once, so downstream
+    # jobs (e2e-browser, e2e-desktop, panel-smoke, templates, footprint, installers) do not
+    # each rebuild bundle.mjs or kumikit-core.
+    needs: changes
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.changes.outputs.e2e == 'true' ||
+      needs.changes.outputs.templates == 'true' ||
+      needs.changes.outputs.installers == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=mold
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev mold zstd
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-debug
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Build Linux debug test binaries and test plugins
+        run: |
+          cargo build -p kumikit-core -p kumikit-web-relay -p kumikit-test-registry-fixture -p kumikit-test-plugins -p kumikit-test-client-store
+          cargo build -p kumikit-shell --features test-hooks
+      - name: Assemble OS-independent UI bundle
+        env:
+          KUMIKIT_BIN: ${{ github.workspace }}/target/debug/kumikit
+          KUMIKIT_PROVIDER_ACP_WASM: ${{ github.workspace }}/target/kumikit-test/wasm32-wasip2/release/kumikit_provider_acp.wasm
+        run: node scripts/bundle.mjs
+      - name: Theme check (first-party default theme)
+        run: ./target/debug/kumikit theme check --strict plugins/theme-default
+      - name: Pack Linux test binaries
+        run: |
+          tar -I 'zstd -T0 -1' -cf target/linux-test-bins.tar.zst \
+            target/debug/kumikit \
+            target/debug/kumikit-desktop \
+            target/debug/kumikit-web-relay \
+            target/debug/registry-fixture \
+            target/debug/client-store \
+            target/kumikit-test/release/fake-acp-agent \
+            target/kumikit-test/release/fake-ssh \
+            target/kumikit-test/release/net-cut \
+            target/kumikit-test/wasm32-wasip2/release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-bundle
+          path: target/bundle
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-test-bins
+          path: target/linux-test-bins.tar.zst
+          retention-days: 1
 
   e2e-browser:
     # The browser-test build against a real core through the test relay (M2 plan, Tests).
+    # Linux covers both Chromium and WebKit; macOS covers WebKit (no WebDriver for WKWebView).
+    needs: [changes, build-linux]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.e2e == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -83,20 +267,42 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - run: rustup show active-toolchain
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev
-      - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: cargo build -p kumikit-core -p kumikit-web-relay -p kumikit-test-registry-fixture -p kumikit-test-plugins
-      - run: node scripts/bundle.mjs
-      - run: npx playwright install --with-deps chromium webkit
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-bundle
+          path: target/bundle
+      - if: runner.os == 'Linux'
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-test-bins
+          path: target
+      - if: runner.os == 'Linux'
+        run: tar --zstd -xf target/linux-test-bins.tar.zst
+      - if: runner.os == 'macOS'
+        run: rustup show active-toolchain
+      - if: runner.os == 'macOS'
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-debug
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - if: runner.os == 'macOS'
+        run: cargo build -p kumikit-core -p kumikit-web-relay -p kumikit-test-registry-fixture -p kumikit-test-plugins
+      - if: runner.os == 'Linux'
+        run: npx playwright install --with-deps chromium webkit
         working-directory: web/e2e
-      - run: npx playwright test
+      - if: runner.os == 'macOS'
+        run: npx playwright install webkit
+        working-directory: web/e2e
+      - if: runner.os == 'Linux'
+        run: npx playwright test
+        working-directory: web/e2e
+      - if: runner.os == 'macOS'
+        run: npx playwright test --project webkit
         working-directory: web/e2e
       - if: failure()
         uses: actions/upload-artifact@v4
@@ -105,8 +311,10 @@ jobs:
           path: web/e2e/playwright-report
 
   e2e-desktop:
-    # The M2 and M3 exit tests on the real app over WebDriver. macOS has no WebDriver for
+    # The M2–M5 exit tests on the real app over WebDriver. macOS has no WebDriver for
     # WKWebView; e2e-browser covers WebKit there (M2 plan, Tests).
+    needs: [changes, build-linux]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.e2e == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -117,21 +325,45 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      - run: rustup show active-toolchain
-      - if: runner.os == 'Linux'
-        # WebKitWebDriver's package is webkit2gtk-driver up to Ubuntu 24.04 and
-        # webkitgtk-webdriver after it.
-        run: |
-          sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev xvfb
-          sudo apt-get install -y webkitgtk-webdriver || sudo apt-get install -y webkit2gtk-driver
-          command -v WebKitWebDriver
-      - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: cargo install --locked tauri-driver --version 2.1.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-bundle
+          path: target/bundle
+      - if: runner.os == 'Linux'
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-test-bins
+          path: target
+      - if: runner.os == 'Linux'
+        # WebKitWebDriver's package is webkit2gtk-driver up to Ubuntu 24.04 and
+        # webkitgtk-webdriver after it (also brings libwebkit2gtk-4.1-0 runtime).
+        run: |
+          tar --zstd -xf target/linux-test-bins.tar.zst
+          sudo apt-get update && sudo apt-get install -y xvfb
+          sudo apt-get install -y webkitgtk-webdriver || sudo apt-get install -y webkit2gtk-driver
+          command -v WebKitWebDriver
+      - if: runner.os == 'Windows'
+        run: rustup show active-toolchain
+      - if: runner.os == 'Windows'
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-debug
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/tauri-driver*
+          key: tauri-driver-2.1.0-${{ runner.os }}
+      - name: Install tauri-driver (if not cached)
+        run: |
+          ext=""; [ "$RUNNER_OS" = Windows ] && ext=.exe
+          if [ ! -x "$HOME/.cargo/bin/tauri-driver$ext" ]; then
+            cargo install --locked tauri-driver --version 2.1.0
+          fi
       - if: runner.os == 'Windows'
         name: msedgedriver matching the installed WebView2
         shell: pwsh
@@ -140,9 +372,11 @@ jobs:
           Invoke-WebRequest "https://msedgedriver.microsoft.com/$v/edgedriver_win64.zip" -OutFile edgedriver.zip
           Expand-Archive edgedriver.zip -DestinationPath "$env:USERPROFILE\edgedriver"
           "$env:USERPROFILE\edgedriver" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
-      - run: node scripts/bundle.mjs
-      - run: cargo build -p kumikit-core -p kumikit-test-plugins -p kumikit-test-registry-fixture && cargo build -p kumikit-shell --features test-hooks
+      - if: runner.os == 'Windows'
+        run: cargo build -p kumikit-core -p kumikit-test-plugins -p kumikit-test-registry-fixture && cargo build -p kumikit-shell --features test-hooks
       - if: runner.os == 'Linux'
+        env:
+          KUMIKIT_SKIP_BUILD: '1'
         run: sh scripts/desktop/e2e.sh
       - if: runner.os == 'Windows'
         run: |
@@ -162,6 +396,8 @@ jobs:
   panel-smoke:
     # Sandboxed panels (ADR 0019) in the real shell on every webview, WKWebView included:
     # the app reports to stdout, so no WebDriver is needed (scripts/desktop/panel-smoke.mjs).
+    needs: [changes, build-linux]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.e2e == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -172,14 +408,27 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      - run: rustup show active-toolchain
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev xvfb
-      - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: cargo build -p kumikit-shell --features test-hooks
+      - if: runner.os == 'Linux'
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-test-bins
+          path: target
+      - if: runner.os == 'Linux'
+        run: |
+          tar --zstd -xf target/linux-test-bins.tar.zst
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 libgtk-3-0 librsvg2-2 libsoup-3.0-0 xvfb
+      - if: runner.os != 'Linux'
+        run: rustup show active-toolchain
+      - if: runner.os != 'Linux'
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-debug
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - if: runner.os != 'Linux'
+        run: cargo build -p kumikit-shell --features test-hooks
       - if: runner.os == 'Linux'
         run: xvfb-run -a -s "-screen 0 1280x800x24" node scripts/desktop/panel-smoke.mjs target/debug/kumikit-desktop
       - if: runner.os == 'macOS'
@@ -190,32 +439,59 @@ jobs:
   templates:
     # The plugin author templates build, pack, sign, install and run as an author's would
     # (M4); this job keeps them from rotting.
+    needs: [changes, build-linux]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.templates == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: rustup show active-toolchain
-      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-debug
+          save-if: false
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: sh scripts/check-templates.sh
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-test-bins
+          path: target
+      - run: tar --zstd -xf target/linux-test-bins.tar.zst
+      - env:
+          KUMIKIT_SKIP_BUILD: '1'
+        run: sh scripts/check-templates.sh
+
+  footprint:
+    needs: [changes, build-linux]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.e2e == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev xvfb
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-release
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-bundle
+          path: target/bundle
+      - run: sh scripts/footprint.sh
+      # The desktop shell's memory (ADR 0015).
+      - run: sh scripts/desktop/footprint.sh
 
   installers:
     # Installers are built only to check their size; they are not published (M2).
+    # PRs check Linux (deb, rpm, appimage); pushes to main check all three OSes.
+    needs: [changes, build-linux]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.installers == 'true'
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # The oldest supported Ubuntu, so the AppImage runs on glibc 2.35 and newer.
-          - os: ubuntu-22.04
-            bundles: deb,rpm,appimage
-          - os: macos-latest
-            bundles: dmg
-          - os: windows-latest
-            bundles: nsis
+        include: ${{ fromJSON(needs.changes.outputs.installer-matrix) }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -226,12 +502,16 @@ jobs:
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev rpm squashfs-tools file patchelf xvfb
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-release
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: node scripts/bundle.mjs
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-bundle
+          path: target/bundle
       - run: |
           cargo build --release -p kumikit-core
           triple=$(rustc -vV | sed -n 's/^host: //p')
@@ -259,21 +539,3 @@ jobs:
             target/release/bundle/**/*.AppImage
             target/release/bundle/**/*.dmg
             target/release/bundle/**/*-setup.exe
-
-  protocol-ts:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      # The generated package must type-check; the version matches web/protocol/package.json.
-      - run: npx --yes -p typescript@7.0.2 tsc --noEmit -p web/protocol
-
-  licenses:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check licenses bans sources

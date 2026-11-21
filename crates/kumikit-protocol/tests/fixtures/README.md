@@ -1,6 +1,6 @@
 # Protocol fixtures
 
-Contract tests for the wire format, run by [`../fixtures.rs`](../fixtures.rs). Each file
+Contract tests for the wire format, run by [`../integration/fixtures.rs`](../integration/fixtures.rs). Each file
 is a JSON array:
 
 - `methods/<method>.json`: requests and their responses (success or error).
