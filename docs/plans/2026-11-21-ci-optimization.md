@@ -14,7 +14,8 @@
   - Use `mold` linker on Linux + `cargo-nextest` (plus `cargo test --workspace --doc`) in `rust`.
   - Run `--project webkit` only on `e2e-browser (macos-latest)` (Linux covers both Chromium and WebKit).
   - Run Linux `installers` on PRs touching installer paths and all 3 OSes on `main`.
-- [ ] Verify locally (`check-docs`, `cargo fmt`, `cargo clippy`, `cargo test --workspace`) and measure real CI timings on the PR.
+- [x] Verify locally (`check-docs`, `cargo fmt`, `cargo clippy`, `cargo test --workspace`) and measure real CI timings on the PR.
+- [x] Follow-up critical-path fixes: split fast `bundle` job (~40 s, using prebuilt `setup-kumikit@v0.1.0-m5.1`) out of `build-linux`, split `footprint` into parallel `footprint-core` + `footprint-desktop`, decouple non-Linux e2e/panel-smoke jobs from `build-linux`, and prune stale pre-PR #11 GitHub Actions caches.
 
 ## Notes
 - Prior to this change, `kumikit/kumikit` held 13.05 GB across 13+ `Swatinem/rust-cache` entries (past GitHub's 10 GB eviction limit), causing repeated cold Rust builds on `ubuntu-latest` and `windows-latest`.
