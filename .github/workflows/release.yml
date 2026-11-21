@@ -204,8 +204,8 @@ jobs:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" release-assets/* --clobber
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" release-assets/* --clobber
           else
             notes=$(printf '%s\n' \
               "Prebuilt Kumikit CLI, registry tool, and plugin test kit archives for \`${TAG}\`." \
@@ -227,7 +227,7 @@ jobs:
               *-*) extra_flags="--prerelease" ;;
             esac
             # shellcheck disable=SC2086
-            gh release create "$TAG" release-assets/* \
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" release-assets/* \
               --title "Kumikit ${TAG}" \
               --notes "$notes" \
               $extra_flags
