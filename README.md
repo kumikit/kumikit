@@ -19,17 +19,20 @@ A small, pluggable framework for working with coding agents.
 The name comes from *kumiko*, Japanese woodwork in which a lattice is assembled from many
 small pieces without nails.
 
-> **Status:** early, not yet released. The core, WebAssembly plugins, the desktop app,
-> remote cores and the browser client are built (milestones M0–M3); the plugin registry
-> and package signing (M4) are not. There are no published installers yet:
-> [build from source](docs/building.md). The specification is in
-> [docs/spec/](docs/spec/README.md).
+> **Status:** early, pre-1.0 (`v0.1.0-m5`). Milestones M0–M5 are built: the core,
+> WebAssembly plugins (WIT 0.2.0 and the MCP tool gateway), schedules, the desktop app,
+> remote cores, the browser client, package signing, the official plugin registry
+> ([`kumikit/registry`](https://github.com/kumikit/registry)), and the first-party starter
+> pack of providers and tools. Interfaces stay 0.x until the 1.0 freeze, and there are no
+> published desktop installers yet: [build from source](docs/building.md). The
+> specification is in [docs/spec/](docs/spec/README.md).
 
 ## Privacy
 
 Kumikit has no accounts and no telemetry. It makes no network requests on its own. The
 only traffic is what you start: agents you run, plugin registry lookups when you browse or
-install, and connections to cores you pair with.
+install, outgoing HTTPS hosts you explicitly grant a plugin in `permissions.network`, and
+connections to cores you pair with.
 
 Plugin registries are contacted only when you browse or search them, install or update
 from them, import a lockfile or check for updates: a core contacts them for core plugins,
@@ -66,3 +69,4 @@ runtime only if it is missing when you install.
 
 - Website: <https://kumikit.dev>
 - Source: <https://github.com/kumikit>
+- Official plugin registry: <https://github.com/kumikit/registry>

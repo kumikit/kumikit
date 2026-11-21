@@ -1,9 +1,10 @@
 # Contributing to Kumikit
 
-Thanks for helping. Kumikit is early: the core, plugins, desktop app, remote cores and
-browser client exist (milestones M0–M3); the plugin registry and signing (M4) are next.
-Reviews of the [specification](docs/spec/README.md), proposals as ADRs, and bug reports
-are all useful.
+Thanks for helping. Milestones M0–M5 are built (core, WebAssembly plugins, tool gateway,
+schedules, desktop app, remote cores, browser client, package signing, the official plugin
+registry and the first-party starter pack), while interfaces remain 0.x until the 1.0
+freeze. Reviews of the [specification](docs/spec/README.md), proposals as ADRs, and bug
+reports are all useful.
 
 To build and run it, and for the tools each platform needs, see
 [Building from source](docs/building.md).

@@ -1,6 +1,6 @@
 # 0025 — The tool gateway: MCP over stdio through the core's socket
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-19
 
 ## Context

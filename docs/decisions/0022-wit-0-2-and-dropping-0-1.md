@@ -1,6 +1,6 @@
 # 0022 — WIT 0.2.0, and the host drops 0.1.0
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-19
 
 ## Context

@@ -1,6 +1,6 @@
 # 0023 — Outgoing HTTP for plugins: wasi:http with the host's policy
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-19
 
 ## Context

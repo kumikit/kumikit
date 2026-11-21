@@ -1,6 +1,6 @@
 # 0026 — First-party plugins live in their own repositories
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-20
 
 ## Context
