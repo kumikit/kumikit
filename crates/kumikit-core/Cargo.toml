@@ -11,6 +11,19 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Enables test-only hooks (KUMIKIT_TEST_HTTP_ROUTES) for kumikit-test-kit; never
+# enabled in the released kumikit binary.
+test-hooks = ["kumikit-plugin-host/test-hooks"]
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/kumikit-v{ version }-{ target }.{ archive-format }"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
+
 [lib]
 name = "kumikit_core"
 path = "src/lib.rs"

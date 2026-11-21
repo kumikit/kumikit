@@ -119,8 +119,9 @@ is about the code.
   pure and unit-tested; `send` resolves, checks every address, then connects (TLS with
   the OS roots, loaded once). `is_supported_scheme` keeps its default so plain `http`
   reaches the policy and is denied (and logged) rather than failing as a protocol error.
-  `KUMIKIT_TEST_HTTP_ROUTES` is read once, in debug builds only; a routed host skips DNS
-  and TLS. The in-flight limit is per plugin across instances (a process-wide map).
+  `KUMIKIT_TEST_HTTP_ROUTES` is read once, in debug and `test-hooks` builds only (never
+  enabled in the released `kumikit` binary); a routed host skips DNS and TLS. The in-flight
+  limit is per plugin across instances (a process-wide map).
 - **Guest HTTP** is `kumikit_plugin::http` over the `wasip2` crate (wasm32 only); natively
   every call fails, so plugin logic stays testable without it.
 - **The client interface** (`runtime/client.rs`) clones what it checks against

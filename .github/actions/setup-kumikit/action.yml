@@ -1,0 +1,267 @@
+name: Setup Kumikit
+description: Download, verify, cache and configure prebuilt Kumikit CLI, registry tool, and plugin test-kit binaries.
+
+inputs:
+  version:
+    description: Release tag in kumikit/kumikit (e.g. v0.1.0-m5.1). Defaults to the ref this action is called at when it starts with 'v'.
+    required: false
+    default: ''
+  tools:
+    description: Comma-separated tools to install (subset of kumikit, kumikit-registry, test-kit).
+    required: false
+    default: 'kumikit'
+  repository:
+    description: GitHub repository hosting the release assets.
+    required: false
+    default: 'kumikit/kumikit'
+
+outputs:
+  version:
+    description: Resolved Kumikit release tag.
+    value: ${{ steps.meta.outputs.version }}
+  bin-dir:
+    description: Directory added to PATH containing kumikit and/or kumikit-registry (empty if neither was requested).
+    value: ${{ steps.export.outputs.bin-dir }}
+  test-kit-dir:
+    description: Extracted kumikit-test-kit directory (empty unless test-kit was requested).
+    value: ${{ steps.export.outputs.test-kit-dir }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve version, target and tool list
+      id: meta
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_TOOLS: ${{ inputs.tools }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: |
+        set -euo pipefail
+
+        ver="$INPUT_VERSION"
+        if [ -z "$ver" ]; then
+          case "$ACTION_REF" in
+            v*) ver="$ACTION_REF" ;;
+            *)
+              echo "::error::setup-kumikit requires 'version' input (e.g. v0.1.0-m5.1) when not pinned to a v* tag (action_ref=$ACTION_REF)"
+              exit 1
+              ;;
+          esac
+        fi
+
+        case "${RUNNER_OS}:${RUNNER_ARCH}" in
+          Linux:X64)
+            triple="x86_64-unknown-linux-gnu"
+            ext="tar.gz"
+            bin_ext=""
+            ;;
+          Linux:ARM64)
+            triple="aarch64-unknown-linux-gnu"
+            ext="tar.gz"
+            bin_ext=""
+            ;;
+          macOS:ARM64)
+            triple="aarch64-apple-darwin"
+            ext="tar.gz"
+            bin_ext=""
+            ;;
+          Windows:X64)
+            triple="x86_64-pc-windows-msvc"
+            ext="zip"
+            bin_ext=".exe"
+            ;;
+          *)
+            echo "::error::Unsupported platform for prebuilt Kumikit binaries: ${RUNNER_OS}/${RUNNER_ARCH}"
+            exit 1
+            ;;
+        esac
+
+        has_kumikit=false
+        has_registry=false
+        has_test_kit=false
+        IFS=',' read -ra raw_tools <<< "$INPUT_TOOLS"
+        for t in "${raw_tools[@]}"; do
+          t=$(printf '%s' "$t" | tr -d '[:space:]')
+          [ -z "$t" ] && continue
+          case "$t" in
+            kumikit) has_kumikit=true ;;
+            kumikit-registry) has_registry=true ;;
+            test-kit) has_test_kit=true ;;
+            *)
+              echo "::error::Unknown tool '$t' in setup-kumikit (expected kumikit, kumikit-registry, or test-kit)"
+              exit 1
+              ;;
+          esac
+        done
+
+        tools_key=""
+        $has_kumikit && tools_key="${tools_key:+$tools_key-}kumikit"
+        $has_registry && tools_key="${tools_key:+$tools_key-}registry"
+        $has_test_kit && tools_key="${tools_key:+$tools_key-}testkit"
+        if [ -z "$tools_key" ]; then
+          echo "::error::setup-kumikit 'tools' input must list at least one tool"
+          exit 1
+        fi
+
+        base_posix="$RUNNER_TOOL_CACHE"
+        if command -v cygpath >/dev/null 2>&1; then
+          base_posix=$(cygpath -u "$RUNNER_TOOL_CACHE")
+        fi
+        cache_posix="${base_posix}/kumikit/${ver}/${triple}/${tools_key}"
+        cache_native="$cache_posix"
+        if command -v cygpath >/dev/null 2>&1; then
+          cache_native=$(cygpath -w "$cache_posix")
+        fi
+
+        {
+          echo "version=$ver"
+          echo "triple=$triple"
+          echo "ext=$ext"
+          echo "bin-ext=$bin_ext"
+          echo "has-kumikit=$has_kumikit"
+          echo "has-registry=$has_registry"
+          echo "has-test-kit=$has_test_kit"
+          echo "tools-key=$tools_key"
+          echo "cache-dir=$cache_native"
+          echo "cache-dir-posix=$cache_posix"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Restore cached Kumikit binaries
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.meta.outputs.cache-dir }}
+        key: setup-kumikit-v1-${{ inputs.repository }}-${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.triple }}-${{ steps.meta.outputs.tools-key }}
+
+    - name: Download and verify Kumikit archives
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        REPO: ${{ inputs.repository }}
+        VERSION: ${{ steps.meta.outputs.version }}
+        TRIPLE: ${{ steps.meta.outputs.triple }}
+        EXT: ${{ steps.meta.outputs.ext }}
+        BIN_EXT: ${{ steps.meta.outputs.bin-ext }}
+        HAS_KUMIKIT: ${{ steps.meta.outputs.has-kumikit }}
+        HAS_REGISTRY: ${{ steps.meta.outputs.has-registry }}
+        HAS_TEST_KIT: ${{ steps.meta.outputs.has-test-kit }}
+        CACHE_DIR: ${{ steps.meta.outputs.cache-dir-posix }}
+      run: |
+        set -euo pipefail
+        base_url="https://github.com/${REPO}/releases/download/${VERSION}"
+        tmp=$(mktemp -d "${RUNNER_TEMP:-/tmp}/setup-kumikit.XXXXXX")
+        trap 'rm -rf "$tmp"' EXIT
+
+        sha256_of() {
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$1" | awk '{print $1}'
+          else
+            shasum -a 256 "$1" | awk '{print $1}'
+          fi
+        }
+
+        extract_archive() {
+          local archive="$1"
+          local dest="$2"
+          mkdir -p "$dest"
+          if [ "$EXT" = "tar.gz" ]; then
+            tar -xzf "$archive" -C "$dest"
+          elif command -v unzip >/dev/null 2>&1; then
+            unzip -q -o "$archive" -d "$dest"
+          else
+            local a_win="$archive" d_win="$dest"
+            if command -v cygpath >/dev/null 2>&1; then
+              a_win=$(cygpath -w "$archive")
+              d_win=$(cygpath -w "$dest")
+            fi
+            powershell -NoProfile -Command "Expand-Archive -Force -Path '$a_win' -DestinationPath '$d_win'"
+          fi
+        }
+
+        echo "Fetching SHA256SUMS.txt from ${base_url}"
+        curl -fsSL --retry 3 --retry-delay 2 "${base_url}/SHA256SUMS.txt" -o "$tmp/SHA256SUMS.txt"
+
+        fetch_and_verify() {
+          local asset="$1"
+          local expected
+          expected=$(awk -v f="$asset" '$2 == f || $2 == ("*" f) {print $1; exit}' "$tmp/SHA256SUMS.txt")
+          if [ -z "$expected" ]; then
+            echo "::error::Asset '${asset}' not found in SHA256SUMS.txt for ${REPO}@${VERSION}"
+            exit 1
+          fi
+          echo "Downloading ${asset}"
+          curl -fsSL --retry 3 --retry-delay 2 "${base_url}/${asset}" -o "$tmp/${asset}"
+          local actual
+          actual=$(sha256_of "$tmp/${asset}")
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::SHA-256 mismatch for ${asset}: expected ${expected}, got ${actual}"
+            exit 1
+          fi
+          echo "Verified ${asset} (sha256:${actual})"
+        }
+
+        mkdir -p "$CACHE_DIR"
+
+        if [ "$HAS_KUMIKIT" = "true" ]; then
+          asset="kumikit-${VERSION}-${TRIPLE}.${EXT}"
+          fetch_and_verify "$asset"
+          extract_archive "$tmp/$asset" "$tmp/extract-cli"
+          mkdir -p "$CACHE_DIR/bin"
+          cp "$tmp/extract-cli/kumikit${BIN_EXT}" "$CACHE_DIR/bin/kumikit${BIN_EXT}"
+          chmod +x "$CACHE_DIR/bin/kumikit${BIN_EXT}"
+        fi
+
+        if [ "$HAS_REGISTRY" = "true" ]; then
+          asset="kumikit-registry-${VERSION}-${TRIPLE}.${EXT}"
+          fetch_and_verify "$asset"
+          extract_archive "$tmp/$asset" "$tmp/extract-registry"
+          mkdir -p "$CACHE_DIR/bin"
+          cp "$tmp/extract-registry/kumikit-registry${BIN_EXT}" "$CACHE_DIR/bin/kumikit-registry${BIN_EXT}"
+          chmod +x "$CACHE_DIR/bin/kumikit-registry${BIN_EXT}"
+        fi
+
+        if [ "$HAS_TEST_KIT" = "true" ]; then
+          asset="kumikit-test-kit-${VERSION}-${TRIPLE}.${EXT}"
+          fetch_and_verify "$asset"
+          rm -rf "$CACHE_DIR/test-kit"
+          extract_archive "$tmp/$asset" "$CACHE_DIR/test-kit"
+          chmod +x \
+            "$CACHE_DIR/test-kit/target/debug/kumikit${BIN_EXT}" \
+            "$CACHE_DIR/test-kit/target/kumikit-test/release/fake-acp-agent${BIN_EXT}"
+        fi
+
+    - name: Export PATH and environment variables
+      id: export
+      shell: bash
+      env:
+        HAS_KUMIKIT: ${{ steps.meta.outputs.has-kumikit }}
+        HAS_REGISTRY: ${{ steps.meta.outputs.has-registry }}
+        HAS_TEST_KIT: ${{ steps.meta.outputs.has-test-kit }}
+        CACHE_DIR: ${{ steps.meta.outputs.cache-dir-posix }}
+      run: |
+        set -euo pipefail
+        to_native() {
+          if command -v cygpath >/dev/null 2>&1; then
+            cygpath -w "$1"
+          else
+            printf '%s' "$1"
+          fi
+        }
+
+        bin_out=""
+        if [ "$HAS_KUMIKIT" = "true" ] || [ "$HAS_REGISTRY" = "true" ]; then
+          bin_out=$(to_native "$CACHE_DIR/bin")
+          echo "$bin_out" >> "$GITHUB_PATH"
+        fi
+
+        kit_out=""
+        if [ "$HAS_TEST_KIT" = "true" ]; then
+          kit_out=$(to_native "$CACHE_DIR/test-kit")
+          sdk_out=$(to_native "$CACHE_DIR/test-kit/web/sdk")
+          echo "KUMIKIT_DIR=$kit_out" >> "$GITHUB_ENV"
+          echo "KUMIKIT_UI_SDK=$sdk_out" >> "$GITHUB_ENV"
+        fi
+
+        echo "bin-dir=$bin_out" >> "$GITHUB_OUTPUT"
+        echo "test-kit-dir=$kit_out" >> "$GITHUB_OUTPUT"

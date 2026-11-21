@@ -29,8 +29,9 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Longest a guest may wait for a response's first byte, or between two chunks.
 pub const MAX_WAIT: Duration = Duration::from_secs(120);
 
-/// Debug builds only: `host=http://127.0.0.1:port,…` sends a granted host's requests to a
-/// loopback test server, after the policy accepted them.
+/// Debug builds and `test-hooks` builds only: `host=http://127.0.0.1:port,…` sends a
+/// granted host's requests to a loopback test server, after the policy accepted them.
+/// Production release builds ignore this variable.
 pub const TEST_ROUTES_VAR: &str = "KUMIKIT_TEST_HTTP_ROUTES";
 
 /// The sending side of one instance's `wasi:http`.
@@ -145,15 +146,21 @@ pub fn parse_routes(text: &str) -> HashMap<String, SocketAddr> {
         .collect()
 }
 
+/// Whether [`TEST_ROUTES_VAR`] is honored in this build (debug builds and `test-hooks`
+/// builds only; production release builds return `false`).
+pub const fn test_routes_enabled() -> bool {
+    cfg!(any(debug_assertions, feature = "test-hooks"))
+}
+
 fn test_routes() -> &'static HashMap<String, SocketAddr> {
     static ROUTES: OnceLock<HashMap<String, SocketAddr>> = OnceLock::new();
     ROUTES.get_or_init(|| {
         let Ok(text) = std::env::var(TEST_ROUTES_VAR) else {
             return HashMap::new();
         };
-        if cfg!(debug_assertions) {
+        if test_routes_enabled() {
             let routes = parse_routes(&text);
-            tracing::warn!(hosts = ?routes.keys().collect::<Vec<_>>(), "test HTTP routes are on (debug build)");
+            tracing::warn!(hosts = ?routes.keys().collect::<Vec<_>>(), "test HTTP routes are on");
             routes
         } else {
             tracing::warn!("{TEST_ROUTES_VAR} is ignored: this is a release build");
@@ -423,5 +430,13 @@ mod tests {
         );
         assert_eq!(r.len(), 2);
         assert_eq!(r["api.github.com"].port(), 4200);
+    }
+
+    #[test]
+    fn test_routes_gate_matches_build_cfg() {
+        assert_eq!(
+            test_routes_enabled(),
+            cfg!(any(debug_assertions, feature = "test-hooks"))
+        );
     }
 }
