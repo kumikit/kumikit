@@ -195,16 +195,50 @@ jobs:
       - run: cargo nextest run --workspace --no-fail-fast
       - run: cargo test --workspace --doc
 
-  build-linux:
-    # Builds the OS-independent UI bundle and Linux debug test binaries once, so downstream
-    # jobs (e2e-browser, e2e-desktop, panel-smoke, templates, footprint, installers) do not
-    # each rebuild bundle.mjs or kumikit-core.
+  bundle:
+    # Assembles the OS-independent UI bundle once (~40s) using the prebuilt kumikit CLI to
+    # pack provider-acp.kkp, unblocking footprint-desktop, installers, macOS e2e-browser and
+    # Windows e2e-desktop without waiting for build-linux.
     needs: changes
     if: >-
       github.event_name != 'pull_request' ||
       needs.changes.outputs.e2e == 'true' ||
-      needs.changes.outputs.templates == 'true' ||
       needs.changes.outputs.installers == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-wasm
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: kumikit/kumikit/.github/actions/setup-kumikit@v0.1.0-m5.1
+        with:
+          tools: kumikit
+      - name: Assemble OS-independent UI bundle
+        env:
+          KUMIKIT_BIN: kumikit
+        run: node scripts/bundle.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-bundle
+          path: target/bundle
+          retention-days: 1
+
+  build-linux:
+    # Builds the Linux debug test binaries once for e2e-browser-linux, e2e-desktop-linux,
+    # panel-smoke-linux and templates, and checks the first-party default theme with the
+    # newly built kumikit binary.
+    needs: changes
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.changes.outputs.e2e == 'true' ||
+      needs.changes.outputs.templates == 'true'
     runs-on: ubuntu-latest
     env:
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=mold
@@ -216,20 +250,10 @@ jobs:
         with:
           shared-key: ci-debug
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
       - name: Build Linux debug test binaries and test plugins
         run: |
           cargo build -p kumikit-core -p kumikit-web-relay -p kumikit-test-registry-fixture -p kumikit-test-plugins -p kumikit-test-client-store
           cargo build -p kumikit-shell --features test-hooks
-      - name: Assemble OS-independent UI bundle
-        env:
-          KUMIKIT_BIN: ${{ github.workspace }}/target/debug/kumikit
-          KUMIKIT_PROVIDER_ACP_WASM: ${{ github.workspace }}/target/kumikit-test/wasm32-wasip2/release/kumikit_provider_acp.wasm
-        run: node scripts/bundle.mjs
       - name: Theme check (first-party default theme)
         run: ./target/debug/kumikit theme check --strict plugins/theme-default
       - name: Pack Linux test binaries
@@ -246,25 +270,15 @@ jobs:
             target/kumikit-test/wasm32-wasip2/release
       - uses: actions/upload-artifact@v4
         with:
-          name: ui-bundle
-          path: target/bundle
-          retention-days: 1
-      - uses: actions/upload-artifact@v4
-        with:
           name: linux-test-bins
           path: target/linux-test-bins.tar.zst
           retention-days: 1
 
-  e2e-browser:
-    # The browser-test build against a real core through the test relay (M2 plan, Tests).
-    # Linux covers both Chromium and WebKit; macOS covers WebKit (no WebDriver for WKWebView).
-    needs: [changes, build-linux]
+  e2e-browser-linux:
+    # Browser-test build against a real core through the test relay (Chromium + WebKit).
+    needs: [changes, bundle, build-linux]
     if: github.event_name != 'pull_request' || needs.changes.outputs.e2e == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -276,53 +290,58 @@ jobs:
         with:
           name: ui-bundle
           path: target/bundle
-      - if: runner.os == 'Linux'
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: linux-test-bins
           path: target
-      - if: runner.os == 'Linux'
-        run: tar --zstd -xf target/linux-test-bins.tar.zst
-      - if: runner.os == 'macOS'
-        run: rustup show active-toolchain
-      - if: runner.os == 'macOS'
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ci-debug
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - if: runner.os == 'macOS'
-        run: cargo build -p kumikit-core -p kumikit-web-relay -p kumikit-test-registry-fixture -p kumikit-test-plugins
-      - if: runner.os == 'Linux'
-        run: npx playwright install --with-deps chromium webkit
+      - run: tar --zstd -xf target/linux-test-bins.tar.zst
+      - run: npx playwright install --with-deps chromium webkit
         working-directory: web/e2e
-      - if: runner.os == 'macOS'
-        run: npx playwright install webkit
-        working-directory: web/e2e
-      - if: runner.os == 'Linux'
-        run: npx playwright test
-        working-directory: web/e2e
-      - if: runner.os == 'macOS'
-        run: npx playwright test --project webkit
+      - run: npx playwright test
         working-directory: web/e2e
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ matrix.os }}
+          name: playwright-report-ubuntu-latest
           path: web/e2e/playwright-report
 
-  e2e-desktop:
-    # The M2–M5 exit tests on the real app over WebDriver. macOS has no WebDriver for
-    # WKWebView; e2e-browser covers WebKit there (M2 plan, Tests).
-    needs: [changes, build-linux]
+  e2e-browser-macos:
+    # macOS WebKit browser suite (starts right after bundle; no WebDriver for WKWebView).
+    needs: [changes, bundle]
     if: github.event_name != 'pull_request' || needs.changes.outputs.e2e == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        shell: bash
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-debug
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-bundle
+          path: target/bundle
+      - run: cargo build -p kumikit-core -p kumikit-web-relay -p kumikit-test-registry-fixture -p kumikit-test-plugins
+      - run: npx playwright install webkit
+        working-directory: web/e2e
+      - run: npx playwright test --project webkit
+        working-directory: web/e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-macos-latest
+          path: web/e2e/playwright-report
+
+  e2e-desktop-linux:
+    # The M2–M5 exit tests on the real app over WebKitWebDriver (reuses build-linux binaries).
+    needs: [changes, bundle, build-linux]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.e2e == 'true'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -334,52 +353,78 @@ jobs:
         with:
           name: ui-bundle
           path: target/bundle
-      - if: runner.os == 'Linux'
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: linux-test-bins
           path: target
-      - if: runner.os == 'Linux'
-        # WebKitWebDriver's package is webkit2gtk-driver up to Ubuntu 24.04 and
+      - # WebKitWebDriver's package is webkit2gtk-driver up to Ubuntu 24.04 and
         # webkitgtk-webdriver after it (also brings libwebkit2gtk-4.1-0 runtime).
         run: |
           tar --zstd -xf target/linux-test-bins.tar.zst
           sudo apt-get update && sudo apt-get install -y xvfb
           sudo apt-get install -y webkitgtk-webdriver || sudo apt-get install -y webkit2gtk-driver
           command -v WebKitWebDriver
-      - if: runner.os == 'Windows'
-        run: rustup show active-toolchain
-      - if: runner.os == 'Windows'
-        uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/tauri-driver
+          key: tauri-driver-2.1.0-linux-v2
+      - name: Install tauri-driver (if not cached)
+        run: |
+          if [ ! -x "$HOME/.cargo/bin/tauri-driver" ]; then
+            cargo install --locked tauri-driver --version 2.1.0
+          fi
+      - env:
+          KUMIKIT_SKIP_BUILD: '1'
+        run: sh scripts/desktop/e2e.sh
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-desktop-ubuntu-latest
+          path: target/e2e-desktop
+          if-no-files-found: ignore
+
+  e2e-desktop-windows:
+    # The M2–M5 exit tests on Windows WebView2 (starts right after bundle).
+    needs: [changes, bundle]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.e2e == 'true'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ci-debug
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-bundle
+          path: target/bundle
       - uses: actions/cache@v4
         with:
-          path: ~/.cargo/bin/tauri-driver*
-          key: tauri-driver-2.1.0-${{ runner.os }}
+          path: ~/.cargo/bin/tauri-driver.exe
+          key: tauri-driver-2.1.0-windows-v2
       - name: Install tauri-driver (if not cached)
         run: |
-          ext=""; [ "$RUNNER_OS" = Windows ] && ext=.exe
-          if [ ! -x "$HOME/.cargo/bin/tauri-driver$ext" ]; then
+          if [ ! -x "$HOME/.cargo/bin/tauri-driver.exe" ]; then
             cargo install --locked tauri-driver --version 2.1.0
           fi
-      - if: runner.os == 'Windows'
-        name: msedgedriver matching the installed WebView2
+      - name: msedgedriver matching the installed WebView2
         shell: pwsh
         run: |
           $v = (Get-ItemProperty "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}").pv
           Invoke-WebRequest "https://msedgedriver.microsoft.com/$v/edgedriver_win64.zip" -OutFile edgedriver.zip
           Expand-Archive edgedriver.zip -DestinationPath "$env:USERPROFILE\edgedriver"
           "$env:USERPROFILE\edgedriver" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
-      - if: runner.os == 'Windows'
-        run: cargo build -p kumikit-core -p kumikit-test-plugins -p kumikit-test-registry-fixture && cargo build -p kumikit-shell --features test-hooks
-      - if: runner.os == 'Linux'
-        env:
-          KUMIKIT_SKIP_BUILD: '1'
-        run: sh scripts/desktop/e2e.sh
-      - if: runner.os == 'Windows'
-        run: |
+      - run: cargo build -p kumikit-core -p kumikit-test-plugins -p kumikit-test-registry-fixture && cargo build -p kumikit-shell --features test-hooks
+      - run: |
           agent=$(dirname "$(find target/kumikit-test -type f -name fake-acp-agent.exe | head -n 1)")
           KK_APP="$PWD/target/debug/kumikit-desktop.exe" KK_CORE_BIN="$PWD/target/debug/kumikit.exe" \
           KK_FAKE_AGENT_DIR="$(cygpath -w "$(cd "$agent" && pwd)")" KK_BUNDLE="$PWD/target/bundle" \
@@ -389,48 +434,52 @@ jobs:
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-desktop-${{ matrix.os }}
+          name: e2e-desktop-windows-latest
           path: target/e2e-desktop
           if-no-files-found: ignore
 
-  panel-smoke:
-    # Sandboxed panels (ADR 0019) in the real shell on every webview, WKWebView included:
-    # the app reports to stdout, so no WebDriver is needed (scripts/desktop/panel-smoke.mjs).
+  panel-smoke-linux:
+    # Sandboxed panels (ADR 0019) on Linux WebKitGTK (reuses build-linux binary).
     needs: [changes, build-linux]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.e2e == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-test-bins
+          path: target
+      - run: |
+          tar --zstd -xf target/linux-test-bins.tar.zst
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 libgtk-3-0 librsvg2-2 libsoup-3.0-0 xvfb
+      - run: xvfb-run -a -s "-screen 0 1280x800x24" node scripts/desktop/panel-smoke.mjs target/debug/kumikit-desktop
+
+  panel-smoke:
+    # Sandboxed panels (ADR 0019) on macOS WKWebView and Windows WebView2 (starts right after changes).
+    needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.e2e == 'true'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - if: runner.os == 'Linux'
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-test-bins
-          path: target
-      - if: runner.os == 'Linux'
-        run: |
-          tar --zstd -xf target/linux-test-bins.tar.zst
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 libgtk-3-0 librsvg2-2 libsoup-3.0-0 xvfb
-      - if: runner.os != 'Linux'
-        run: rustup show active-toolchain
-      - if: runner.os != 'Linux'
-        uses: Swatinem/rust-cache@v2
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ci-debug
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - if: runner.os != 'Linux'
-        run: cargo build -p kumikit-shell --features test-hooks
-      - if: runner.os == 'Linux'
-        run: xvfb-run -a -s "-screen 0 1280x800x24" node scripts/desktop/panel-smoke.mjs target/debug/kumikit-desktop
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: cargo build -p kumikit-shell --features test-hooks
       - if: runner.os == 'macOS'
         run: node scripts/desktop/panel-smoke.mjs target/debug/kumikit-desktop
       - if: runner.os == 'Windows'
@@ -463,8 +512,23 @@ jobs:
           KUMIKIT_SKIP_BUILD: '1'
         run: sh scripts/check-templates.sh
 
-  footprint:
-    needs: [changes, build-linux]
+  footprint-core:
+    # Core cold start and idle memory budgets (00-overview). Starts right after changes.
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.e2e == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-release
+          save-if: false
+      - run: sh scripts/footprint.sh
+
+  footprint-desktop:
+    # Desktop shell anonymous memory budget (ADR 0015). Starts right after bundle.
+    needs: [changes, bundle]
     if: github.event_name != 'pull_request' || needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -479,14 +543,12 @@ jobs:
         with:
           name: ui-bundle
           path: target/bundle
-      - run: sh scripts/footprint.sh
-      # The desktop shell's memory (ADR 0015).
       - run: sh scripts/desktop/footprint.sh
 
   installers:
     # Installers are built only to check their size; they are not published (M2).
     # PRs check Linux (deb, rpm, appimage); pushes to main check all three OSes.
-    needs: [changes, build-linux]
+    needs: [changes, bundle]
     if: github.event_name != 'pull_request' || needs.changes.outputs.installers == 'true'
     strategy:
       fail-fast: false
