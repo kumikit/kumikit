@@ -113,6 +113,9 @@ mod tests {
                     granted: Some(Permissions {
                         spawn: vec!["agent".into()],
                         files: FilesAccess::ReadWorkspace,
+                        client: vec!["threads.send".into()],
+                        workspaces: crate::methods::WorkspacesAccess::Linked,
+                        schedules: true,
                         ..Permissions::default()
                     }),
                     enabled: None,
@@ -126,6 +129,10 @@ mod tests {
             text.find("a.one").unwrap() < text.find("b.two").unwrap(),
             "{text}"
         );
+        assert!(
+            text.contains("tools = false\nclient = [\"threads.send\"]\nworkspaces = \"linked\"\nschedules = true\n"),
+            "web/kernel/tests/registry.test.ts copies this text:\n{text}"
+        );
         let back = parse(&text).unwrap();
         assert_eq!(back.plugins[0].id, "a.one");
         assert_eq!(
@@ -136,6 +143,10 @@ mod tests {
             back.plugins[0].granted.as_ref().unwrap().files,
             FilesAccess::ReadWorkspace
         );
+        let g = back.plugins[0].granted.as_ref().unwrap();
+        assert_eq!(g.client, ["threads.send"]);
+        assert_eq!(g.workspaces, crate::methods::WorkspacesAccess::Linked);
+        assert!(g.schedules);
         assert_eq!(back.plugins[1].registry(), None);
         assert!(parse("format = 2\n").unwrap_err().contains("format 2"));
         assert!(parse("not toml [").is_err());

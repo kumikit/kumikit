@@ -33,18 +33,7 @@ fn limits(m: &Manifest) -> Option<Limits> {
 
 /// Grants in protocol form, with the manifest's raised limits.
 pub fn permissions(g: &Grants, manifest: Option<&Manifest>) -> Permissions {
-    Permissions {
-        spawn: g.spawn.iter().cloned().collect(),
-        network: g.network.iter().cloned().collect(),
-        files: match g.files {
-            FilesGrant::None => FilesAccess::None,
-            FilesGrant::ReadWorkspace => FilesAccess::ReadWorkspace,
-            FilesGrant::Workspace => FilesAccess::Workspace,
-        },
-        secrets: g.secrets.iter().cloned().collect(),
-        tools: g.tools,
-        limits: manifest.and_then(limits),
-    }
+    kumikit_plugin_host::manager::protocol_permissions(g, manifest)
 }
 
 /// A protocol grant as kernel grants. Fails with `conflict` if its limits are not the
@@ -56,7 +45,12 @@ pub fn grants(p: &Permissions, manifest: Option<&Manifest>) -> Result<Grants, Rp
             "the grant's limits do not match the limits the plugin asks for",
         ));
     }
-    Ok(Grants {
+    Ok(grants_of(p))
+}
+
+/// Protocol permissions as kernel grants, limits aside.
+pub fn grants_of(p: &Permissions) -> Grants {
+    Grants {
         spawn: p.spawn.iter().cloned().collect(),
         network: p.network.iter().cloned().collect(),
         files: match p.files {
@@ -66,7 +60,20 @@ pub fn grants(p: &Permissions, manifest: Option<&Manifest>) -> Result<Grants, Rp
         },
         secrets: p.secrets.iter().cloned().collect(),
         tools: p.tools,
-    })
+        client: p.client.iter().cloned().collect(),
+        workspaces: match p.workspaces {
+            kumikit_protocol::methods::WorkspacesAccess::None => {
+                kumikit_kernel::grants::WorkspacesGrant::None
+            }
+            kumikit_protocol::methods::WorkspacesAccess::Linked => {
+                kumikit_kernel::grants::WorkspacesGrant::Linked
+            }
+            kumikit_protocol::methods::WorkspacesAccess::All => {
+                kumikit_kernel::grants::WorkspacesGrant::All
+            }
+        },
+        schedules: p.schedules,
+    }
 }
 
 fn contributions(host: &PluginHost, id: &str, manifest: Option<&Manifest>) -> Contributions {
@@ -88,6 +95,15 @@ fn contributions(host: &PluginHost, id: &str, manifest: Option<&Manifest>) -> Co
             })
             .unwrap_or_default(),
         settings: manifest.is_some_and(|m| m.contributes.settings.is_some()),
+        methods: manifest
+            .map(|m| {
+                m.contributes
+                    .methods
+                    .iter()
+                    .map(|x| x.name.clone())
+                    .collect()
+            })
+            .unwrap_or_default(),
     }
 }
 
@@ -162,6 +178,13 @@ pub fn infos(host: &PluginHost) -> Vec<PluginInfo> {
                     .map(|c| c.id.clone())
                     .collect(),
                 settings: p.manifest.contributes.settings.is_some(),
+                methods: p
+                    .manifest
+                    .contributes
+                    .methods
+                    .iter()
+                    .map(|m| m.name.clone())
+                    .collect(),
             },
         })
         .collect()

@@ -57,7 +57,7 @@ id = "test.recorded-claude"
 name = "Recorded Claude Code"
 version = "0.1.0"
 kind = ["provider"]
-api = "^0.1"
+api = "^0.2"
 [permissions]
 spawn = ["fake-acp-agent"]
 [contributes]

@@ -1,0 +1,7 @@
+{"from": "client", "message": {"id": 1, "jsonrpc": "2.0", "method": "initialize", "params": {}}}
+{"from": "agent", "message": {"id": 1, "jsonrpc": "2.0", "result": {"agentCapabilities": {"loadSession": false}, "protocolVersion": 1}}}
+{"from": "client", "message": {"id": 2, "jsonrpc": "2.0", "method": "session/new", "params": {}}}
+{"from": "agent", "message": {"id": 2, "jsonrpc": "2.0", "result": {"sessionId": "session-1"}}}
+{"from": "client", "message": {"id": 3, "jsonrpc": "2.0", "method": "session/prompt", "params": {}}}
+{"from": "mcp", "session": "session-1", "call": {"name": "test_tool__cwd", "arguments": {}}}
+{"from": "agent", "message": {"id": 3, "jsonrpc": "2.0", "result": {"stopReason": "end_turn"}}}

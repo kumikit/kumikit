@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://kumikit.dev/schema/plugin-manifest-0.1.json",
-  "title": "Kumikit plugin manifest (plugin.toml), plugin API 0.1",
+  "$id": "https://kumikit.dev/schema/plugin-manifest-0.2.json",
+  "title": "Kumikit plugin manifest (plugin.toml), plugin API 0.2",
   "description": "Structure of plugin.toml: field names, types and allowed values. The core then checks the rules this schema leaves out, with clearer messages: id and name formats, semver, the api range, bare program names, limits, backend keys, files present in the package and activation triggers (docs/spec/04-plugin-host.md).",
   "type": "object",
   "additionalProperties": false,
@@ -106,6 +106,22 @@
         },
         "tools": {
           "type": "boolean"
+        },
+        "client": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "workspaces": {
+          "enum": [
+            "none",
+            "linked",
+            "all"
+          ]
+        },
+        "schedules": {
+          "type": "boolean"
         }
       }
     },
@@ -159,6 +175,15 @@
               },
               "title": {
                 "type": "string"
+              },
+              "scope": {
+                "enum": [
+                  "core",
+                  "workspace"
+                ]
+              },
+              "when": {
+                "type": "string"
               }
             }
           }
@@ -180,6 +205,60 @@
               },
               "schema": {
                 "type": "string"
+              }
+            }
+          }
+        },
+        "methods": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "scope": {
+                "enum": [
+                  "core",
+                  "workspace"
+                ]
+              }
+            }
+          }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "title",
+              "description",
+              "input"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "input": {
+                "type": "string"
+              },
+              "effect": {
+                "enum": [
+                  "read",
+                  "write"
+                ]
               }
             }
           }

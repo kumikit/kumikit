@@ -3,7 +3,9 @@
 
 pub mod bundled;
 pub mod cli;
+pub mod gateway;
 pub mod lock;
+pub mod logwriter;
 pub mod messages;
 pub mod paths;
 pub mod plugins;

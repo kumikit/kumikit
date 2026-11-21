@@ -7,7 +7,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use kumikit_protocol::event::{ApprovalResolved, ThreadChange, TurnEnded};
 use kumikit_protocol::methods::ThreadSnapshot;
 use kumikit_protocol::model::{
-    Resolution, Thread, ThreadId, ThreadStatus, Timestamp, TurnOutcome, Workspace, WorkspaceId,
+    ApprovalId, Resolution, Thread, ThreadId, ThreadStatus, Timestamp, TurnOutcome, Workspace,
+    WorkspaceId,
 };
 use kumikit_protocol::{ThreadEvent, WorkspaceEvent};
 use tokio::sync::{broadcast, watch};
@@ -87,6 +88,8 @@ pub(crate) struct Inner {
     sessions: Mutex<HashMap<ThreadId, Session>>,
     pub(crate) secrets: SecretStore,
     pub(crate) supervisor: Supervisor,
+    pub(crate) schedules: crate::schedule::State,
+    pub(crate) gateway: crate::gateway::State,
 }
 
 /// A started provider session.
@@ -100,7 +103,7 @@ pub(crate) struct Session {
 
 /// Locks a mutex, recovering from poisoning. Every kernel mutex guards plain maps or
 /// lists that stay consistent even if a holder panicked mid-update.
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
 
@@ -124,9 +127,14 @@ impl Kernel {
                 sessions: Mutex::new(HashMap::new()),
                 secrets: SecretStore::new(config.secrets),
                 supervisor: Supervisor::new(config.supervisor),
+                schedules: Default::default(),
+                gateway: Default::default(),
             }),
         };
         kernel.recover().await?;
+        if let Err(e) = kernel.inner.secrets.preload().await {
+            tracing::warn!(error = %e, "cannot read the secret store");
+        }
         Ok(kernel)
     }
 
@@ -134,6 +142,7 @@ impl Kernel {
     /// provider sessions and subscriptions, kills supervised processes, and closes the
     /// database after queued writes.
     pub async fn close(&self) {
+        self.stop_scheduler();
         self.stop_turns().await;
         self.inner.supervisor.shutdown().await;
         self.lock_heads().clear();
@@ -193,6 +202,7 @@ impl Kernel {
                         approval,
                         decision: Resolution::Cancelled,
                         by: None,
+                        plugin: None,
                     }),
                 )
                 .await?;
@@ -240,6 +250,38 @@ impl Kernel {
     /// Open workspaces.
     pub async fn workspace_list(&self) -> KernelResult<Vec<Workspace>> {
         self.inner.store.read(repo::workspace_list).await
+    }
+
+    /// An open workspace: `not_found` if there is none with this id, `conflict` if it is
+    /// closed.
+    pub async fn workspace_get(&self, id: &WorkspaceId) -> KernelResult<Workspace> {
+        let ws = id.clone();
+        let row = self
+            .inner
+            .store
+            .read(move |c| repo::workspace_get(c, &ws))
+            .await?
+            .ok_or_else(|| KernelError::NotFound(format!("no workspace {id}")))?;
+        if row.closed {
+            return Err(KernelError::Conflict(format!("workspace {id} is closed")));
+        }
+        Ok(row.workspace)
+    }
+
+    /// The workspace a thread belongs to.
+    pub async fn thread_workspace(&self, thread: &ThreadId) -> KernelResult<WorkspaceId> {
+        Ok(self.thread_row(thread).await?.thread.workspace)
+    }
+
+    /// The thread an approval belongs to.
+    pub async fn approval_thread(&self, approval: &ApprovalId) -> KernelResult<ThreadId> {
+        let id = approval.clone();
+        self.inner
+            .store
+            .read(move |c| repo::approval_get(c, &id))
+            .await?
+            .map(|(thread, _, _)| thread)
+            .ok_or_else(|| KernelError::NotFound(format!("no approval {approval}")))
     }
 
     /// Hides a workspace from the list; its threads and events are kept.

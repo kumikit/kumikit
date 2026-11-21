@@ -1,0 +1,34 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 0,
+    "method": "gateway.attach",
+    "params": {
+      "token": "3f9a0c1e7b2d4f6a8c0e1b3d5f7a9c1e3b5d7f9a1c3e5b7d9f1a3c5e7b9d1f3a"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 0,
+    "result": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 0,
+    "method": "gateway.attach",
+    "params": {
+      "token": "void"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 0,
+    "error": {
+      "code": -32000,
+      "message": "this gateway token is not valid (its session ended, or it never existed)",
+      "data": {
+        "code": "unauthenticated"
+      }
+    }
+  }
+]

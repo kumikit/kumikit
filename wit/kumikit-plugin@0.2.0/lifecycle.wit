@@ -1,0 +1,28 @@
+package kumikit:plugin@0.2.0;
+
+/// Exports every plugin implements.
+interface lifecycle {
+  use kumikit:host/types@0.2.0.{error};
+
+  /// Called once after each instance is created, before any other export.
+  activate: func() -> result<_, error>;
+  /// Called before an instance is dropped (idle unload, disable, shutdown). The host
+  /// gives it a short time limit.
+  deactivate: func();
+}
+
+/// The base world: imports every plugin may use, and its exports. Every plugin exports
+/// all of them; the SDK answers `not-found` for those a plugin does not implement.
+world plugin {
+  import kumikit:host/log@0.2.0;
+  import kumikit:host/kv@0.2.0;
+  import kumikit:host/process@0.2.0;
+  import kumikit:host/secrets@0.2.0;
+  import kumikit:host/settings@0.2.0;
+  import kumikit:host/client@0.2.0;
+  import kumikit:host/timers@0.2.0;
+  export lifecycle;
+  export rpc;
+  export commands;
+  export timers;
+}

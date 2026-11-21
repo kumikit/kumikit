@@ -1,0 +1,51 @@
+package kumikit:host@0.2.0;
+
+/// Child processes, started and supervised by the core.
+///
+/// `spawn` is checked against `permissions.spawn`: the program must be a bare name in
+/// that list, the working directory must be inside a workspace the plugin is acting for,
+/// and the environment is built by the core (an allowlist plus `env` plus `secret-env`).
+/// The core kills a plugin's processes when its turn is cancelled, its session ends, or
+/// the plugin is unloaded, fails or the core stops.
+interface process {
+  use types.{error};
+
+  /// What to start.
+  record spawn-request {
+    /// A bare program name, resolved on the core's `PATH`.
+    program: string,
+    args: list<string>,
+    /// Working directory; defaults to the workspace root. Must be inside the workspace.
+    cwd: option<string>,
+    /// Extra environment variables (dynamic-loader variables are refused).
+    env: list<tuple<string, string>>,
+    /// Environment variables set from secrets: (variable, secret name). Each secret must
+    /// be in `permissions.secrets`.
+    secret-env: list<tuple<string, string>>,
+  }
+
+  /// How a process ended.
+  record exit-status {
+    /// The exit code, if it exited normally.
+    code: option<s32>,
+  }
+
+  /// A running (or finished) child process.
+  resource child {
+    /// Writes to the child's stdin.
+    write-stdin: func(data: list<u8>) -> result<_, error>;
+    /// Closes the child's stdin.
+    close-stdin: func();
+    /// Reads up to `max` bytes of stdout, waiting for at least one; none at EOF.
+    read-stdout: func(max: u32) -> result<option<list<u8>>, error>;
+    /// Reads up to `max` bytes of stderr, waiting for at least one; none at EOF.
+    read-stderr: func(max: u32) -> result<option<list<u8>>, error>;
+    /// Waits for the child to exit.
+    wait: func() -> result<exit-status, error>;
+    /// Kills the child and its descendants.
+    kill: func();
+  }
+
+  /// Starts a process.
+  spawn: func(req: spawn-request) -> result<child, error>;
+}

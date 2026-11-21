@@ -1,0 +1,67 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 92,
+    "method": "command.run",
+    "params": {
+      "plugin": "kumikit.bot-telegram",
+      "command": "pair"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 92,
+    "result": {
+      "message": "Send /pair 7KQ4-M2XD to the bot within 5 minutes.",
+      "view": {
+        "model": "key-value",
+        "entries": [
+          {
+            "key": "Code",
+            "value": "7KQ4-M2XD"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 93,
+    "method": "command.run",
+    "params": {
+      "plugin": "kumikit.schedules",
+      "command": "new",
+      "args": {
+        "prompt": "Summarise yesterday's commits"
+      },
+      "workspace": "01JCWS0000000000000000000001"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 93,
+    "result": {
+      "message": "Scheduled."
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 94,
+    "method": "command.run",
+    "params": {
+      "plugin": "kumikit.schedules",
+      "command": "new"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 94,
+    "error": {
+      "code": -32602,
+      "message": "this call needs a workspace",
+      "data": {
+        "code": "invalid_params"
+      }
+    }
+  }
+]

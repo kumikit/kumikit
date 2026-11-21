@@ -11,9 +11,21 @@ use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 
 use kumikit::host::types::{Error, ErrorCode};
 
+// Only what hello uses (a component imports only the interfaces its code calls).
 wasmtime::component::bindgen!({
-    path: ["../../wit/kumikit-host@0.1.0", "../../wit/kumikit-plugin@0.1.0"],
-    world: "kumikit:plugin/plugin",
+    inline: "
+        package test:hello;
+        world hello {
+          import kumikit:host/log@0.2.0;
+          import kumikit:host/kv@0.2.0;
+          export kumikit:plugin/lifecycle@0.2.0;
+          export kumikit:plugin/rpc@0.2.0;
+          export kumikit:plugin/commands@0.2.0;
+          export kumikit:plugin/timers@0.2.0;
+        }
+    ",
+    path: ["../../wit/kumikit-host@0.2.0", "../../wit/kumikit-plugin@0.2.0"],
+    world: "test:hello/hello",
     imports: { default: async },
     exports: { default: async },
 });
@@ -41,6 +53,7 @@ impl HasLimits for State {
 }
 
 impl kumikit::host::types::Host for State {}
+impl kumikit::plugin::types::Host for State {}
 
 fn unused() -> Error {
     Error {
@@ -81,8 +94,7 @@ async fn hello_activates_from_the_cache() {
 
     let mut linker = Linker::<State>::new(engine.engine());
     wasmtime_wasi::p2::add_to_linker_async(&mut linker).unwrap();
-    Plugin::add_to_linker::<State, wasmtime::component::HasSelf<State>>(&mut linker, |s| s)
-        .unwrap();
+    Hello::add_to_linker::<State, wasmtime::component::HasSelf<State>>(&mut linker, |s| s).unwrap();
     let _tick = engine.ticking();
 
     let mut times = Vec::new();
@@ -99,7 +111,7 @@ async fn hello_activates_from_the_cache() {
             },
         );
         engine::apply_limits(&mut store);
-        let plugin = Plugin::instantiate_async(&mut store, &component, &linker)
+        let plugin = Hello::instantiate_async(&mut store, &component, &linker)
             .await
             .unwrap();
         plugin

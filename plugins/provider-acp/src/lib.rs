@@ -16,8 +16,8 @@ pub mod config;
 use std::cell::RefCell;
 
 use kumikit_provider::{
-    Child, Decision, Error, ErrorCode, Event, Lifecycle, Model, Provider, ProviderRef,
-    SessionConfig, SpawnRequest, UserInput, events, process, take_line,
+    Child, Decision, Error, ErrorCode, Event, Model, Plugin, Provider, ProviderRef, SessionConfig,
+    SpawnRequest, UserInput, events, process, take_line,
 };
 
 use crate::acp::{Action, Options, Session};
@@ -183,7 +183,7 @@ fn config(provider: &ProviderRef) -> Result<Config, Error> {
     Config::parse(text).map_err(|e| err(ErrorCode::InvalidArgument, e))
 }
 
-impl Lifecycle for Acp {
+impl Plugin for Acp {
     fn activate() -> Result<(), Error> {
         Ok(())
     }
@@ -224,6 +224,13 @@ impl Provider for Acp {
                 cwd: cfg.workspace_root,
                 resume: cfg.resume,
                 mode: config.mode.clone(),
+                auth_method: config.auth_method.clone(),
+                mcp: cfg.mcp_server.map(|m| acp::McpStdio {
+                    name: m.name,
+                    command: m.command,
+                    args: m.args,
+                    env: m.env,
+                }),
             }),
             child,
             buf: Vec::new(),

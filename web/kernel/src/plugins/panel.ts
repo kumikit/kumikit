@@ -26,6 +26,15 @@ export interface PanelScope {
   requires: readonly string[];
 }
 
+/** A panel's params for a `<pluginId>/*` call: a `workspace` it names is replaced by the
+ * tab's (or removed without one), so a panel reaches no other workspace through a plugin. */
+export function panelMethodParams(params: unknown, workspace: string | undefined): Record<string, unknown> {
+  const p = { ...(typeof params === 'object' && params !== null && !Array.isArray(params) ? (params as Record<string, unknown>) : {}) };
+  delete p.workspace;
+  if (workspace !== undefined) p.workspace = workspace;
+  return p;
+}
+
 /** Whether a panel may make this core call: `null` if it may, otherwise why not. */
 export function panelRefusal(method: string, params: unknown, scope: PanelScope): string | null {
   const p = (typeof params === 'object' && params !== null ? params : {}) as Record<string, unknown>;
@@ -140,7 +149,8 @@ export function mountPanel(
         const method = String(p.method);
         const why = panelRefusal(method, p.params, scope);
         if (why) throw { code: 'permission_denied', message: why };
-        const result = (await conn.call(method as never, p.params as never)) as unknown;
+        const params = method.includes('/') ? panelMethodParams(p.params, workspace) : p.params;
+        const result = (await conn.call(method as never, params as never)) as unknown;
         if (method === 'workspace.list') {
           // Panels see only the tab's workspace.
           const list = (result as { workspaces: { id: string }[] }).workspaces;

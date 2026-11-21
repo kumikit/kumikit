@@ -26,8 +26,8 @@ fn probe(out: &Path, version: &str, extra: &[&str]) {
         format!(
             "id = \"acme.probe\"\nname = \"Acme Probe\"\nversion = \"{version}\"\n\
              description = \"A third-party provider for tests.\"\nlicense = \"MIT\"\n\
-             repository = \"https://example.com/acme/probe\"\nkind = [\"provider\"]\napi = \"^0.1\"\n\
-             [runtime]\nwasm = \"plugin.wasm\"\nworlds = [\"kumikit:provider/plugin@0.1.0\"]\n\
+             repository = \"https://example.com/acme/probe\"\nkind = [\"provider\"]\napi = \"^0.2\"\n\
+             [runtime]\nwasm = \"plugin.wasm\"\nworlds = [\"kumikit:provider/plugin@0.2.0\"]\n\
              [permissions]\nspawn = [\"fake-acp-agent\"]\n{}\n\
              [contributes]\nproviders = [{{ id = \"probe\", name = \"Acme Probe\" }}]\n",
             extra.join("\n")
@@ -35,6 +35,44 @@ fn probe(out: &Path, version: &str, extra: &[&str]) {
     )
     .unwrap();
     std::fs::copy(kumikit_test_plugins::PROBE_WASM, out.join("plugin.wasm")).unwrap();
+}
+
+fn tool(out: &Path, version: &str) {
+    std::fs::create_dir_all(out.join("tools")).unwrap();
+    let src = Path::new(kumikit_test_plugins::TOOL_DIR);
+    std::fs::write(
+        out.join("plugin.toml"),
+        format!(
+            "id = \"acme.tool\"\nname = \"Acme Tool\"\nversion = \"{version}\"\n\
+             description = \"A third-party tool plugin for tests.\"\nlicense = \"MIT\"\n\
+             repository = \"https://example.com/acme/tool\"\nkind = [\"tool\"]\napi = \"^0.2\"\n\
+             [runtime]\nwasm = \"plugin.wasm\"\nworlds = [\"kumikit:tool/plugin@0.1.0\"]\n\
+             [[contributes.tools]]\nname = \"echo\"\ntitle = \"Echo\"\ndescription = \"Echoes text.\"\n\
+             input = \"tools/echo.json\"\neffect = \"read\"\n\
+             [[contributes.tools]]\nname = \"touch\"\ntitle = \"Touch\"\ndescription = \"Write tool.\"\n\
+             input = \"tools/echo.json\"\neffect = \"write\"\n"
+        ),
+    )
+    .unwrap();
+    std::fs::copy(src.join("tools/echo.json"), out.join("tools/echo.json")).unwrap();
+    std::fs::copy(kumikit_test_plugins::TOOL_WASM, out.join("plugin.wasm")).unwrap();
+}
+
+fn agent(out: &Path, version: &str, transcript: &str) {
+    std::fs::create_dir_all(out).unwrap();
+    let escaped = transcript.replace('\\', "\\\\");
+    std::fs::write(
+        out.join("plugin.toml"),
+        format!(
+            "id = \"acme.agent\"\nname = \"Acme Agent\"\nversion = \"{version}\"\n\
+             description = \"A declarative ACP agent for tests.\"\nlicense = \"MIT\"\n\
+             repository = \"https://example.com/acme/agent\"\nkind = [\"provider\"]\napi = \"^0.2\"\n\
+             [permissions]\nspawn = [\"fake-acp-agent\"]\ntools = true\n\
+             [contributes]\nproviders = [{{ id = \"agent\", name = \"Acme Agent\", \
+             acp = {{ command = \"fake-acp-agent\", args = [\"replay\", \"{escaped}\"] }} }}]\n"
+        ),
+    )
+    .unwrap();
 }
 
 #[tokio::main]
@@ -75,6 +113,14 @@ async fn main() {
                     let lines: Vec<&str> =
                         extra.split(';').filter(|l| !l.trim().is_empty()).collect();
                     probe(Path::new(out), version, &lines);
+                    "ok".to_owned()
+                }
+                ["tool", out, version] => {
+                    tool(Path::new(out), version);
+                    "ok".to_owned()
+                }
+                ["agent", out, version, transcript] => {
+                    agent(Path::new(out), version, transcript);
                     "ok".to_owned()
                 }
                 ["starter", ids @ ..] => {

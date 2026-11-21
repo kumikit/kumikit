@@ -67,10 +67,19 @@ is about the code.
   handle drops, when its owner is killed, or at shutdown. Tests prove a whole tree died
   by reading stdout to EOF: `fake-acp-agent tree` gives a grandchild the same stdout, so
   EOF means every holder exited (no sleeps). The core's environment is injected
-  (`SupervisorConfig::env`), so tests control `PATH`.
+  (`SupervisorConfig::env`), so tests control `PATH`. `ENV_ALLOWLIST` copies desktop
+  session variables (`DISPLAY`, `WAYLAND_DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`) so spawned
+  CLIs that read credentials from the desktop keyring do not hang.
 - **Devices** (`devices.rs`) store only the token's hash. Revocation deletes the row, then
   broadcasts the id; a listener that lags must check `device_exists`, not trust the
   broadcast.
+- **Secret redaction is process-wide** (`redact.rs`): the secret store remembers every
+  value it loads or stores (8 characters or more), and the core's log writer
+  (`kumikit-core/src/logwriter.rs`) replaces them in each formatted line. The kernel
+  preloads the store when it opens, so values are known before anything logs them.
+- **Plugin settings** live in `plugin_settings` (migration 6), one JSON object per plugin;
+  the plugin host validates them against the schema (`kumikit-plugin-host/src/settings.rs`)
+  with the `x-secret` fields removed, and fills defaults on read.
 - **Time and ids are injected** (`KernelConfig { clock, ids }`); tests use `StepClock`
   and `SequentialIds`.
 
@@ -97,6 +106,47 @@ is about the code.
 - **`send` runs in its own task**, so the kernel dropping its future on cancel never
   interrupts the guest; the session's `busy` flag tells the grace-period timer whether
   to discard it.
+- **One set of bindings per WIT version.** `runtime/bindings.rs` generates the shared host
+  interfaces once, in `base`, and maps them into `provider` with `with:`; a new world does
+  the same, so one `HostState` impl serves all. `tests/activation.rs` has its own bindgen
+  of the base world, with stubs for the imports hello does not use.
+- **Every world exports `rpc`, `commands` and `timers`.** WIT has no optional exports,
+  so the SDK's `export_plugin!`/`export_provider!` generate a private exports type that
+  forwards to the plugin's `Plugin` impl (`__forward_plugin_exports!`), whose defaults
+  answer `not-found`. `Instance::handle_rpc`/`run_command` set the acting workspace in the
+  store for that one call (`act_for`) and restore it after.
+- **Outgoing HTTP** (`runtime/outbound.rs`): the policy (`check_target`, `is_public`) is
+  pure and unit-tested; `send` resolves, checks every address, then connects (TLS with
+  the OS roots, loaded once). `is_supported_scheme` keeps its default so plain `http`
+  reaches the policy and is denied (and logged) rather than failing as a protocol error.
+  `KUMIKIT_TEST_HTTP_ROUTES` is read once, in debug builds only; a routed host skips DNS
+  and TLS. The in-flight limit is per plugin across instances (a process-wide map).
+- **Guest HTTP** is `kumikit_plugin::http` over the `wasip2` crate (wasm32 only); natively
+  every call fails, so plugin logic stays testable without it.
+- **The client interface** (`runtime/client.rs`) clones what it checks against
+  (`Access`) out of the store before awaiting: `HostState` is not `Sync`, so a `&self`
+  held across an await makes the host future not `Send`. Its subscription is a
+  `wasmtime_wasi::p2::Pollable` that fills a buffer in `ready`; `next` only drains it and
+  re-checks the workspace. The base world imports `wasi:io/poll` through it, so the base
+  linker adds Kumikit's interfaces one by one (`add_base_imports`) next to wasmtime-wasi's.
+- **`wit/kumikit-host@0.2.0/deps/io.wit`** is WASI's `wasi:io@0.2.12`, copied from
+  wasmtime-wasi; the published-WIT hash covers `deps/` too.
+- **Schedules** (`kumikit-kernel/src/schedule/`): `schedule_tick(now)` holds every timing
+  rule and takes the time as an argument, so kernel tests use explicit times and install
+  the fake runner with `set_schedule_runner` (without spawning the wall-clock task, which
+  would race past-dated fixtures); the task in `start_scheduler` only sleeps until
+  `schedule_wake()` and calls it. A finished run writes only `last_run`/`last_outcome`
+  (`record_last`): writing `next_run` there raced with the tick. The plugin host is the
+  `Runner`; `serve` starts it, CLI paths never do.
+- **The tool gateway.** Tokens live in the kernel (`gateway.rs`), made when a provider
+  session starts (`session_for`) and voided when it is forgotten or its provider goes.
+  A gateway call's approval is the kernel's own: `respond_approval` hands it to the
+  waiting call (`gateway_resolved`) instead of the provider, and a turn ending resolves
+  it as cancelled. `rpc::serve_messages` hands a connection whose first message is
+  `gateway.attach` to `crate::gateway::serve`. Tests act as the agent: the probe's
+  `mcp-info <thread>` replies with its session's `mcp-server` record, and
+  `fake-acp-agent replay` has an `{"from":"mcp", …}` step that calls a tool through the
+  MCP server `session/new` gave it.
 - **Test components in WAT**: an imported instance with no exports is satisfied
   without a definition; give it a function to test a missing import.
 
@@ -169,6 +219,13 @@ is about the code.
   (`scripts/check-templates.sh`). **`test-plugins/ui-panel`** is a sandboxed panel built
   by `bundle.mjs` into `target/bundle/test-ui-plugins/` (never shipped).
 
+## npm workspace
+
+- **Bumping a workspace package's version** (`@kumikit/ui-sdk`) means updating every
+  exact pin on it (`web/kernel`, `plugins/ui-*`) and the lockfile, then `npm ci`: a local
+  `node_modules` keeps working with a stale pin, while CI's `npm ci` asks the npm
+  registry for the old version and fails (M5's first push).
+
 ## UI kernel (`web/kernel`)
 
 - **State is `.svelte.ts` classes; logic is plain functions** (`threads/fold.ts`,
@@ -220,7 +277,10 @@ is about the code.
 - **End-to-end ACP tests** (`tests/exit_m1.rs`) run `fake-acp-agent replay
   <transcript>` as the agent, found on the core's `PATH` (`Core::start_with_path`). The
   fake checks each client message's method in order and rewrites the recorded
-  `/workspace` to its working directory. The probe's manifest is
+  `/workspace` to its working directory; it also replays Claude Code `stream-json`
+  control requests/responses and parses `--mcp-config` for `{"from":"mcp",…}` steps.
+  `provider-acp` supports an optional `auth-method` in its `acp` config table for CLIs
+  that require ACP `authenticate` after `initialize`. The probe's manifest is
   `test-plugins/probe/plugin.toml`, read by the tests and by `check-plugin-names.sh`.
 - **Test client notifications.** `tests/support::Client::event` sets aside
   notifications other than `events.event` (`core.pluginsChanged`); read them with
@@ -241,7 +301,10 @@ is about the code.
 - **`core.shutdown`** sets a flag; the connection closes after its reply is written and
   only then notifies the serve loop, so the client always gets the answer.
 - **Bundled plugins** (`bundled.rs`) seed after `ready`, in file-name order; ids are
-  remembered in `seeded_plugins` (migration 3) so removals stick.
+  remembered in `seeded_plugins` (migration 3) so removals stick. A seeded id whose copy
+  is still `bundled` is updated when the bundle holds a higher version. Installing without
+  enabling announces nothing, so tests that wait for seeding put a plugin that is enabled
+  (provider-acp) last.
 - **One message loop for every transport.** `rpc::serve_messages` reads and writes whole
   messages through `messages::{MessageReader, MessageWriter}`: lines (`LineReader`) for
   sockets, pipes and `kumikit bridge`, WebSocket frames (`remote::ws`) for remote clients.

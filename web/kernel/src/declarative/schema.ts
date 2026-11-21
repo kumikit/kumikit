@@ -4,6 +4,13 @@
  */
 import type { SettingsProperty, SettingsSchema } from '@kumikit/ui-sdk';
 
+/** Write-only access to a core's secrets, for `x-secret` fields that name one. */
+export interface SecretAccess {
+  isSet(name: string): boolean;
+  set(name: string, value: string): Promise<void>;
+  clear(name: string): Promise<void>;
+}
+
 export type FieldKind = 'text' | 'textarea' | 'number' | 'integer' | 'boolean' | 'select' | 'radio' | 'secret';
 
 export interface Field {
@@ -19,6 +26,8 @@ export interface Field {
   maximum?: number;
   /** The title of the group for nested fields. */
   group?: string;
+  /** For `secret` fields of core plugins: the secret's name on the core. */
+  secret?: string;
 }
 
 function kindOf(p: SettingsProperty): FieldKind {
@@ -57,6 +66,7 @@ export function fields(schema: SettingsSchema): { fields: Field[]; errors: strin
       }
       const f: Field = { key, title: p.title ?? name, kind: kindOf(p), required: required.includes(name) };
       if (p.description) f.description = p.description;
+      if (typeof p['x-secret'] === 'string') f.secret = p['x-secret'];
       if (p.enum) f.options = p.enum;
       if (p.default !== undefined) f.default = p.default;
       if (p.minimum !== undefined) f.minimum = p.minimum;

@@ -115,6 +115,16 @@ fn files_rank(f: FilesAccess) -> u8 {
 
 /// Whether `new` asks for anything `old` did not: a program, host or secret, more file
 /// access, tools, or a higher limit (10-distribution, Updates).
+fn workspaces_rank(w: kumikit_protocol::methods::WorkspacesAccess) -> u8 {
+    use kumikit_protocol::methods::WorkspacesAccess as W;
+    match w {
+        W::None => 0,
+        W::Linked => 1,
+        W::All => 2,
+    }
+}
+
+/// Whether `new` asks for more than `old`.
 pub fn widens(old: &Permissions, new: &Permissions) -> bool {
     let adds = |a: &[String], b: &[String]| b.iter().any(|x| !a.contains(x));
     let raised = |a: Option<u32>, b: Option<u32>| match (a, b) {
@@ -132,6 +142,9 @@ pub fn widens(old: &Permissions, new: &Permissions) -> bool {
         || adds(&old.secrets, &new.secrets)
         || files_rank(new.files) > files_rank(old.files)
         || (new.tools && !old.tools)
+        || adds(&old.client, &new.client)
+        || workspaces_rank(new.workspaces) > workspaces_rank(old.workspaces)
+        || (new.schedules && !old.schedules)
         || raised(ol.memory_mb, nl.memory_mb)
         || raised(ol.call_timeout_s, nl.call_timeout_s)
 }

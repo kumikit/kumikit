@@ -1,6 +1,6 @@
 # 0015 — Shell memory budget: anonymous memory, gated on Linux
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-16
 
 ## Context

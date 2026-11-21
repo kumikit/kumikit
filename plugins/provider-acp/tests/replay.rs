@@ -53,8 +53,8 @@ fn replay(name: &str, mode: Option<&str>) -> Vec<Value> {
     let mut r = Replay {
         session: Session::new(Options {
             cwd: "/workspace".into(),
-            resume: None,
             mode: mode.map(str::to_owned),
+            ..Options::default()
         }),
         writes: VecDeque::new(),
         approvals: HashMap::new(),

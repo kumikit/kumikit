@@ -639,7 +639,7 @@ slots = [{ slot = "inspector.tab", id = "p", title = "P" }]
             (
                 "api",
                 &UI.replace("^0.1", "^1.0"),
-                "does not accept the UI SDK 0.1.1",
+                "does not accept the UI SDK 0.1.2",
             ),
             (
                 "bundled",

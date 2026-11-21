@@ -12,19 +12,22 @@ spec, not here.
 
 ## Status
 
-M0 (protocol and kernel), M1 (plugin host), M2 (client), M3 (multiple cores) and M4
-(ecosystem) are built: `kumikit serve`, the kernel, WASM plugins with permissions and a lifecycle,
-provider-acp, `kumikit plugin`, the desktop app (Tauri shell, Svelte UI kernel, UI SDK
-0.1, ui-chat, ui-settings, theme-default), remote cores over TLS with pairing and device
-tokens or through SSH, the browser client served by a core, signed packages, plugin
-registries with installs by id, updates and lockfiles, sandboxed UI panels, `kumikit theme
-check` and plugin templates
+M0 (protocol and kernel), M1 (plugin host), M2 (client), M3 (multiple cores), M4
+(ecosystem) and M5 (plugins) are built: `kumikit serve`, the kernel, WASM plugins (WIT
+0.2.0 and `kumikit:tool@0.1.0`) with permissions, secrets, settings, plugin methods, core
+commands, outgoing HTTP, client interface, schedules and MCP tool gateway, provider-acp,
+`kumikit plugin`, the desktop app (Tauri shell, Svelte UI kernel, UI SDK 0.1.2, ui-chat,
+ui-settings, theme-default), remote cores over TLS with pairing and device tokens or
+through SSH, the browser client served by a core, signed packages, plugin registries with
+installs by id, updates and lockfiles, sandboxed UI panels, `kumikit theme check`, plugin
+templates, and the first-party plugin repositories (`kumikit-plugin-agents`,
+`kumikit-plugin-git`, `kumikit-plugin-github`, `kumikit-plugin-schedules`)
 ([M0 plan](docs/plans/2026-11-15-m0-protocol-and-kernel.md),
 [M1 plan](docs/plans/2026-11-15-m1-plugin-host.md),
 [M2 plan](docs/plans/2026-11-16-m2-client.md),
 [M3 plan](docs/plans/2026-11-17-m3-multiple-cores.md),
-[M4 plan](docs/plans/2026-11-18-m4-ecosystem.md)). M5 (plugins) is next. Build
-in milestone order
+[M4 plan](docs/plans/2026-11-18-m4-ecosystem.md),
+[M5 plan](docs/plans/2026-11-19-m5-plugins.md)). Build in milestone order
 ([roadmap](docs/spec/12-roadmap.md)); do not start a later milestone's code before the
 earlier one's exit criteria pass.
 
@@ -51,7 +54,7 @@ Now:
 - `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace` (builds the test plugins for `wasm32-wasip2`; the target comes
   with `rust-toolchain.toml` under rustup, or a distribution's Rust WASM package)
-- `cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-test-hello -p kumikit-test-probe -p kumikit-provider-acp -- -D warnings`
+- `cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-tool -p kumikit-test-hello -p kumikit-test-probe -p kumikit-test-client -p kumikit-test-tool -p kumikit-provider-acp -- -D warnings`
 - `sh scripts/check-plugin-names.sh`: no plugin id, provider id or backend key in
   `crates/*/src`
 - `cargo run -p kumikit-core -- theme check --strict plugins/theme-default`: the
@@ -76,8 +79,9 @@ From M2 (npm commands run at the repository root, an npm workspace):
 - Browser end-to-end: `node scripts/bundle.mjs && cargo build -p kumikit-core -p
   kumikit-web-relay -p kumikit-test-registry-fixture -p kumikit-test-plugins`, then
   `npx playwright test` in `web/e2e` (the relay suites, two cores behind a cuttable
-  network, the browser client served by a core, a fixture registry, sandboxed panels)
-- Desktop exit tests, M2, M3 and M4 (Linux, in the container): `sh scripts/desktop/run.sh sh
+  network, the browser client served by a core, a fixture registry, sandboxed panels,
+  the tool gateway)
+- Desktop exit tests, M2–M5 (Linux, in the container): `sh scripts/desktop/run.sh sh
   scripts/desktop/e2e.sh` after `node scripts/bundle.mjs`; Windows runs in CI
 - Desktop shell memory: `sh scripts/desktop/run.sh sh scripts/desktop/footprint.sh`
 

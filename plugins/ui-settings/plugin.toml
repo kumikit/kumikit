@@ -1,7 +1,7 @@
 id = "kumikit.ui-settings"
 name = "Settings"
 version = "0.1.0"
-description = "Settings pages for the client: appearance and themes."
+description = "Settings pages for the client: appearance and themes, and the schedules of the active core."
 license = "MIT"
 repository = "https://github.com/kumikit/kumikit"
 kind = ["ui"]
@@ -12,4 +12,7 @@ entry = "dist/index.js"
 isolation = "inline"
 
 [contributes]
-slots = [{ slot = "settings.page", id = "appearance", title = "Appearance" }]
+slots = [
+  { slot = "settings.page", id = "appearance", title = "Appearance" },
+  { slot = "settings.page", id = "schedules", title = "Schedules" },
+]

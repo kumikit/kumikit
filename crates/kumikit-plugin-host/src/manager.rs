@@ -49,6 +49,9 @@ pub enum HostError {
     /// its hash or its entry.
     #[error("{0}")]
     Untrusted(String),
+    /// A plugin's call was refused by its permissions.
+    #[error("{0}")]
+    Denied(String),
 }
 
 impl HostError {
@@ -62,6 +65,7 @@ impl HostError {
             HostError::Kernel(e) => e.code(),
             HostError::Io(_) => ErrorCode::Internal,
             HostError::Untrusted(_) => ErrorCode::Untrusted,
+            HostError::Denied(_) => ErrorCode::PermissionDenied,
         }
     }
 }
@@ -227,6 +231,19 @@ pub fn protocol_permissions(
         },
         secrets: g.secrets.iter().cloned().collect(),
         tools: g.tools,
+        client: g.client.iter().cloned().collect(),
+        workspaces: match g.workspaces {
+            kumikit_kernel::grants::WorkspacesGrant::None => {
+                kumikit_protocol::methods::WorkspacesAccess::None
+            }
+            kumikit_kernel::grants::WorkspacesGrant::Linked => {
+                kumikit_protocol::methods::WorkspacesAccess::Linked
+            }
+            kumikit_kernel::grants::WorkspacesGrant::All => {
+                kumikit_protocol::methods::WorkspacesAccess::All
+            }
+        },
+        schedules: g.schedules,
         limits: manifest.and_then(|m| m.requested().limits),
     }
 }
@@ -380,6 +397,70 @@ impl Manager {
             .get(id)
             .map(Entry::view)
             .ok_or_else(|| HostError::NotFound(format!("plugin {id} is not installed")))
+    }
+
+    /// The settings schema of an installed plugin.
+    pub async fn settings_schema(&self, id: &str) -> Result<serde_json::Value, HostError> {
+        let view = self.get(id)?;
+        let manifest = view
+            .manifest
+            .ok_or_else(|| HostError::NotFound(format!("plugin {id} cannot be loaded")))?;
+        let file = manifest
+            .contributes
+            .settings
+            .clone()
+            .ok_or_else(|| HostError::NotFound(format!("plugin {id} has no settings")))?;
+        let path = self.inner.dirs.package(id, &view.record.version).join(file);
+        let text = tokio::task::spawn_blocking(move || std::fs::read_to_string(path))
+            .await
+            .map_err(io)?
+            .map_err(io)?;
+        serde_json::from_str(&text)
+            .map_err(|e| HostError::Invalid(format!("plugin {id}: settings schema: {e}")))
+    }
+
+    /// An installed plugin's settings: the stored values with the schema's defaults,
+    /// without secret fields.
+    pub async fn settings_get(&self, id: &str) -> Result<serde_json::Value, HostError> {
+        let schema = self.settings_schema(id).await?;
+        let stored = self.inner.kernel.settings_get(id).await?;
+        Ok(crate::settings::with_defaults(&schema, stored))
+    }
+
+    /// Replaces an installed plugin's settings after checking them against its schema.
+    pub async fn settings_set(
+        &self,
+        id: &str,
+        values: &serde_json::Value,
+    ) -> Result<(), HostError> {
+        let schema = self.settings_schema(id).await?;
+        crate::settings::check_values(&schema, values)?;
+        Ok(self.inner.kernel.settings_set(id, values).await?)
+    }
+
+    /// Secret names that installed plugins declare or that are set: (name, set, plugins).
+    pub async fn secret_list(&self) -> Result<Vec<(String, bool, Vec<String>)>, HostError> {
+        let manifests: Vec<Arc<Manifest>> =
+            self.list().into_iter().filter_map(|v| v.manifest).collect();
+        let mut declared = crate::settings::declared_secrets(manifests.iter().map(|m| m.as_ref()));
+        let set: std::collections::BTreeSet<String> = self
+            .inner
+            .kernel
+            .secrets()
+            .names()
+            .await?
+            .into_iter()
+            .collect();
+        for name in &set {
+            declared.entry(name.clone()).or_default();
+        }
+        Ok(declared
+            .into_iter()
+            .map(|(name, plugins)| {
+                let is_set = set.contains(&name);
+                (name, is_set, plugins.into_iter().collect())
+            })
+            .collect())
     }
 
     /// Enabled plugins whose manifests loaded.

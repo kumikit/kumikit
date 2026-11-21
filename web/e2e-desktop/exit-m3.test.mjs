@@ -82,7 +82,7 @@ function installProvider(onSocket, name) {
       `name = "Recorded ${name}"`,
       'version = "0.1.0"',
       'kind = ["provider"]',
-      'api = "^0.1"',
+      'api = "^0.2"',
       '[permissions]',
       'spawn = ["fake-acp-agent"]',
       '[contributes]',
@@ -163,7 +163,7 @@ after(async () => {
     const c = net.connect(socket);
     c.once('error', () => done());
     c.once('connect', () => {
-      c.write('{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.5","client":{"name":"e2e","version":"0"}}}\n');
+      c.write('{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.6","client":{"name":"e2e","version":"0"}}}\n');
       c.write('{"jsonrpc":"2.0","id":2,"method":"core.shutdown","params":{}}\n');
     });
     c.once('close', () => done());

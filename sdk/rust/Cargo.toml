@@ -13,3 +13,6 @@ workspace = true
 
 [dependencies]
 wit-bindgen = { version = "0.61.1", default-features = false, features = ["macros", "realloc", "std", "bitflags"] }
+# wasi:http and wasi:io bindings (Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT): the
+# `http` module and the pollable `client` subscriptions return.
+wasip2 = "1.0.4"

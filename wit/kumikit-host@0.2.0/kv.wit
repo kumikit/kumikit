@@ -1,0 +1,16 @@
+package kumikit:host@0.2.0;
+
+/// The plugin's own key-value store, kept by the core. Always allowed; a plugin sees only
+/// its own keys. Keys are at most 1 KiB, values at most 1 MiB.
+interface kv {
+  use types.{error};
+
+  /// The value stored under `key`, if any.
+  get: func(key: string) -> result<option<list<u8>>, error>;
+  /// Stores `value` under `key`, replacing any earlier value.
+  set: func(key: string, value: list<u8>) -> result<_, error>;
+  /// Removes `key`; removing a missing key succeeds.
+  delete: func(key: string) -> result<_, error>;
+  /// Every key that starts with `prefix`, in byte order.
+  %list: func(prefix: string) -> result<list<string>, error>;
+}

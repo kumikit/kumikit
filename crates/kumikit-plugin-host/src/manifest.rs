@@ -16,14 +16,16 @@ use serde::Deserialize;
 use crate::engine::{CALL_TIMEOUT_CAP, MEMORY_CAP};
 
 /// The kernel plugin API version; a manifest's `api` range must include it.
-pub const PLUGIN_API: semver::Version = semver::Version::new(0, 1, 0);
+pub const PLUGIN_API: semver::Version = semver::Version::new(0, 2, 0);
 
 /// The base world.
-pub const WORLD_PLUGIN: &str = "kumikit:plugin/plugin@0.1.0";
+pub const WORLD_PLUGIN: &str = "kumikit:plugin/plugin@0.2.0";
 /// The provider world.
-pub const WORLD_PROVIDER: &str = "kumikit:provider/plugin@0.1.0";
+pub const WORLD_PROVIDER: &str = "kumikit:provider/plugin@0.2.0";
+/// The tool world.
+pub const WORLD_TOOL: &str = "kumikit:tool/plugin@0.1.0";
 /// Worlds this host can run.
-pub const WORLDS: &[&str] = &[WORLD_PLUGIN, WORLD_PROVIDER];
+pub const WORLDS: &[&str] = &[WORLD_PLUGIN, WORLD_PROVIDER, WORLD_TOOL];
 
 /// Manifest file name inside a package.
 pub const MANIFEST_FILE: &str = "plugin.toml";
@@ -205,10 +207,42 @@ pub struct Permissions {
     /// Secret names it may read.
     #[serde(default)]
     pub secrets: Vec<String>,
-    /// Whether it may call other plugins' tools.
+    /// Whether it may hand other plugins' tools to its agent.
     #[serde(default)]
     pub tools: bool,
+    /// Client operations (`kumikit:host/client`).
+    #[serde(default)]
+    pub client: Vec<String>,
+    /// Where client operations may act.
+    #[serde(default)]
+    pub workspaces: WorkspacesAccess,
+    /// Whether it may run on a schedule.
+    #[serde(default)]
+    pub schedules: bool,
 }
+
+/// `permissions.workspaces`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WorkspacesAccess {
+    /// Nowhere.
+    #[default]
+    None,
+    /// The workspaces the user links to the plugin.
+    Linked,
+    /// Every workspace.
+    All,
+}
+
+/// The client operations a plugin can ask for.
+pub const CLIENT_OPS: &[&str] = &[
+    "workspaces.list",
+    "threads.read",
+    "threads.create",
+    "threads.send",
+    "threads.cancel",
+    "approvals.respond",
+];
 
 impl Permissions {
     /// The grants these permissions ask for.
@@ -223,6 +257,13 @@ impl Permissions {
             },
             secrets: self.secrets.iter().cloned().collect(),
             tools: self.tools,
+            client: self.client.iter().cloned().collect(),
+            workspaces: match self.workspaces {
+                WorkspacesAccess::None => kumikit_kernel::grants::WorkspacesGrant::None,
+                WorkspacesAccess::Linked => kumikit_kernel::grants::WorkspacesGrant::Linked,
+                WorkspacesAccess::All => kumikit_kernel::grants::WorkspacesGrant::All,
+            },
+            schedules: self.schedules,
         }
     }
 }
@@ -255,6 +296,67 @@ pub struct Contributes {
     /// Backend keys this plugin serves for other plugins' provider entries.
     #[serde(default)]
     pub provider_backends: Vec<BackendEntry>,
+    /// Plugin methods, called as `<plugin id>/<name>`.
+    #[serde(default)]
+    pub methods: Vec<MethodEntry>,
+    /// Tools for the tool gateway.
+    #[serde(default)]
+    pub tools: Vec<ToolEntry>,
+}
+
+/// Whether a tool only reads.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Effect {
+    /// It only reads; runs without asking.
+    Read,
+    /// It may change things; needs an approval.
+    #[default]
+    Write,
+}
+
+/// A tool for the tool gateway.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ToolEntry {
+    /// `[a-z0-9_]{1,32}`.
+    pub name: String,
+    /// Shown to people.
+    pub title: String,
+    /// Shown to the agent.
+    pub description: String,
+    /// JSON Schema file of its arguments.
+    pub input: String,
+    /// `read` or `write` (the default).
+    #[serde(default)]
+    pub effect: Effect,
+}
+
+/// A tool's MCP name: the plugin id with `.` and `-` as `_`, `__`, the tool's name.
+pub fn mcp_tool_name(plugin: &str, tool: &str) -> String {
+    format!("{}__{tool}", plugin.replace(['.', '-'], "_"))
+}
+
+/// What a method or command acts for.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Scope {
+    /// The core: no workspace.
+    #[default]
+    Core,
+    /// The workspace it is called in; the plugin acts for it.
+    Workspace,
+}
+
+/// A plugin method.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MethodEntry {
+    /// The name after `<plugin id>/`.
+    pub name: String,
+    /// What it acts for.
+    #[serde(default)]
+    pub scope: Scope,
 }
 
 /// A provider entry. Keys other than `id` and `name` name a provider backend.
@@ -284,6 +386,12 @@ pub struct CommandEntry {
     pub id: String,
     /// Title shown to users.
     pub title: String,
+    /// What it acts for.
+    #[serde(default)]
+    pub scope: Scope,
+    /// A UI condition for showing it (`docs/spec/07-ui-plugins.md`).
+    #[serde(default)]
+    pub when: Option<String>,
 }
 
 /// A provider backend this plugin serves.
@@ -295,6 +403,15 @@ pub struct BackendEntry {
     /// JSON Schema file for the entries' tables.
     #[serde(default)]
     pub schema: Option<String>,
+}
+
+/// A method, command or tool name: `[a-z][a-z0-9_.-]*`, at most 64 characters.
+pub fn is_name(s: &str) -> bool {
+    s.len() <= 64
+        && s.starts_with(|c: char| c.is_ascii_lowercase())
+        && s.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'.' | b'-')
+        })
 }
 
 fn is_word(s: &str) -> bool {
@@ -313,7 +430,8 @@ pub fn is_plugin_id(id: &str) -> bool {
     }
 }
 
-fn is_secret_name(s: &str) -> bool {
+/// Whether `s` is a valid secret name (`[A-Za-z0-9._-]`, not empty).
+pub fn is_secret_name(s: &str) -> bool {
     !s.is_empty()
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
@@ -379,6 +497,8 @@ impl Manifest {
         rt.wasm.as_ref()?;
         Some(if rt.worlds.iter().any(|w| w == WORLD_PROVIDER) {
             WORLD_PROVIDER
+        } else if rt.worlds.iter().any(|w| w == WORLD_TOOL) {
+            WORLD_TOOL
         } else {
             WORLD_PLUGIN
         })
@@ -405,6 +525,13 @@ impl Manifest {
             },
             secrets: sorted(&self.permissions.secrets),
             tools: self.permissions.tools,
+            client: sorted(&self.permissions.client),
+            workspaces: match self.permissions.workspaces {
+                WorkspacesAccess::None => kumikit_protocol::methods::WorkspacesAccess::None,
+                WorkspacesAccess::Linked => kumikit_protocol::methods::WorkspacesAccess::Linked,
+                WorkspacesAccess::All => kumikit_protocol::methods::WorkspacesAccess::All,
+            },
+            schedules: self.permissions.schedules,
             limits: (l.memory_mb.is_some() || l.call_timeout_s.is_some()).then_some(PLimits {
                 memory_mb: l.memory_mb,
                 call_timeout_s: l.call_timeout_s,
@@ -499,6 +626,10 @@ impl Manifest {
                 for w in &rt.worlds {
                     if WORLDS.contains(&w.as_str()) {
                         worlds.insert(w.as_str());
+                    } else if w.starts_with("kumikit:") && w.ends_with("@0.1.0") {
+                        p.push(format!(
+                            "world `{w}` is WIT 0.1.0, which this core no longer runs: rebuild the plugin with the 0.2.0 SDK"
+                        ));
                     } else {
                         p.push(format!(
                             "world `{w}` is not supported (supported: {})",
@@ -570,9 +701,97 @@ impl Manifest {
         }
         if let Some(settings) = &self.contributes.settings {
             check_file(&mut p, package, "settings schema", settings);
+            if let Some(dir) = package
+                && is_package_path(settings)
+                && let Ok(text) = std::fs::read_to_string(dir.join(settings))
+            {
+                p.extend(crate::settings::schema_file_problems(
+                    &text,
+                    &self.permissions.secrets,
+                ));
+            }
         }
         if self.runtime.is_none() && !self.contributes.provider_backends.is_empty() {
             p.push("provider backends need a runtime".into());
+        }
+
+        let mut seen = BTreeSet::new();
+        for c in &self.contributes.commands {
+            if !is_name(&c.id) {
+                p.push(format!(
+                    "command id `{}` is not valid ([a-z][a-z0-9_.-]*)",
+                    c.id
+                ));
+            }
+            if !seen.insert(c.id.as_str()) {
+                p.push(format!("command `{}` appears twice", c.id));
+            }
+        }
+        let mut seen = BTreeSet::new();
+        for m in &self.contributes.methods {
+            if !is_name(&m.name) {
+                p.push(format!(
+                    "method name `{}` is not valid ([a-z][a-z0-9_.-]*)",
+                    m.name
+                ));
+            }
+            if !seen.insert(m.name.as_str()) {
+                p.push(format!("method `{}` appears twice", m.name));
+            }
+        }
+        let mut seen = BTreeSet::new();
+        for t in &self.contributes.tools {
+            let ok = !t.name.is_empty()
+                && t.name.len() <= 32
+                && t.name
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
+            if !ok {
+                p.push(format!(
+                    "tool name `{}` is not valid ([a-z0-9_], at most 32)",
+                    t.name
+                ));
+            }
+            if mcp_tool_name(&self.id, &t.name).len() > 64 {
+                p.push(format!(
+                    "tool `{}`: its MCP name is longer than 64 characters",
+                    t.name
+                ));
+            }
+            if !seen.insert(t.name.as_str()) {
+                p.push(format!("tool `{}` appears twice", t.name));
+            }
+            check_file(&mut p, package, "tool input schema", &t.input);
+            if let Some(dir) = package
+                && is_package_path(&t.input)
+                && let Ok(text) = std::fs::read_to_string(dir.join(&t.input))
+            {
+                match serde_json::from_str::<serde_json::Value>(&text) {
+                    Ok(v) if v.get("type").and_then(|t| t.as_str()) == Some("object") => {
+                        if let Err(e) = jsonschema::validator_for(&v) {
+                            p.push(format!(
+                                "tool `{}`: input is not a JSON Schema: {e}",
+                                t.name
+                            ));
+                        }
+                    }
+                    Ok(_) => p.push(format!("tool `{}`: input must describe an object", t.name)),
+                    Err(e) => p.push(format!("tool `{}`: input is not JSON: {e}", t.name)),
+                }
+            }
+        }
+        if !self.contributes.tools.is_empty()
+            && !self
+                .runtime
+                .as_ref()
+                .is_some_and(|r| r.worlds.iter().any(|w| w == WORLD_TOOL))
+        {
+            p.push(format!("a plugin with tools must implement {WORLD_TOOL}"));
+        }
+        if self.runtime.is_none()
+            && !(self.contributes.methods.is_empty() && self.contributes.commands.is_empty())
+        {
+            p.push("methods and commands need a runtime".into());
         }
 
         for trigger in &self.activation.on {
@@ -580,12 +799,28 @@ impl Manifest {
                 None => matches!(trigger.as_str(), "startup" | "workspace" | "rpc"),
                 Some(("provider", id)) => provider_ids.contains(id),
                 Some(("command", id)) => !id.is_empty(),
-                Some(("schedule", cron)) => !cron.trim().is_empty(),
+                Some(("schedule", cron)) => match kumikit_kernel::schedule::cron::Cron::parse(cron)
+                {
+                    Ok(_) => true,
+                    Err(e) => {
+                        p.push(format!("activation trigger `{trigger}`: {e}"));
+                        true
+                    }
+                },
                 Some(_) => false,
             };
             if !ok {
                 p.push(format!("activation trigger `{trigger}` is not valid"));
             }
+        }
+        if self
+            .activation
+            .on
+            .iter()
+            .any(|t| t.starts_with("schedule:"))
+            && !self.permissions.schedules
+        {
+            p.push("`schedule:` triggers need permissions.schedules = true".into());
         }
         if self.runtime.is_none() && !self.activation.on.is_empty() {
             p.push("activation triggers need a runtime".into());
@@ -597,6 +832,22 @@ impl Manifest {
                     "permissions.spawn entry `{prog}` must be a bare program name, not a path"
                 ));
             }
+        }
+        for op in &self.permissions.client {
+            if !CLIENT_OPS.contains(&op.as_str()) {
+                p.push(format!(
+                    "permissions.client entry `{op}` is not one of {}",
+                    CLIENT_OPS.join(", ")
+                ));
+            }
+        }
+        let acts_in_workspaces = self
+            .permissions
+            .client
+            .iter()
+            .any(|op| op != "workspaces.list");
+        if acts_in_workspaces && self.permissions.workspaces == WorkspacesAccess::None {
+            p.push("client operations other than workspaces.list need permissions.workspaces = \"linked\" or \"all\"".into());
         }
         for s in &self.permissions.secrets {
             if !is_secret_name(s) {

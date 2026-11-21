@@ -1,0 +1,40 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 72,
+    "method": "settings.set",
+    "params": {
+      "plugin": "kumikit.bot-telegram",
+      "values": {
+        "replyInGroups": true
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 72,
+    "result": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 73,
+    "method": "settings.set",
+    "params": {
+      "plugin": "kumikit.bot-telegram",
+      "values": {
+        "replyInGroups": "yes"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 73,
+    "error": {
+      "code": -32602,
+      "message": "/replyInGroups: \"yes\" is not of type \"boolean\"",
+      "data": {
+        "code": "invalid_params"
+      }
+    }
+  }
+]

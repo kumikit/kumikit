@@ -18,6 +18,18 @@ pub struct TurnStarted {
     pub turn: TurnId,
     /// The user message that started it.
     pub input: UserInput,
+    /// Who sent it, when a plugin did (through `kumikit:host/client`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub from: Option<MessageFrom>,
+}
+
+/// Who sent a message that a plugin sent for a user (a bot, a schedule).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageFrom {
+    /// The plugin.
+    pub plugin: String,
 }
 
 /// `text.delta`, `text.done` and `reasoning.delta`: a piece of text in a turn.
@@ -42,6 +54,20 @@ pub struct ToolStarted {
     pub name: String,
     /// Tool input.
     pub input: Value,
+    /// For a call through the tool gateway: the plugin and tool that served it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub source: Option<ToolSource>,
+}
+
+/// Which plugin's tool served a gateway call.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolSource {
+    /// The plugin.
+    pub plugin: String,
+    /// The tool's name in its manifest.
+    pub tool: String,
 }
 
 /// `tool.output`: a chunk of a tool call's output.
@@ -106,6 +132,10 @@ pub struct ApprovalResolved {
     /// Device id of the client that answered; absent for local connections and the kernel.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<String>,
+    /// The plugin that answered, through `kumikit:host/client`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub plugin: Option<String>,
 }
 
 /// `usage`: tokens (and optionally cost) used by a turn so far.

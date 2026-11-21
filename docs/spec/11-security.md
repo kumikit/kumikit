@@ -38,6 +38,14 @@ programs as the user, and the conversation history.
 | A publisher's private key leaks | Key files are 0600 and kept outside work trees; never printed or logged; CI refuses committed private keys |
 | The registry is contacted behind the user's back | Only on browse, search, install, lockfile import or an update check; the first-run screen asks first |
 | A typo-squatted plugin | Registry CI checks for confusable ids; one key per publisher namespace; install shows publisher, key id, registry and repository |
+| Another local process or user reaches the tool gateway | MCP only through the local socket (0600, peer check; pipe ACL on Windows); a per-session 256-bit token kept in memory, passed in the environment, void when the session ends; refused on remote connections |
+| A provider gives its agent other plugins' tools without consent | A session gets the gateway only if its plugin was granted `tools`, shown at install |
+| A tool acts outside the calling thread's workspace or unnoticed | The tool runs for that thread's workspace (`spawn` checks the cwd); `write` tools need an approval in the turn; every call is a `tool.*` event with its `source` |
+| A plugin sends data to an undeclared host or into the LAN | `network` allowlist on every request, `https` only, no automatic redirects, resolved addresses must be public unless the entry is a private literal |
+| A token in a request URL reaches a log | Request logs carry only scheme and host; stored secret values are redacted from every log line |
+| A plugin acting as a client (a bot, a schedule) goes beyond its grant | `client` operations and `workspaces` checked by the kernel on every call; no `allow_always` from plugins; actions recorded with the plugin |
+| Something runs on a schedule unnoticed | `schedules` permission shown at install; every schedule listed with its next run, pausable and removable; threads say which plugin started them |
+| A git repository's configuration runs programs through the git plugin | It turns off fsmonitor, hooks, external diff and textconv; clean and smudge filters still run, as for any git command; `spawn` says git runs with the user's access |
 | Secrets leak to the UI or logs | Secrets are write-only over the protocol; the logger redacts values of known secrets |
 
 ## Rules

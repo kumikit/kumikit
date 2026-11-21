@@ -1,0 +1,29 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 90,
+    "method": "command.list",
+    "params": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 90,
+    "result": {
+      "commands": [
+        {
+          "plugin": "kumikit.bot-telegram",
+          "id": "pair",
+          "title": "Telegram: pair a chat",
+          "scope": "core"
+        },
+        {
+          "plugin": "kumikit.schedules",
+          "id": "new",
+          "title": "New scheduled prompt",
+          "scope": "workspace",
+          "when": "tab"
+        }
+      ]
+    }
+  }
+]

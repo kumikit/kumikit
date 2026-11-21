@@ -1862,6 +1862,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "h2"
+version = "0.4.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d29020232d6aa3fb1daca64c1127cf662cf97f254ae16c18c05b8ab635fc118"
+dependencies = [
+ "atomic-waker",
+ "bytes",
+ "fnv",
+ "futures-core",
+ "futures-sink",
+ "http",
+ "indexmap 2.14.2",
+ "slab",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1996,7 +2015,9 @@ checksum = "2c3e324da4c95177d6291d4c8730197c0d1822f8a9766814a4a44fa5ab797c9c"
 dependencies = [
  "atomic-waker",
  "bytes",
+ "futures-channel",
  "futures-core",
+ "h2",
  "http",
  "http-body",
  "httparse",
@@ -2500,6 +2521,8 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "jiff",
+ "jsonschema",
  "kumikit-assets",
  "kumikit-kernel",
  "kumikit-plugin-host",
@@ -2538,6 +2561,8 @@ dependencies = [
 name = "kumikit-kernel"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.3.4",
+ "jiff",
  "kumikit-protocol",
  "kumikit-test-plugins",
  "rusqlite",
@@ -2571,6 +2596,7 @@ dependencies = [
 name = "kumikit-plugin"
 version = "0.1.0"
 dependencies = [
+ "wasip2",
  "wit-bindgen 0.61.1",
 ]
 
@@ -2578,11 +2604,19 @@ dependencies = [
 name = "kumikit-plugin-host"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "bytes",
+ "http",
+ "http-body-util",
+ "hyper",
+ "jiff",
  "jsonschema",
  "kumikit-kernel",
  "kumikit-package",
  "kumikit-protocol",
  "kumikit-test-plugins",
+ "rustls",
+ "rustls-native-certs",
  "semver",
  "serde",
  "serde_json",
@@ -2590,10 +2624,12 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-rustls",
  "toml 1.2.1+spec-1.1.0",
  "tracing",
  "wasmtime",
  "wasmtime-wasi",
+ "wasmtime-wasi-http",
 ]
 
 [[package]]
@@ -2701,6 +2737,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumikit-test-client"
+version = "0.1.0"
+dependencies = [
+ "kumikit-plugin",
+ "serde_json",
+]
+
+[[package]]
 name = "kumikit-test-client-store"
 version = "0.1.0"
 dependencies = [
@@ -2751,6 +2795,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumikit-test-tool"
+version = "0.1.0"
+dependencies = [
+ "kumikit-tool",
+ "serde_json",
+]
+
+[[package]]
 name = "kumikit-theme"
 version = "0.1.0"
 dependencies = [
@@ -2759,6 +2811,14 @@ dependencies = [
  "serde_json",
  "tempfile",
  "toml 1.2.1+spec-1.1.0",
+]
+
+[[package]]
+name = "kumikit-tool"
+version = "0.1.0"
+dependencies = [
+ "kumikit-plugin",
+ "wit-bindgen 0.61.1",
 ]
 
 [[package]]
@@ -5364,6 +5424,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "libc",
  "pin-project-lite",
  "tokio",
 ]
@@ -6210,6 +6271,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasmtime-wasi-http"
+version = "50.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8dcf39dbdea6ced0c3a727b1815ae163828b01b053e04c0af388429b3961eeb"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "futures",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "pin-project-lite",
+ "rustix",
+ "tokio",
+ "tracing",
+ "wasmtime",
+ "wasmtime-wasi",
+ "wasmtime-wasi-io",
+]
+
+[[package]]
 name = "wasmtime-wasi-io"
 version = "50.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6734,6 +6817,9 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
+dependencies = [
+ "bitflags 2.13.2",
+]
 
 [[package]]
 name = "wit-bindgen"

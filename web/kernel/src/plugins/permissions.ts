@@ -11,7 +11,23 @@ export function describePermissions(p: Permissions): string[] {
   if (p.files === 'read_workspace') lines.push('can read files in your workspaces');
   if (p.files === 'workspace') lines.push('can read and change files in your workspaces');
   for (const s of p.secrets) lines.push(`can read the secret \`${s}\``);
-  if (p.tools) lines.push('can call tools that other plugins contribute');
+  if (p.tools) lines.push('can let its agent use tools that other plugins contribute');
+  const ops: Record<string, string> = {
+    'workspaces.list': 'can list your workspaces',
+    'threads.read': 'can read threads',
+    'threads.create': 'can start threads',
+    'threads.send': 'can send messages to threads',
+    'threads.cancel': 'can cancel running turns',
+    'approvals.respond': 'can answer approvals (allow or deny)',
+  };
+  for (const op of p.client ?? []) {
+    const line = ops[op];
+    if (line === undefined) return [`asks for an unknown client operation \`${op}\``];
+    lines.push(line);
+  }
+  if (p.workspaces === 'linked') lines.push('only in the workspaces you link to it');
+  if (p.workspaces === 'all') lines.push('in every workspace');
+  if (p.schedules) lines.push('can run on a schedule, even when you are not using Kumikit');
   if (p.limits?.memoryMb !== undefined) lines.push(`may use up to ${p.limits.memoryMb} MiB of memory per instance (default 64)`);
   if (p.limits?.callTimeoutS !== undefined) lines.push(`may compute for up to ${p.limits.callTimeoutS} s per call (default 10)`);
   if (lines.length === 0) lines.push('needs no permissions');

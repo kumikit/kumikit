@@ -175,7 +175,11 @@ async fn cwd_defaults_to_the_workspace_root_and_may_be_a_subdirectory() {
 
 #[tokio::test]
 async fn environment_is_the_allowlist_plus_what_the_plugin_sets() {
-    let f = fixture(&[]);
+    let f = fixture(&[
+        ("DISPLAY", ":0"),
+        ("WAYLAND_DISPLAY", "wayland-1"),
+        ("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus"),
+    ]);
     let mut r = req(&["env"]);
     r.env = vec![("FOO".into(), "bar".into())];
     r.secret_env = vec![("API_TOKEN".into(), "token".into())];
@@ -183,6 +187,12 @@ async fn environment_is_the_allowlist_plus_what_the_plugin_sets() {
     let lines: Vec<&str> = out.lines().collect();
     assert!(lines.contains(&"HOME=/home/test"), "{out}");
     assert!(lines.contains(&"LC_ALL=C"), "{out}");
+    assert!(lines.contains(&"DISPLAY=:0"), "{out}");
+    assert!(lines.contains(&"WAYLAND_DISPLAY=wayland-1"), "{out}");
+    assert!(
+        lines.contains(&"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"),
+        "{out}"
+    );
     assert!(lines.contains(&"FOO=bar"), "{out}");
     assert!(lines.contains(&"API_TOKEN=s3cret"), "{out}");
     assert!(!out.contains("SECRET_FROM_CORE"), "{out}");

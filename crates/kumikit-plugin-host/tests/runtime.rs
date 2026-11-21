@@ -76,6 +76,7 @@ impl Env {
             data_dir: self.dir.path().join("plugin-data").join("test.probe"),
             memory: DEFAULT_MEMORY,
             call_timeout: timeout,
+            settings_schema: None,
             session: Arc::new(SessionShared::default()),
         };
         let instance = Instance::start(&self.runtime, &prepared, config, self.kernel.clone())
@@ -204,13 +205,13 @@ async fn sockets_are_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_component_importing_wasi_http_is_refused_when_prepared() {
+async fn a_component_with_a_malformed_wasi_http_import_is_refused_when_prepared() {
     let e = env().await;
     let wat = e.dir.path().join("http.wat");
     std::fs::write(
         &wat,
-        // Like a real wasi:http import, the instance has a function in it (an empty
-        // instance import is satisfied without any definition).
+        // wasi:http is linked (ADR 0023), but this `handle` has the wrong type. (An empty
+        // instance import would be satisfied without any definition.)
         r#"(component (import "wasi:http/outgoing-handler@0.2.0" (instance (export "handle" (func)))))"#,
     )
     .unwrap();
@@ -322,6 +323,7 @@ async fn cancel_unblocks_a_waiting_import() {
             data_dir: e.dir.path().join("pd"),
             memory: DEFAULT_MEMORY,
             call_timeout: Duration::from_secs(10),
+            settings_schema: None,
             session: Arc::clone(&session),
         },
         e.kernel.clone(),

@@ -131,6 +131,7 @@ pub enum Action {
 enum Phase {
     Idle,
     Initializing,
+    Authenticating,
     Opening,
     SettingMode,
     Ready,
@@ -158,6 +159,36 @@ pub struct Options {
     pub resume: Option<String>,
     /// Session mode to set after opening (`session/set_mode`).
     pub mode: Option<String>,
+    /// ACP authentication method id to call with `authenticate` after `initialize`.
+    pub auth_method: Option<String>,
+    /// The tool gateway, passed to the agent as a stdio MCP server
+    /// (`docs/spec/03-kernel.md#tool-gateway`).
+    pub mcp: Option<McpStdio>,
+}
+
+/// A stdio MCP server for the agent to start (ACP `McpServer` stdio form).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct McpStdio {
+    /// Its name.
+    pub name: String,
+    /// Absolute path of the program.
+    pub command: String,
+    /// Its arguments.
+    pub args: Vec<String>,
+    /// Environment variables (they hold a token: never logged).
+    pub env: Vec<(String, String)>,
+}
+
+impl McpStdio {
+    /// The ACP form: `{ name, command, args, env: [{ name, value }] }`.
+    pub fn to_acp(&self) -> Value {
+        json!({
+            "name": self.name,
+            "command": self.command,
+            "args": self.args,
+            "env": self.env.iter().map(|(k, v)| json!({ "name": k, "value": v })).collect::<Vec<_>>(),
+        })
+    }
 }
 
 /// One ACP session.
@@ -372,6 +403,27 @@ impl Session {
         )]
     }
 
+    fn open_session(&mut self) -> Vec<Action> {
+        let mcp: Vec<Value> = self.options.mcp.iter().map(McpStdio::to_acp).collect();
+        match self.options.resume.clone() {
+            Some(s) if self.load_supported => {
+                self.phase = Phase::Opening;
+                self.session = Some(s.clone());
+                vec![self.request(
+                    "session/load",
+                    json!({"sessionId": s, "cwd": self.options.cwd, "mcpServers": mcp}),
+                )]
+            }
+            _ => {
+                self.phase = Phase::Opening;
+                vec![self.request(
+                    "session/new",
+                    json!({"cwd": self.options.cwd, "mcpServers": mcp}),
+                )]
+            }
+        }
+    }
+
     fn on_response(&mut self, id: &Value, msg: &Value) -> Vec<Action> {
         let Some(method) = id.as_u64().and_then(|i| self.pending.remove(&i)) else {
             return Vec::new();
@@ -389,25 +441,13 @@ impl Session {
         match method {
             "initialize" => {
                 self.load_supported = result["agentCapabilities"]["loadSession"] == true;
-                let mcp: Vec<Value> = Vec::new();
-                match self.options.resume.clone() {
-                    Some(s) if self.load_supported => {
-                        self.phase = Phase::Opening;
-                        self.session = Some(s.clone());
-                        vec![self.request(
-                            "session/load",
-                            json!({"sessionId": s, "cwd": self.options.cwd, "mcpServers": mcp}),
-                        )]
-                    }
-                    _ => {
-                        self.phase = Phase::Opening;
-                        vec![self.request(
-                            "session/new",
-                            json!({"cwd": self.options.cwd, "mcpServers": mcp}),
-                        )]
-                    }
+                if let Some(method_id) = self.options.auth_method.clone() {
+                    self.phase = Phase::Authenticating;
+                    return vec![self.request("authenticate", json!({"methodId": method_id}))];
                 }
+                self.open_session()
             }
+            "authenticate" => self.open_session(),
             "session/new" | "session/load" => {
                 if let Some(s) = result["sessionId"].as_str() {
                     self.session = Some(s.to_owned());
@@ -647,11 +687,37 @@ mod tests {
     }
 
     #[test]
+    fn the_gateway_is_passed_as_a_stdio_mcp_server() {
+        let mut s = Session::new(Options {
+            cwd: "/w".into(),
+            mcp: Some(McpStdio {
+                name: "kumikit".into(),
+                command: "/usr/bin/kumikit".into(),
+                args: vec!["mcp".into()],
+                env: vec![("KUMIKIT_MCP_TOKEN".into(), "t0k".into())],
+            }),
+            ..Options::default()
+        });
+        s.start();
+        let out = s.on_line(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}"#);
+        let [Action::Write(line)] = out.as_slice() else {
+            panic!("{out:?}")
+        };
+        let v: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(v["method"], "session/new");
+        assert_eq!(
+            v["params"]["mcpServers"],
+            json!([{ "name": "kumikit", "command": "/usr/bin/kumikit", "args": ["mcp"],
+                     "env": [{ "name": "KUMIKIT_MCP_TOKEN", "value": "t0k" }] }])
+        );
+    }
+
+    #[test]
     fn resume_uses_session_load_when_the_agent_supports_it() {
         let mut s = Session::new(Options {
             cwd: "/w".into(),
             resume: Some("old".into()),
-            mode: None,
+            ..Options::default()
         });
         s.start();
         let out = s.on_line(
@@ -674,6 +740,37 @@ mod tests {
             out,
             [Action::Ready {
                 session: "old".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn authenticates_before_opening_session_when_configured() {
+        let mut s = Session::new(Options {
+            cwd: "/w".into(),
+            auth_method: Some("login_method".into()),
+            ..Options::default()
+        });
+        s.start();
+        let out = s.on_line(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}"#);
+        let [Action::Write(line)] = out.as_slice() else {
+            panic!("{out:?}")
+        };
+        let v: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(v["method"], "authenticate");
+        assert_eq!(v["params"], json!({"methodId": "login_method"}));
+
+        let out = s.on_line(r#"{"jsonrpc":"2.0","id":2,"result":{}}"#);
+        let [Action::Write(line)] = out.as_slice() else {
+            panic!("{out:?}")
+        };
+        let v: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(v["method"], "session/new");
+        let out = s.on_line(r#"{"jsonrpc":"2.0","id":3,"result":{"sessionId":"s1"}}"#);
+        assert_eq!(
+            out,
+            [Action::Ready {
+                session: "s1".into()
             }]
         );
     }

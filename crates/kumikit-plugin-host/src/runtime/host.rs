@@ -22,17 +22,18 @@ use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 
 use super::bindings::base::kumikit::host::types::{Error, ErrorCode};
 use super::bindings::base::kumikit::host::{kv, log, types};
-use super::bindings::provider::kumikit::host::{events, process as wit_process, secrets};
+use super::bindings::base::kumikit::host::{process as wit_process, secrets, settings};
+use super::bindings::provider::kumikit::host::events;
 use crate::engine::{HasLimits, Limits};
 
-fn err(code: ErrorCode, message: impl Into<String>) -> Error {
+pub(crate) fn err(code: ErrorCode, message: impl Into<String>) -> Error {
     Error {
         code,
         message: message.into(),
     }
 }
 
-fn kernel_err(e: KernelError) -> Error {
+pub(crate) fn kernel_err(e: KernelError) -> Error {
     match e {
         KernelError::Limit(m) => err(ErrorCode::Limit, m),
         KernelError::NotFound(m) => err(ErrorCode::NotFound, m),
@@ -153,12 +154,15 @@ pub struct Identity {
 /// The data in each instance's store.
 pub struct HostState {
     pub(crate) wasi: WasiCtx,
+    pub(crate) http: wasmtime_wasi_http::WasiHttpCtx,
+    pub(crate) outbound: super::outbound::Outbound,
     pub(crate) table: ResourceTable,
     pub(crate) limits: Limits,
     pub(crate) kernel: Kernel,
     pub(crate) id: Identity,
     pub(crate) owner: OwnerId,
     pub(crate) session: Arc<SessionShared>,
+    pub(crate) settings_schema: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for HostState {
@@ -179,6 +183,16 @@ impl WasiView for HostState {
     }
 }
 
+impl wasmtime_wasi_http::WasiHttpView for HostState {
+    fn http(&mut self) -> wasmtime_wasi_http::WasiHttpCtxView<'_> {
+        wasmtime_wasi_http::WasiHttpCtxView {
+            ctx: &mut self.http,
+            table: &mut self.table,
+            hooks: &mut self.outbound,
+        }
+    }
+}
+
 impl HasLimits for HostState {
     fn limits(&mut self) -> &mut Limits {
         &mut self.limits
@@ -186,7 +200,7 @@ impl HasLimits for HostState {
 }
 
 impl HostState {
-    fn deny(&self, op: &str, reason: String) -> Error {
+    pub(crate) fn deny(&self, op: &str, reason: String) -> Error {
         tracing::warn!(
             plugin = %self.id.plugin,
             grants = %self.id.grants_from,
@@ -256,6 +270,35 @@ impl secrets::Host for HostState {
             ));
         }
         self.kernel.secrets().get(&name).await.map_err(kernel_err)
+    }
+}
+
+impl super::bindings::base::kumikit::plugin::types::Host for HostState {}
+
+// ---- settings ----
+
+impl settings::Host for HostState {
+    async fn get(&mut self) -> Result<String, Error> {
+        let Some(path) = self.settings_schema.clone() else {
+            return Ok("{}".into());
+        };
+        let text = tokio::task::spawn_blocking(move || std::fs::read_to_string(path))
+            .await
+            .map_err(|e| err(ErrorCode::Internal, e.to_string()))?
+            .map_err(|e| {
+                err(
+                    ErrorCode::Io,
+                    format!("cannot read the settings schema: {e}"),
+                )
+            })?;
+        let schema: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| err(ErrorCode::Internal, format!("settings schema: {e}")))?;
+        let stored = self
+            .kernel
+            .settings_get(&self.id.plugin)
+            .await
+            .map_err(kernel_err)?;
+        Ok(crate::settings::with_defaults(&schema, stored).to_string())
     }
 }
 
@@ -506,5 +549,102 @@ impl tokio::io::AsyncWrite for LogStream {
 
     fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Poll::Ready(Ok(()))
+    }
+}
+
+// ---- timers ----
+
+impl super::bindings::base::kumikit::host::timers::Host for HostState {
+    async fn set(
+        &mut self,
+        key: String,
+        schedule: super::bindings::base::kumikit::host::timers::Schedule,
+    ) -> Result<Option<String>, Error> {
+        use super::bindings::base::kumikit::host::timers::Missed;
+        use kumikit_kernel::schedule as ks;
+        if !self.id.grants.schedules {
+            return Err(self.deny("timers.set", "permissions.schedules is not granted".into()));
+        }
+        if key.starts_with(ks::MANIFEST_PREFIX) {
+            return Err(err(
+                ErrorCode::InvalidArgument,
+                format!(
+                    "keys starting with `{}` belong to the manifest",
+                    ks::MANIFEST_PREFIX
+                ),
+            ));
+        }
+        let spec = ks::Spec {
+            cron: schedule.cron,
+            zone: schedule.time_zone,
+            description: schedule.description,
+            missed: match schedule.missed {
+                Missed::Skip => ks::Missed::Skip,
+                Missed::Once => ks::Missed::Once,
+            },
+        };
+        let kernel = self.kernel.clone();
+        let plugin = self.id.plugin.clone();
+        kernel
+            .schedule_set(
+                &plugin,
+                &key,
+                spec,
+                ks::Source::Plugin,
+                jiff::Timestamp::now(),
+            )
+            .await
+            .map_err(kernel_err)
+    }
+
+    async fn delete(&mut self, key: String) -> Result<(), Error> {
+        if !self.id.grants.schedules {
+            return Err(self.deny(
+                "timers.delete",
+                "permissions.schedules is not granted".into(),
+            ));
+        }
+        if key.starts_with(kumikit_kernel::schedule::MANIFEST_PREFIX) {
+            return Err(err(
+                ErrorCode::InvalidArgument,
+                "manifest schedules cannot be deleted",
+            ));
+        }
+        let kernel = self.kernel.clone();
+        let plugin = self.id.plugin.clone();
+        kernel
+            .schedule_delete(&plugin, &key)
+            .await
+            .map_err(kernel_err)
+    }
+
+    async fn list(
+        &mut self,
+    ) -> Result<Vec<super::bindings::base::kumikit::host::timers::Info>, Error> {
+        use super::bindings::base::kumikit::host::timers::{Info, Missed, Schedule};
+        if !self.id.grants.schedules {
+            return Err(self.deny("timers.list", "permissions.schedules is not granted".into()));
+        }
+        let kernel = self.kernel.clone();
+        let plugin = self.id.plugin.clone();
+        let rows = kernel.schedule_list().await.map_err(kernel_err)?;
+        Ok(rows
+            .into_iter()
+            .filter(|r| r.plugin == plugin)
+            .map(|r| Info {
+                key: r.key,
+                schedule: Schedule {
+                    cron: r.spec.cron,
+                    time_zone: r.spec.zone,
+                    description: r.spec.description,
+                    missed: match r.spec.missed {
+                        kumikit_kernel::schedule::Missed::Skip => Missed::Skip,
+                        kumikit_kernel::schedule::Missed::Once => Missed::Once,
+                    },
+                },
+                enabled: r.enabled,
+                next_run: r.next_run,
+            })
+            .collect())
     }
 }

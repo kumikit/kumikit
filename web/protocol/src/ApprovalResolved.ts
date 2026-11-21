@@ -17,4 +17,8 @@ decision: Resolution,
 /**
  * Device id of the client that answered; absent for local connections and the kernel.
  */
-by?: string, };
+by?: string, 
+/**
+ * The plugin that answered, through `kumikit:host/client`.
+ */
+plugin?: string, };

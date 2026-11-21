@@ -20,8 +20,8 @@ export class FakeCore {
 
   constructor() {
     this.handle('core.hello', (p) =>
-      p.protocol === '0.5'
-        ? { protocol: '0.5', core: { version: '0', name: 'fake', os: 'linux' }, plugins: [], capabilities: ['threads', 'approvals', 'plugins', 'providers', 'workspace_events'] }
+      p.protocol === '0.6'
+        ? { protocol: '0.6', core: { version: '0', name: 'fake', os: 'linux' }, plugins: [], capabilities: ['threads', 'approvals', 'plugins', 'providers', 'workspace_events'] }
         : { error: { code: 'protocol_mismatch', message: 'core speaks protocol 0.3' } },
     );
     this.handle('provider.list', () => ({ providers: [] }));

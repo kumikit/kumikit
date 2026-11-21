@@ -158,3 +158,36 @@ async fn an_update_replaces_the_record_in_place() {
         Err(KernelError::NotFound(_))
     ));
 }
+
+#[tokio::test]
+async fn settings_round_trip_survive_reopen_and_go_with_the_data() {
+    let dir = tempfile::tempdir().unwrap();
+    let k = kernel(&dir).await;
+    k.plugin_insert(record("a.one")).await.unwrap();
+    assert_eq!(k.settings_get("a.one").await.unwrap(), None);
+    let values = serde_json::json!({ "chats": [1, 2], "greeting": "hi" });
+    k.settings_set("a.one", &values).await.unwrap();
+    k.close().await;
+    let k = kernel(&dir).await;
+    assert_eq!(k.settings_get("a.one").await.unwrap(), Some(values));
+    k.plugin_delete("a.one", false).await.unwrap();
+    assert!(k.settings_get("a.one").await.unwrap().is_some());
+    k.plugin_insert(record("a.one")).await.unwrap();
+    k.plugin_delete("a.one", true).await.unwrap();
+    assert_eq!(k.settings_get("a.one").await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn stored_secret_values_are_redacted_from_log_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let k = kernel(&dir).await;
+    k.secrets()
+        .set("bot-token", "123456:secret-bot-token-value")
+        .await
+        .unwrap();
+    let line = "GET https://api.example/bot123456:secret-bot-token-value/getUpdates";
+    assert_eq!(
+        crate::redact::redact(line),
+        "GET https://api.example/bot[secret]/getUpdates"
+    );
+}

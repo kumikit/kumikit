@@ -2,35 +2,118 @@
   "$comment": "Permissions in plain words, as `kumikit plugin add` and the desktop plugin manager show them. Checked by crates/kumikit-core/tests/permission_wording.rs and web/kernel/tests/permissions.test.ts, so both say the same.",
   "cases": [
     {
-      "permissions": { "spawn": [], "network": [], "files": "none", "secrets": [], "tools": false },
-      "lines": ["needs no permissions"]
-    },
-    {
-      "permissions": { "spawn": ["claude-agent-acp"], "network": [], "files": "none", "secrets": [], "tools": false },
-      "lines": ["can start the `claude-agent-acp` program, which runs with your full user access, outside the sandbox"]
+      "permissions": {
+        "spawn": [],
+        "network": [],
+        "files": "none",
+        "secrets": [],
+        "tools": false
+      },
+      "lines": [
+        "needs no permissions"
+      ]
     },
     {
       "permissions": {
-        "spawn": ["gemini"],
-        "network": ["api.example.com"],
+        "spawn": [
+          "claude-agent-acp"
+        ],
+        "network": [],
+        "files": "none",
+        "secrets": [],
+        "tools": false
+      },
+      "lines": [
+        "can start the `claude-agent-acp` program, which runs with your full user access, outside the sandbox"
+      ]
+    },
+    {
+      "permissions": {
+        "spawn": [
+          "gemini"
+        ],
+        "network": [
+          "api.example.com"
+        ],
         "files": "workspace",
-        "secrets": ["api-key"],
+        "secrets": [
+          "api-key"
+        ],
         "tools": true,
-        "limits": { "memoryMb": 128, "callTimeoutS": 30 }
+        "limits": {
+          "memoryMb": 128,
+          "callTimeoutS": 30
+        }
       },
       "lines": [
         "can start the `gemini` program, which runs with your full user access, outside the sandbox",
         "can connect to api.example.com",
         "can read and change files in your workspaces",
         "can read the secret `api-key`",
-        "can call tools that other plugins contribute",
+        "can let its agent use tools that other plugins contribute",
         "may use up to 128 MiB of memory per instance (default 64)",
         "may compute for up to 30 s per call (default 10)"
       ]
     },
     {
-      "permissions": { "spawn": [], "network": [], "files": "read_workspace", "secrets": [], "tools": false },
-      "lines": ["can read files in your workspaces"]
+      "permissions": {
+        "spawn": [],
+        "network": [],
+        "files": "read_workspace",
+        "secrets": [],
+        "tools": false
+      },
+      "lines": [
+        "can read files in your workspaces"
+      ]
+    },
+    {
+      "permissions": {
+        "spawn": [],
+        "network": [
+          "api.telegram.org"
+        ],
+        "files": "none",
+        "secrets": [
+          "telegram-bot-token"
+        ],
+        "tools": false,
+        "client": [
+          "threads.read",
+          "threads.send",
+          "approvals.respond"
+        ],
+        "workspaces": "linked"
+      },
+      "lines": [
+        "can connect to api.telegram.org",
+        "can read the secret `telegram-bot-token`",
+        "can read threads",
+        "can send messages to threads",
+        "can answer approvals (allow or deny)",
+        "only in the workspaces you link to it"
+      ]
+    },
+    {
+      "permissions": {
+        "spawn": [],
+        "network": [],
+        "files": "none",
+        "secrets": [],
+        "tools": false,
+        "client": [
+          "workspaces.list",
+          "threads.create"
+        ],
+        "workspaces": "all",
+        "schedules": true
+      },
+      "lines": [
+        "can list your workspaces",
+        "can start threads",
+        "in every workspace",
+        "can run on a schedule, even when you are not using Kumikit"
+      ]
     }
   ]
 }

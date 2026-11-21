@@ -1,0 +1,36 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 113,
+    "method": "schedule.delete",
+    "params": {
+      "plugin": "kumikit.schedules",
+      "key": "01JCSC0000000000000000000001"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 113,
+    "result": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 114,
+    "method": "schedule.delete",
+    "params": {
+      "plugin": "acme.cleanup",
+      "key": "manifest:0"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 114,
+    "error": {
+      "code": -32000,
+      "message": "a manifest schedule cannot be deleted; pause it instead",
+      "data": {
+        "code": "conflict"
+      }
+    }
+  }
+]

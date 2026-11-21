@@ -15,4 +15,8 @@ commands: Array<string>,
 /**
  * Whether the plugin has settings.
  */
-settings: boolean, };
+settings: boolean, 
+/**
+ * Plugin method names, called as `<plugin id>/<name>`.
+ */
+methods?: Array<string>, };

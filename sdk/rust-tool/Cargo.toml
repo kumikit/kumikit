@@ -1,0 +1,16 @@
+[package]
+name = "kumikit-tool"
+description = "Guest-side SDK for Kumikit tool plugins (WASM components)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+kumikit-plugin.workspace = true
+wit-bindgen = { version = "0.61.1", default-features = false, features = ["macros", "realloc", "std", "bitflags"] }

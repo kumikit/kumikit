@@ -15,6 +15,8 @@ use std::process::Command;
 const GUESTS: &[(&str, &str)] = &[
     ("kumikit-test-hello", "kumikit_test_hello"),
     ("kumikit-test-probe", "kumikit_test_probe"),
+    ("kumikit-test-client", "kumikit_test_client"),
+    ("kumikit-test-tool", "kumikit_test_tool"),
     // A first-party plugin, built here so end-to-end tests can install it.
     ("kumikit-provider-acp", "kumikit_provider_acp"),
 ];
@@ -56,7 +58,7 @@ fn main() {
         .unwrap_or_else(|| root.join("target"))
         .join("kumikit-test");
 
-    for dir in ["wit", "sdk/rust", "test-plugins", "plugins", "Cargo.lock"] {
+    for dir in ["wit", "sdk", "test-plugins", "plugins", "Cargo.lock"] {
         let path = root.join(dir);
         // A path that does not exist would make cargo rerun this script on every build.
         if path.exists() {

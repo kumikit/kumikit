@@ -23,6 +23,7 @@
       }
     },
     "model-arg": { "type": "string", "description": "Flag that selects the model on the agent's command line, followed by the model id." },
-    "mode": { "type": "string", "description": "Session mode to set after opening (session/set_mode)." }
+    "mode": { "type": "string", "description": "Session mode to set after opening (session/set_mode)." },
+    "auth-method": { "type": "string", "description": "ACP authentication method id to call with authenticate after initialize, for agents that require it before opening a session." }
   }
 }

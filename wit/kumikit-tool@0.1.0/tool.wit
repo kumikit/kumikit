@@ -1,0 +1,48 @@
+package kumikit:tool@0.1.0;
+
+/// Tools for the tool gateway (`docs/spec/03-kernel.md#tool-gateway`). A plugin lists its
+/// tools in its manifest (`[[contributes.tools]]`); the kernel serves them to agents over
+/// MCP and calls `call` for each use, with the input already checked against the tool's
+/// schema.
+interface tool {
+  use kumikit:host/types@0.2.0.{error};
+
+  /// One call.
+  record tool-call {
+    /// The tool's name in the manifest.
+    name: string,
+    /// The arguments, JSON (an object).
+    input: string,
+    /// The calling thread.
+    thread: string,
+    /// Its workspace's absolute root; the plugin acts for it during the call.
+    workspace-root: string,
+  }
+
+  /// What a call returns (MCP's `content` and `structuredContent`).
+  record tool-result {
+    /// Text for the agent.
+    text: string,
+    /// Structured result, JSON, if the tool has one.
+    structured: option<string>,
+    /// The tool ran but failed; `text` says why.
+    is-error: bool,
+  }
+
+  /// Runs one call.
+  call: func(call: tool-call) -> result<tool-result, error>;
+}
+
+/// A plugin that contributes tools: the base world's imports and exports, and `tool`.
+world plugin {
+  import kumikit:host/log@0.2.0;
+  import kumikit:host/kv@0.2.0;
+  import kumikit:host/process@0.2.0;
+  import kumikit:host/secrets@0.2.0;
+  import kumikit:host/settings@0.2.0;
+  export kumikit:plugin/lifecycle@0.2.0;
+  export kumikit:plugin/rpc@0.2.0;
+  export kumikit:plugin/commands@0.2.0;
+  export kumikit:plugin/timers@0.2.0;
+  export tool;
+}

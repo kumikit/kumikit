@@ -1,0 +1,79 @@
+package kumikit:host@0.2.0;
+
+/// The protocol surface for plugins that act like clients: bots, scheduled prompts
+/// (`docs/spec/03-kernel.md#client-interface`). Each function needs its operation in
+/// `permissions.client`, and acts only in the workspaces `permissions.workspaces` allows
+/// (`linked`: those the user linked to the plugin; `all`); anything else fails with
+/// `permission-denied`. Messages and answers are recorded as coming from the plugin.
+interface client {
+  use types.{error};
+  use wasi:io/poll@0.2.12.{pollable};
+
+  /// A workspace.
+  record workspace {
+    id: string,
+    name: string,
+    root: string,
+  }
+
+  /// A thread, as `thread.list` shows it.
+  record thread {
+    id: string,
+    workspace: string,
+    title: option<string>,
+    /// Qualified provider id.
+    provider: string,
+    model: string,
+    /// `idle`, `running`, `awaiting_approval`, `failed` or `archived`.
+    status: string,
+  }
+
+  /// A provider.
+  record provider {
+    /// Qualified id.
+    id: string,
+    name: string,
+  }
+
+  /// An answer a plugin may give (never `allow-always`).
+  enum decision { allow, deny }
+
+  /// One event of a subscription.
+  record event {
+    topic: string,
+    seq: u64,
+    time: string,
+    kind: string,
+    /// The event's data, JSON.
+    data: string,
+  }
+
+  /// `workspaces.list`: the open workspaces the plugin may act in.
+  list-workspaces: func() -> result<list<workspace>, error>;
+  /// `threads.read`: a workspace's threads, most recent first.
+  list-threads: func(workspace: string) -> result<list<thread>, error>;
+  /// `threads.read`: a thread snapshot (`thread.get`'s result), JSON.
+  get-thread: func(thread: string) -> result<string, error>;
+  /// `threads.create`: providers the plugin can start threads with.
+  list-providers: func() -> result<list<provider>, error>;
+  /// `threads.create`: a new thread; provider and model default as in `thread.create`.
+  create-thread: func(workspace: string, provider: option<string>, model: option<string>, title: option<string>) -> result<thread, error>;
+  /// `threads.send`: sends a message; returns the turn id.
+  send: func(thread: string, text: string) -> result<string, error>;
+  /// `threads.cancel`: cancels the running turn.
+  cancel: func(thread: string) -> result<_, error>;
+  /// `approvals.respond`: answers a pending approval.
+  respond-approval: func(approval: string, decision: decision) -> result<_, error>;
+
+  /// Events of a topic (`thread:<id>` from a cursor, or `workspace:<id>` from now on).
+  resource subscription {
+    /// Ready when events are waiting (or the subscription ended).
+    subscribe: func() -> pollable;
+    /// Events waiting now, at most `max`; never blocks. Fails with `conflict` once the
+    /// subscription has ended (the thread or workspace is gone, or the plugin lost access).
+    next: func(max: u32) -> result<list<event>, error>;
+  }
+
+  /// `threads.read`: follows a topic.
+  subscribe: func(topic: string, after: u64) -> result<subscription, error>;
+}

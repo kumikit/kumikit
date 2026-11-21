@@ -66,7 +66,7 @@ function parseString(text: string, line: number): { value: string; rest: string 
   throw new Error(`line ${line}: an unterminated string`);
 }
 
-const PERMISSION_KEYS = new Set(['spawn', 'network', 'files', 'secrets', 'tools']);
+const PERMISSION_KEYS = new Set(['spawn', 'network', 'files', 'secrets', 'tools', 'client', 'workspaces', 'schedules']);
 
 /** Reads a Kumikit lockfile (format 1). Throws with a line number on anything else. */
 export function parseLock(text: string): Lock {
@@ -126,6 +126,9 @@ export function parseLock(text: string): Lock {
           secrets: list('secrets'),
           tools: g.tools === true,
         };
+        if (list('client').length) entry.granted.client = list('client');
+        if (g.workspaces === 'linked' || g.workspaces === 'all') entry.granted.workspaces = g.workspaces;
+        if (g.schedules === true) entry.granted.schedules = true;
       }
       return entry;
     }),

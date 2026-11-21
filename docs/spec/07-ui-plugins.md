@@ -30,7 +30,8 @@ Slots are versioned with the UI SDK. Adding a slot is a minor change.
 
 ## Versions
 
-The UI SDK is at **0.1.1** (0.1.0 plus sandboxed panels) and freezes at 1.0 after M5,
+The UI SDK is at **0.1.2** (0.1.0 plus sandboxed panels in 0.1.1, and `CommandResult`
+and `x-secret` secret names in 0.1.2) and freezes at 1.0 after M5,
 before the official registry opens to third parties
 ([ADR 0014](../decisions/0014-ui-sdk-versioning.md),
 [ADR 0020](../decisions/0020-interface-freeze-after-m5.md)). A UI plugin's or theme's `api` is a
@@ -38,7 +39,7 @@ range over the UI SDK version (`api = "^0.1"`), separate from the kernel plugin 
 core plugins. The slot list and the token set of each published SDK version are files in
 `web/sdk/api/<version>/` (`slots.json`, `tokens.json`); `web/sdk/api/PUBLISHED` records
 their hashes, and a test fails if a published version changes. A version that changes neither list
-(0.1.1) adds no directory; its lists are those of 0.1.0.
+(0.1.1, 0.1.2) adds no directory; its lists are those of 0.1.0.
 
 ## Manifest
 
@@ -73,15 +74,21 @@ Data in the manifest (or returned by a core plugin at runtime) that the UI kerne
 with its own components:
 
 - **Settings**: JSON Schema with UI hints (`x-widget`, `x-secret`, `x-order`).
-- **Commands**: id, title, icon, keybinding, `when` clause.
+- **Commands**: id, title, icon, keybinding, `when` clause. A core plugin's commands
+  (`command.list`) appear in the palette for tabs on that core; running one
+  (`command.run`, in the tab's workspace for `workspace` commands) shows its result: a
+  notification for `message`, and a view for `view`, whose `form` submits by running the
+  command it names with the form's values.
 - **Status items**: text, icon, tooltip, command; updated by the plugin.
 - **Views**: a small vocabulary of models: `list`, `tree`, `table`, `markdown`,
   `key-value`, `form`, `progress`. The plugin supplies data and command ids; the UI kernel
   draws them with the active theme.
 - **Notifications and quick picks**.
 
-The vocabulary's types (`DeclarativeView`, `SettingsSchema`, `StatusItem`) are part of
-the UI SDK. A UI plugin's `contributes.settings` names a schema file; the UI kernel draws
+The vocabulary's types (`DeclarativeView`, `SettingsSchema`, `StatusItem`,
+`CommandResult`) are part of the UI SDK (`CommandResult` since 0.1.2). Settings pages for
+core plugins are drawn from `settings.schema`; a field with `x-secret` shows only "set" or
+"not set" and writes with `secret.set`. A UI plugin's `contributes.settings` names a schema file; the UI kernel draws
 its page and keeps the values in the plugin's client storage.
 
 This covers most plugin UI and keeps it consistent with the theme for free.
@@ -138,7 +145,8 @@ Decided in [ADR 0019](../decisions/0019-sandboxed-panels.md).
   - read-only kernel methods: `workspace.list`, `thread.list`, `thread.get`,
     `provider.list`, `provider.models`, `plugin.list`, and subscriptions to `thread:` and
     `workspace:` topics, with thread and workspace reads limited to the tab's workspace;
-  - `<pluginId>/*` methods of the plugins in its `requires.core`.
+  - `<pluginId>/*` methods of the plugins in its `requires.core`; their `workspace`
+    param is always the tab's (the bridge replaces whatever the panel sends).
 
   Everything else fails with `permission_denied`: other connections, writes (`thread.send`,
   approvals, `plugin.*`, `registry.*`, `settings.*`, `secret.*`, `auth.*`,

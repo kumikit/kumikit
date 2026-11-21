@@ -47,7 +47,7 @@ crates/
   kumikit-plugin-host/   # wasmtime component host, WIT bindings, sidecar host (later)
   kumikit-core/          # the `kumikit` binary: transports, auth, CLI
   kumikit-shell/         # Tauri desktop shell: window, bridge, client plugin store
-wit/                     # WIT packages: kumikit:host, kumikit:provider, kumikit:bot, …
+wit/                     # WIT packages: kumikit:host, kumikit:plugin, kumikit:provider, kumikit:tool
 web/
   kernel/                # Svelte 5 UI kernel
   sdk/                   # @kumikit/ui-sdk: types and helpers for UI plugin authors
@@ -57,6 +57,7 @@ web/
 sdk/
   rust/                  # kumikit-plugin crate: guest bindings for the base world, helpers
   rust-provider/         # kumikit-provider crate: the provider world, on top of kumikit-plugin
+  rust-tool/             # kumikit-tool crate: the tool world (tool gateway), on top of kumikit-plugin
   schema/                # JSON Schema of plugin.toml
 plugins/                 # first-party plugins, built with the public SDKs only
   provider-acp/

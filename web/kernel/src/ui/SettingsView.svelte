@@ -1,13 +1,22 @@
 <!-- Settings: the pages UI plugins contribute (`settings.page`). -->
 <script lang="ts">
   import type { Kernel } from '../app.svelte';
+  import CoreSettings from './CoreSettings.svelte';
   import SlotHost from './SlotHost.svelte';
 
   let { kernel, page }: { kernel: Kernel; page: string | undefined } = $props();
   const pages = $derived(
     [...kernel.slots.in('settings.page')].sort((a, b) => (a.contribution.order ?? 100) - (b.contribution.order ?? 100)),
   );
-  const current = $derived(pages.find((p) => p.contribution.id === page) ?? pages[0]);
+  /** Core plugins with settings on the active tab's core; page ids are `core:<plugin id>`. */
+  const conn = $derived(kernel.connection);
+  const corePages = $derived(
+    conn.hello?.capabilities.includes('settings') ? conn.plugins.filter((p) => p.contributes.settings) : [],
+  );
+  const coreCurrent = $derived(
+    page?.startsWith('core:') ? corePages.find((p) => `core:${p.id}` === page) : pages.length ? undefined : corePages[0],
+  );
+  const current = $derived(coreCurrent ? undefined : (pages.find((p) => p.contribution.id === page) ?? pages[0]));
 </script>
 
 <div class="settings">
@@ -18,9 +27,21 @@
         {p.contribution.title}
       </button>
     {/each}
+    {#if corePages.length}
+      <h2>On {conn.label}</h2>
+      {#each corePages as p (p.id)}
+        <button type="button" class:current={p === coreCurrent} aria-current={p === coreCurrent ? 'page' : undefined} onclick={() => (kernel.main = { kind: 'settings', page: `core:${p.id}` })}>
+          {p.id}
+        </button>
+      {/each}
+    {/if}
   </nav>
   <div class="page">
-    {#if current}
+    {#if coreCurrent}
+      {#key coreCurrent.id}
+        <CoreSettings connection={conn} plugin={coreCurrent.id} notify={(m) => kernel.notify(m, 'danger')} />
+      {/key}
+    {:else if current}
       {#key current}
         <SlotHost plugin={current.plugin} contribution={current.contribution} props={{}} slots={kernel.slots} label={current.contribution.title} />
       {/key}
@@ -46,6 +67,10 @@
     padding: 12px 8px;
     border-right: 1px solid var(--kk-border-subtle, CanvasText);
     background: var(--kk-surface-panel, Canvas);
+  }
+  h2 {
+    margin: 12px 0 4px 6px;
+    font-size: var(--kk-font-size-small, small);
   }
   h1 {
     margin: 0 0 8px 6px;

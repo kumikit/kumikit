@@ -43,16 +43,16 @@ Approval  { id, thread, turn, kind, summary, detail, status }
 
 | Kind | Data | Emitted by |
 |---|---|---|
-| `turn.started` | `turn`, `input` (`{ text }`; attachments are a later optional field) | kernel |
+| `turn.started` | `turn`, `input` (`{ text }`; attachments are a later optional field), `from?` (`{ plugin }` when a plugin sent the message through the client interface) | kernel |
 | `text.delta` | `turn`, `text` | provider |
 | `text.done` | `turn`, `text` (full message) | provider |
 | `reasoning.delta` | `turn`, `text` | provider |
-| `tool.started` | `turn`, `call`, `name`, `input` | provider |
-| `tool.output` | `turn`, `call`, `chunk` | provider |
-| `tool.finished` | `turn`, `call`, `ok`, `result?` | provider |
+| `tool.started` | `turn`, `call`, `name`, `input`, `source?` (`{ plugin, tool }` for a call through the tool gateway) | provider, or the kernel for gateway calls |
+| `tool.output` | `turn`, `call`, `chunk` | provider, or the kernel |
+| `tool.finished` | `turn`, `call`, `ok`, `result?` | provider, or the kernel |
 | `file.changed` | `turn`, `path`, `diff?` | provider |
-| `approval.requested` | `approval` | provider |
-| `approval.resolved` | `approval`, `decision` (`allow`, `allow_always`, `deny`, `cancelled`), `by?` (the paired device that answered; absent for local and SSH connections and for cancellations) | kernel |
+| `approval.requested` | `approval` | provider, or the kernel for gateway calls (kind `tool`) |
+| `approval.resolved` | `approval`, `decision` (`allow`, `allow_always`, `deny`, `cancelled`), `by?` (the paired device that answered; absent for local and SSH connections and for cancellations), `plugin?` (the plugin that answered through the client interface) | kernel |
 | `usage` | `turn`, `inputTokens`, `outputTokens`, `cost?` | provider |
 | `turn.ended` | `turn`, `outcome` (`done`, `cancelled`, `failed`), `error?` | kernel |
 | `plugin.event` | `plugin`, `kind`, `data` | any plugin, namespaced |
@@ -108,14 +108,26 @@ that do not understand one skip it; a UI plugin can register a renderer for it.
 - Events are stored as JSON. Old threads can be compacted (text deltas folded into
   `text.done`) without changing what a replay shows.
 
+## Plugin settings
+
+- A plugin with `[contributes] settings` has a JSON Schema; clients read it with
+  `settings.schema` and change values with `settings.set`, which the kernel validates. The
+  values are stored by the kernel per plugin and read by the plugin with
+  `kumikit:host/settings.get` (its own only).
+- A schema property with `"x-secret": "<name>"` is a secret field: it is set with
+  `secret.set` under that name, never stored with the settings, and the name must be in
+  the plugin's own `permissions.secrets` (checked at install).
+
 ## Secrets
 
 - The secret store holds provider keys and bot tokens: values the core must read back.
   Device tokens are not secrets the core keeps; only their hashes are stored (Storage).
 - Backend: the OS keychain where it works non-interactively, otherwise a 0600 file
   (`secrets.json`) in the core data directory. The choice is a setting, not a code path in
-  plugins. Only the file backend exists so far; setting secrets over the protocol
-  (`secret.*`) comes with the settings UI.
+  plugins. Only the file backend exists so far. Clients set and delete secrets with
+  `secret.*`.
+- The core's log redacts the value of every stored secret (at least 8 characters long)
+  wherever it appears in a message.
 - A plugin reads only the secret names its manifest declares. Clients can set and delete
   secrets but never read them; the UI shows "set" or "not set".
 
@@ -130,7 +142,8 @@ that do not understand one skip it; a UI plugin can register a renderer for it.
   thread workspace) and defaults to its root; paths are canonicalized before the check. A
   plugin acting for no workspace cannot spawn.
 - The environment starts empty and gets, in order: an allowlist copied from the core
-  (`PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `LANG`, `LC_*`, `TERM`, `TMPDIR`, `XDG_*`;
+  (`PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `LANG`, `LC_*`, `TERM`, `TMPDIR`, `XDG_*`,
+  `DISPLAY`, `WAYLAND_DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`;
   on Windows `SystemRoot`, `windir`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`,
   `ProgramData`, `ProgramFiles*`, `PATHEXT`, `COMSPEC`, `TEMP`, `TMP`, `USERNAME`,
   `HOMEDRIVE`, `HOMEPATH`); variables the plugin sets explicitly (dynamic-loader variables
@@ -146,9 +159,67 @@ that do not understand one skip it; a UI plugin can register a renderer for it.
   one stream cannot deadlock on the other.
 - Every refused spawn is logged with the plugin id and the reason.
 
+## Client interface
+
+A plugin granted `permissions.client` operations can act like a client through
+`kumikit:host/client` (bots, scheduled prompts): list workspaces, read, create and send to
+threads, cancel turns and answer approvals. The kernel checks each call against the
+operations granted and against `permissions.workspaces`: `none`, `linked` (only the
+workspaces the user linked to the plugin with `plugin.setWorkspaces`) or `all`. Messages a
+plugin sends carry `from { plugin }` in `turn.started`; approvals it answers carry
+`plugin` in `approval.resolved`; it cannot answer `allow_always`. Subscriptions are
+resources with a `wasi:io` pollable, so a plugin can wait on several things at once.
+
+## Schedules
+
+Decided in [ADR 0024](../decisions/0024-schedules.md).
+
+- A schedule belongs to a plugin and has a key, a cron expression (five fields: minute,
+  hour, day of month, month, day of week, with lists, ranges and steps; or `@hourly`,
+  `@daily`, `@weekly`, `@monthly`), a time zone (the core's local zone by default, or an
+  IANA name), a description, a missed-run policy (`skip` or `once`) and an enabled flag.
+  Manifest triggers `schedule:<cron>` are schedules owned by the manifest (key
+  `manifest:<n>`, the trigger's position); a plugin adds and removes its own with
+  `kumikit:host/timers`. Both need `permissions.schedules`; a plugin has at most 64.
+- Schedules are rows in the core database with their next run, so a restart needs no
+  replay. One scheduler task sleeps until the earliest enabled next run and wakes on
+  changes; with no enabled schedule it arms no timer.
+- When one is due the kernel activates the plugin and calls `kumikit:plugin/timers.fire`.
+  It does not fire while its previous call is still running (`skipped`). A time skipped
+  by a DST change runs as if the clocks had not moved (02:30 becomes 03:30); a repeated
+  hour runs once, at its first occurrence.
+- Runs missed while the core was down, or by a wake more than 5 minutes late, follow the
+  policy: `skip` records `missed`; `once` runs once, never more.
+- `schedule.list`, `schedule.setEnabled`, `schedule.delete` and `schedule.run` show,
+  pause, remove and run them now; `ui-settings` has a Schedules page for the active core.
+  Disabling a plugin stops its schedules (its runs are not counted as missed until it is
+  enabled again); uninstalling deletes them. Only `kumikit serve` runs the scheduler, not
+  CLI commands that open the data directory.
+
 ## Tool gateway
 
-Plugins can contribute tools (`[contributes] tools`). The kernel serves them to agents
-through a local MCP endpoint, so a provider can hand its agent CLI one MCP config that
-reaches every enabled tool. Tool calls are checked against the calling thread's workspace
-and logged as `tool.*` events.
+Decided in [ADR 0025](../decisions/0025-tool-gateway.md).
+
+- Plugins contribute tools in their manifest (`[[contributes.tools]]`: `name`, `title`,
+  `description`, `input` schema file, `effect = "read" | "write"`, default `write`) and
+  serve them with the `kumikit:tool/tool.call` export. Listing tools activates nothing.
+  A tool's MCP name is `<plugin id with "." and "-" as "_">__<name>`, at most 64
+  characters.
+- A provider session gets an MCP server only if its plugin (the contributing plugin, for a
+  delegated provider) is granted `tools`. The record names the core binary, the arguments
+  `mcp --socket <socket>` and the variable `KUMIKIT_MCP_TOKEN`; the provider passes it to
+  its agent. `kumikit mcp` connects to the local socket or pipe, sends `gateway.attach {
+  token }` and then copies MCP messages both ways.
+- The token is 32 random bytes, kept only in memory, bound to the session, and void when
+  the session ends, the plugin is disabled or the core stops.
+- The server speaks MCP `initialize` (protocol versions 2025-03-26, 2025-06-18 and
+  2025-11-25), `ping`, `tools/list`, `tools/call`, `notifications/cancelled` and sends
+  `notifications/tools/list_changed`. It offers every tool of every enabled plugin.
+- A call is refused unless the session's thread has a running turn. The kernel validates
+  the input against the schema, appends `tool.started` with `source`, runs the tool in
+  the tool plugin's control instance acting for the thread's workspace (one call of a
+  plugin at a time), and appends `tool.output` and `tool.finished`. A `write` tool first needs an approval (kind `tool`)
+  in the running turn; `allow_always` covers that tool in that thread.
+- Limits: input and result at most 1 MiB each (a longer result is cut and says so), 4
+  calls in flight per session, the tool plugin's call limit and 5 minutes of wall time per
+  call. Cancelling the turn cancels its calls.

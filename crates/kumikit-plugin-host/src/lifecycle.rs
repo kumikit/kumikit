@@ -28,7 +28,10 @@ use kumikit_protocol::model::{ApprovalId, Decision, ThreadId, UserInput};
 use crate::manager::{HostError, Manager, PluginView};
 use crate::manifest::{Manifest, check_backend_entry};
 use crate::runtime::bindings::provider::kumikit::provider::types as wit;
-use crate::runtime::{CallError, Identity, Instance, InstanceConfig, SessionShared};
+use crate::runtime::{
+    CallContext, CallError, CommandResult, Identity, Instance, InstanceConfig, SessionShared,
+    WorkspaceRef,
+};
 
 /// Lifecycle settings.
 #[derive(Clone)]
@@ -108,6 +111,66 @@ fn guest_message(e: crate::runtime::bindings::base::kumikit::host::types::Error)
         ErrorCode::PermissionDenied => format!("permission_denied: {}", e.message),
         _ => e.message,
     }
+}
+
+/// A guest's error as a host error: the codes clients can act on keep their meaning.
+fn guest_error(
+    plugin: &str,
+    e: crate::runtime::bindings::base::kumikit::host::types::Error,
+) -> HostError {
+    use crate::runtime::bindings::base::kumikit::host::types::ErrorCode as C;
+    match e.code {
+        C::PermissionDenied => HostError::Denied(format!("permission_denied: {}", e.message)),
+        C::NotFound => HostError::NotFound(e.message),
+        C::InvalidArgument | C::Limit => HostError::Invalid(e.message),
+        C::Conflict | C::Cancelled => HostError::Conflict(e.message),
+        _ => HostError::PluginFailed(format!("{plugin}: {}", e.message)),
+    }
+}
+
+/// A command a plugin contributes, as `command.list` shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandInfo {
+    /// The plugin.
+    pub plugin: String,
+    /// The command id.
+    pub id: String,
+    /// Its title.
+    pub title: String,
+    /// Whether it acts for a workspace.
+    pub workspace: bool,
+    /// Its UI condition.
+    pub when: Option<String>,
+}
+
+/// A tool of an enabled plugin, as the gateway lists it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolInfo {
+    /// The plugin.
+    pub plugin: String,
+    /// Its name in the manifest.
+    pub name: String,
+    /// Its MCP name (`<plugin id with _>__<name>`).
+    pub mcp_name: String,
+    /// Title for people.
+    pub title: String,
+    /// Description for the agent.
+    pub description: String,
+    /// The JSON Schema of its arguments.
+    pub input_schema: serde_json::Value,
+    /// Whether it needs an approval.
+    pub write: bool,
+}
+
+/// What a tool call returned.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolOutcome {
+    /// Text for the agent.
+    pub text: String,
+    /// Structured result, JSON text.
+    pub structured: Option<String>,
+    /// The tool failed.
+    pub is_error: bool,
 }
 
 /// The qualified id of a provider.
@@ -329,13 +392,16 @@ impl PluginHost {
     pub async fn uninstall(&self, id: &str, delete_data: bool) -> Result<(), HostError> {
         let was_enabled = self.inner.manager.get(id)?.record.state
             == kumikit_kernel::plugins::PluginState::Enabled;
-        self.inner.manager.uninstall(id, delete_data).await?;
-        self.reconcile().await;
         if was_enabled {
-            self.inner.changed.send_modify(|v| *v += 1);
+            self.inner.manager.disable(id).await?;
+            self.reconcile().await;
         }
         self.unload(id, "removed").await;
         lock(&self.inner.runs).remove(id);
+        self.inner.manager.uninstall(id, delete_data).await?;
+        if was_enabled {
+            self.inner.changed.send_modify(|v| *v += 1);
+        }
         Ok(())
     }
 
@@ -373,6 +439,234 @@ impl PluginHost {
         })
     }
 
+    /// Starts the kernel's scheduler with this host as its runner (`kumikit serve` only:
+    /// CLI commands that open the data directory must not run schedules).
+    pub fn start_scheduler(&self) {
+        let runner = ScheduleRunner {
+            host: Arc::downgrade(&self.inner),
+        };
+        self.inner
+            .manager
+            .kernel()
+            .start_scheduler(Arc::new(runner));
+    }
+
+    /// Makes enabled plugins' `schedule:<cron>` triggers their manifest schedules, and
+    /// wakes the scheduler (a plugin may have been enabled or disabled).
+    async fn sync_schedules(&self, enabled: &[(PluginRecord, Arc<Manifest>)]) {
+        let kernel = self.inner.manager.kernel();
+        let now = jiff::Timestamp::now();
+        for (record, manifest) in enabled {
+            let crons: Vec<String> = manifest
+                .activation
+                .on
+                .iter()
+                .filter_map(|t| t.strip_prefix("schedule:").map(|c| c.trim().to_owned()))
+                .collect();
+            if let Err(e) = kernel.schedule_sync_manifest(&record.id, &crons, now).await {
+                tracing::warn!(plugin = %record.id, error = %e, "cannot record the manifest's schedules");
+            }
+        }
+        kernel.schedules_changed();
+    }
+
+    /// The tools of every enabled plugin, with their schemas (read from the packages).
+    pub fn tools(&self) -> Vec<ToolInfo> {
+        let mut out = Vec::new();
+        for (record, manifest) in self.inner.manager.enabled() {
+            for t in &manifest.contributes.tools {
+                let path = self
+                    .inner
+                    .manager
+                    .dirs()
+                    .package(&record.id, &record.version)
+                    .join(&t.input);
+                let schema = std::fs::read_to_string(&path)
+                    .ok()
+                    .and_then(|s| serde_json::from_str(&s).ok());
+                let Some(input_schema) = schema else {
+                    tracing::warn!(plugin = %record.id, tool = %t.name, "cannot read the tool's input schema; not listed");
+                    continue;
+                };
+                out.push(ToolInfo {
+                    plugin: record.id.clone(),
+                    name: t.name.clone(),
+                    mcp_name: crate::manifest::mcp_tool_name(&record.id, &t.name),
+                    title: t.title.clone(),
+                    description: t.description.clone(),
+                    input_schema,
+                    write: t.effect == crate::manifest::Effect::Write,
+                });
+            }
+        }
+        out
+    }
+
+    /// Runs a tool in its plugin's control instance, acting for `workspace_root`.
+    pub async fn call_tool(
+        &self,
+        plugin: &str,
+        name: &str,
+        input: &serde_json::Value,
+        thread: &str,
+        workspace_root: &str,
+    ) -> Result<ToolOutcome, HostError> {
+        use crate::runtime::bindings::tool::exports::kumikit::tool::tool::ToolCall;
+        self.enabled_manifest(plugin)?;
+        let control = self
+            .control(plugin)
+            .await
+            .map_err(|e| HostError::PluginFailed(e.to_string()))?;
+        let r = control
+            .call_tool(ToolCall {
+                name: name.to_owned(),
+                input: input.to_string(),
+                thread: thread.to_owned(),
+                workspace_root: workspace_root.to_owned(),
+            })
+            .await;
+        let r = self.guest_result(plugin, r).await?;
+        Ok(ToolOutcome {
+            text: r.text,
+            structured: r.structured,
+            is_error: r.is_error,
+        })
+    }
+
+    /// The commands of every enabled plugin, by plugin then manifest order.
+    pub fn commands(&self) -> Vec<CommandInfo> {
+        self.inner
+            .manager
+            .enabled()
+            .into_iter()
+            .flat_map(|(record, manifest)| {
+                manifest
+                    .contributes
+                    .commands
+                    .iter()
+                    .map(|c| CommandInfo {
+                        plugin: record.id.clone(),
+                        id: c.id.clone(),
+                        title: c.title.clone(),
+                        workspace: c.scope == crate::manifest::Scope::Workspace,
+                        when: c.when.clone(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    /// An enabled plugin's manifest, for routing calls to it.
+    fn enabled_manifest(&self, plugin: &str) -> Result<Arc<Manifest>, HostError> {
+        self.inner
+            .manager
+            .enabled()
+            .into_iter()
+            .find(|(r, _)| r.id == plugin)
+            .map(|(_, m)| m)
+            .ok_or_else(|| HostError::NotFound(format!("plugin {plugin} is not enabled")))
+    }
+
+    /// Whether `method` is a `workspace`-scoped method of the enabled `plugin`; `None` if
+    /// the plugin does not declare it (or is not enabled).
+    pub fn method_scope(&self, plugin: &str, method: &str) -> Option<bool> {
+        let m = self.enabled_manifest(plugin).ok()?;
+        m.contributes
+            .methods
+            .iter()
+            .find(|x| x.name == method)
+            .map(|x| x.scope == crate::manifest::Scope::Workspace)
+    }
+
+    /// Whether `command` is a `workspace`-scoped command of the enabled `plugin`.
+    pub fn command_scope(&self, plugin: &str, command: &str) -> Result<bool, HostError> {
+        let m = self.enabled_manifest(plugin)?;
+        m.contributes
+            .commands
+            .iter()
+            .find(|x| x.id == command)
+            .map(|x| x.scope == crate::manifest::Scope::Workspace)
+            .ok_or_else(|| HostError::NotFound(format!("{plugin} has no command {command}")))
+    }
+
+    /// Calls a plugin method in its control instance (`<plugin>/<method>`), acting for
+    /// `workspace`. `params` and the result are JSON.
+    pub async fn call_method(
+        &self,
+        plugin: &str,
+        method: &str,
+        params: &serde_json::Value,
+        workspace: Option<WorkspaceRef>,
+    ) -> Result<serde_json::Value, HostError> {
+        self.enabled_manifest(plugin)?;
+        let control = self
+            .control(plugin)
+            .await
+            .map_err(|e| HostError::PluginFailed(e.to_string()))?;
+        let ctx = CallContext { workspace };
+        let r = control
+            .handle_rpc(method.to_owned(), params.to_string(), ctx)
+            .await;
+        let text = self.guest_result(plugin, r).await?;
+        serde_json::from_str(&text).map_err(|e| {
+            HostError::PluginFailed(format!(
+                "{plugin}/{method} answered something that is not JSON: {e}"
+            ))
+        })
+    }
+
+    /// Runs a plugin command in its control instance, acting for `workspace`. Returns the
+    /// message and the view (JSON) it shows.
+    pub async fn run_command(
+        &self,
+        plugin: &str,
+        command: &str,
+        args: &serde_json::Value,
+        workspace: Option<WorkspaceRef>,
+    ) -> Result<(Option<String>, Option<serde_json::Value>), HostError> {
+        self.command_scope(plugin, command)?;
+        let control = self
+            .control(plugin)
+            .await
+            .map_err(|e| HostError::PluginFailed(e.to_string()))?;
+        let ctx = CallContext { workspace };
+        let r = control
+            .run_command(command.to_owned(), args.to_string(), ctx)
+            .await;
+        let CommandResult { message, view } = self.guest_result(plugin, r).await?;
+        let view = view
+            .map(|v| {
+                serde_json::from_str(&v).map_err(|e| {
+                    HostError::PluginFailed(format!(
+                        "{plugin}: command {command} gave a view that is not JSON: {e}"
+                    ))
+                })
+            })
+            .transpose()?;
+        Ok((message, view))
+    }
+
+    /// Maps an export call's result; a trap fails the plugin.
+    async fn guest_result<T>(
+        &self,
+        plugin: &str,
+        r: Result<
+            Result<T, crate::runtime::bindings::base::kumikit::host::types::Error>,
+            CallError,
+        >,
+    ) -> Result<T, HostError> {
+        match r {
+            Ok(Ok(v)) => Ok(v),
+            Ok(Err(e)) => Err(guest_error(plugin, e)),
+            Err(e) => {
+                if matches!(e, CallError::Trap { .. }) {
+                    self.failed(plugin, &e.to_string()).await;
+                }
+                Err(HostError::PluginFailed(e.to_string()))
+            }
+        }
+    }
+
     /// Instances running for a plugin: (control instance, sessions).
     pub fn instances(&self, id: &str) -> (bool, usize) {
         lock(&self.inner.runs)
@@ -384,6 +678,7 @@ impl PluginHost {
     /// unregisters the difference with the kernel.
     async fn reconcile(&self) {
         let enabled = self.inner.manager.enabled();
+        self.sync_schedules(&enabled).await;
         // key -> (backend plugin, its version, its schema file)
         let mut backends: HashMap<String, (String, String, Option<PathBuf>)> = HashMap::new();
         for (record, manifest) in &enabled {
@@ -532,6 +827,13 @@ impl PluginHost {
             memory: manifest.memory_limit(),
             call_timeout: manifest.call_timeout(),
             session,
+            settings_schema: manifest.contributes.settings.as_ref().map(|f| {
+                self.inner
+                    .manager
+                    .dirs()
+                    .package(backend, &code.record.version)
+                    .join(f)
+            }),
         })
     }
 
@@ -665,10 +967,24 @@ impl PluginHost {
         };
         for s in sessions {
             self.kernel().forget_session(&s.thread);
+            let mut stopped = s.instance.stopped();
             self.drop_instance(&s.instance).await;
+            drop(s);
+            let _ = tokio::time::timeout(
+                self.inner.config.deactivate_limit,
+                stopped.wait_for(|&done| done),
+            )
+            .await;
         }
         if let Some(i) = control {
+            let mut stopped = i.stopped();
             self.drop_instance(&i).await;
+            drop(i);
+            let _ = tokio::time::timeout(
+                self.inner.config.deactivate_limit,
+                stopped.wait_for(|&done| done),
+            )
+            .await;
         }
         tracing::info!(plugin, why, "plugin unloaded");
     }
@@ -850,7 +1166,12 @@ impl Provider for WasmProvider {
                 workspace_root: config.workspace_root,
                 model: config.model,
                 resume: config.resume,
-                mcp_endpoint: config.mcp_endpoint,
+                mcp_server: config.mcp_server.map(|m| wit::McpServer {
+                    name: m.name,
+                    command: m.command,
+                    args: m.args,
+                    env: m.env,
+                }),
                 options: config.options,
             };
             let id = self
@@ -987,6 +1308,42 @@ impl Provider for WasmProvider {
             )
             .await;
             host.drop_instance(&s.instance).await;
+        })
+    }
+}
+
+/// Wakes plugins for the kernel's scheduler (`docs/spec/03-kernel.md#schedules`).
+struct ScheduleRunner {
+    host: Weak<Inner>,
+}
+
+impl kumikit_kernel::schedule::Runner for ScheduleRunner {
+    fn runnable(&self, plugin: &str) -> bool {
+        let Some(inner) = self.host.upgrade() else {
+            return false;
+        };
+        inner
+            .manager
+            .enabled()
+            .iter()
+            .any(|(r, _)| r.id == plugin && r.granted.as_ref().is_some_and(|g| g.schedules))
+    }
+
+    fn fire(
+        &self,
+        plugin: String,
+        key: String,
+        due: String,
+    ) -> kumikit_kernel::provider::BoxFuture<'static, Result<(), String>> {
+        let host = self.host.upgrade().map(|inner| PluginHost { inner });
+        Box::pin(async move {
+            let host = host.ok_or("the plugin host has stopped")?;
+            tracing::info!(%plugin, %key, %due, "a schedule is due");
+            let control = host.control(&plugin).await.map_err(|e| e.to_string())?;
+            let r = control.fire_timer(key, due).await;
+            host.guest_result(&plugin, r)
+                .await
+                .map_err(|e| e.to_string())
         })
     }
 }

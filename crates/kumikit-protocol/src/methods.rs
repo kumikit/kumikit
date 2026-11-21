@@ -147,6 +147,37 @@ methods! {
         RegistryRemove = "registry.remove" (RegistryUrl) -> Empty;
         /// `registry.search`: core plugins the registries offer.
         RegistrySearch = "registry.search" (RegistrySearchParams) -> RegistrySearchResult;
+        /// `secret.set`: stores a secret; values are never returned.
+        SecretSet = "secret.set" (SecretSetParams) -> Empty;
+        /// `secret.delete`: removes a secret.
+        SecretDelete = "secret.delete" (SecretRef) -> Empty;
+        /// `secret.list`: secret names, whether each is set, and who may read it.
+        SecretList = "secret.list" (Empty) -> SecretListResult;
+        /// `settings.schema`: a plugin's settings schema.
+        SettingsSchema = "settings.schema" (PluginRef) -> SettingsSchemaResult;
+        /// `settings.get`: a plugin's settings values.
+        SettingsGet = "settings.get" (PluginRef) -> SettingsGetResult;
+        /// `settings.set`: replaces a plugin's settings, validated against its schema.
+        SettingsSet = "settings.set" (SettingsSetParams) -> Empty;
+        /// `plugin.workspaces`: the workspaces linked to a plugin.
+        PluginWorkspaces = "plugin.workspaces" (PluginRef) -> PluginWorkspacesResult;
+        /// `plugin.setWorkspaces`: replaces the workspaces linked to a plugin.
+        PluginSetWorkspaces = "plugin.setWorkspaces" (PluginSetWorkspacesParams) -> Empty;
+        /// `schedule.list`: every schedule on the core.
+        ScheduleList = "schedule.list" (Empty) -> ScheduleListResult;
+        /// `schedule.setEnabled`: pauses or resumes a schedule.
+        ScheduleSetEnabled = "schedule.setEnabled" (ScheduleSetEnabledParams) -> Empty;
+        /// `schedule.delete`: removes a plugin's own schedule.
+        ScheduleDelete = "schedule.delete" (ScheduleRef) -> Empty;
+        /// `schedule.run`: runs a schedule now.
+        ScheduleRun = "schedule.run" (ScheduleRef) -> Empty;
+        /// `gateway.attach`: turns a local connection into the tool gateway for one
+        /// provider session (its first message).
+        GatewayAttach = "gateway.attach" (GatewayAttachParams) -> Empty;
+        /// `command.list`: the commands of enabled core plugins.
+        CommandList = "command.list" (Empty) -> CommandListResult;
+        /// `command.run`: runs a core plugin's command.
+        CommandRun = "command.run" (CommandRunParams) -> CommandResult;
     }
     notifications {
         /// `events.event`: one event on a subscribed topic.
@@ -291,6 +322,10 @@ pub struct Contributions {
     /// Whether the plugin has settings.
     #[serde(default)]
     pub settings: bool,
+    /// Plugin method names, called as `<plugin id>/<name>`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
+    pub methods: Vec<String>,
 }
 
 /// A plugin installed on the core.
@@ -353,6 +388,26 @@ pub struct Limits {
     pub call_timeout_s: Option<u32>,
 }
 
+/// Where a plugin's client operations may act.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspacesAccess {
+    /// Nowhere.
+    #[default]
+    None,
+    /// The workspaces the user linked to the plugin.
+    Linked,
+    /// Every workspace.
+    All,
+}
+
+impl WorkspacesAccess {
+    /// Whether it is `none`.
+    pub fn is_none(&self) -> bool {
+        *self == WorkspacesAccess::None
+    }
+}
+
 /// Permissions a plugin requests or was granted.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -370,9 +425,21 @@ pub struct Permissions {
     /// Secret names it may read.
     #[serde(default)]
     pub secrets: Vec<String>,
-    /// Whether it may call tools other plugins contribute.
+    /// Whether it may hand tools other plugins contribute to its agent.
     #[serde(default)]
     pub tools: bool,
+    /// Client operations it may perform (`threads.send`, …).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
+    pub client: Vec<String>,
+    /// Where its client operations may act.
+    #[serde(default, skip_serializing_if = "WorkspacesAccess::is_none")]
+    #[ts(as = "Option<WorkspacesAccess>", optional)]
+    pub workspaces: WorkspacesAccess,
+    /// Whether it may run on a schedule.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub schedules: bool,
     /// Limits above the defaults; absent when it uses the defaults.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limits: Option<Limits>,
@@ -902,9 +969,258 @@ pub struct UnsubscribeParams {
     pub topic: String,
 }
 
+/// Params of `secret.set`. The value is never returned, logged or echoed.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretSetParams {
+    /// Secret name (`[a-z0-9-]`, as in `permissions.secrets`).
+    pub name: String,
+    /// The value.
+    pub value: String,
+}
+
+impl std::fmt::Debug for SecretSetParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SecretSetParams")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Params naming one secret.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretRef {
+    /// Secret name.
+    pub name: String,
+}
+
+/// One secret name as `secret.list` shows it: never its value.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretInfo {
+    /// Secret name.
+    pub name: String,
+    /// Whether a value is stored.
+    pub set: bool,
+    /// Installed plugins whose `permissions.secrets` lists it.
+    pub plugins: Vec<String>,
+}
+
+/// Result of `secret.list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretListResult {
+    /// Every name a plugin declares or that is set, sorted.
+    pub secrets: Vec<SecretInfo>,
+}
+
+/// Result of `settings.schema`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsSchemaResult {
+    /// The plugin's settings JSON Schema.
+    #[ts(type = "Record<string, unknown>")]
+    pub schema: serde_json::Value,
+}
+
+/// Result of `settings.get`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsGetResult {
+    /// The stored values, with the schema's defaults for the rest; no secret fields.
+    #[ts(type = "Record<string, unknown>")]
+    pub values: serde_json::Value,
+}
+
+/// Params of `settings.set`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsSetParams {
+    /// Plugin id.
+    pub plugin: String,
+    /// Every value (they replace the stored ones); secret fields are refused.
+    #[ts(type = "Record<string, unknown>")]
+    pub values: serde_json::Value,
+}
+
+/// Result of `plugin.workspaces`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginWorkspacesResult {
+    /// Linked workspace ids.
+    pub workspaces: Vec<WorkspaceId>,
+}
+
+/// Params of `plugin.setWorkspaces`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginSetWorkspacesParams {
+    /// Plugin id.
+    pub plugin: String,
+    /// The workspaces it may act in when its `permissions.workspaces` is `linked`.
+    pub workspaces: Vec<WorkspaceId>,
+}
+
+/// A schedule as `schedule.list` shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ScheduleInfo {
+    /// The owning plugin.
+    pub plugin: String,
+    /// Its key.
+    pub key: String,
+    /// What it does, in the plugin's words.
+    pub description: String,
+    /// The cron expression.
+    pub cron: String,
+    /// IANA time zone; absent for the core's local zone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_zone: Option<String>,
+    /// False while paused.
+    pub enabled: bool,
+    /// `skip` or `once`.
+    pub missed: String,
+    /// `manifest` or `plugin`.
+    pub source: String,
+    /// Next run, RFC 3339 UTC.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_run: Option<String>,
+    /// Last run, RFC 3339 UTC.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_run: Option<String>,
+    /// `ran`, `failed`, `missed` or `skipped`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_outcome: Option<String>,
+}
+
+/// Result of `schedule.list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduleListResult {
+    /// Every schedule, by plugin and key.
+    pub schedules: Vec<ScheduleInfo>,
+}
+
+/// Params naming one schedule.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduleRef {
+    /// The plugin.
+    pub plugin: String,
+    /// The schedule's key.
+    pub key: String,
+}
+
+/// Params of `schedule.setEnabled`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduleSetEnabledParams {
+    /// The plugin.
+    pub plugin: String,
+    /// The schedule's key.
+    pub key: String,
+    /// Run (true) or pause (false).
+    pub enabled: bool,
+}
+
+/// Params of `gateway.attach`. The token is never logged.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GatewayAttachParams {
+    /// The session's token (`KUMIKIT_MCP_TOKEN`).
+    pub token: String,
+}
+
+impl std::fmt::Debug for GatewayAttachParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GatewayAttachParams")
+            .finish_non_exhaustive()
+    }
+}
+
+/// What a core plugin's command or method acts for.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum Scope {
+    /// The core.
+    #[default]
+    Core,
+    /// The workspace it runs in.
+    Workspace,
+}
+
+/// A command a core plugin contributes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandInfo {
+    /// The plugin.
+    pub plugin: String,
+    /// Command id.
+    pub id: String,
+    /// Title.
+    pub title: String,
+    /// What it acts for.
+    pub scope: Scope,
+    /// A UI condition for showing it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub when: Option<String>,
+}
+
+/// Result of `command.list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandListResult {
+    /// Commands of enabled plugins.
+    pub commands: Vec<CommandInfo>,
+}
+
+/// Params of `command.run`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandRunParams {
+    /// The plugin.
+    pub plugin: String,
+    /// Command id.
+    pub command: String,
+    /// Arguments (a JSON object), for example a submitted form's values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "Record<string, unknown>")]
+    pub args: Option<serde_json::Value>,
+    /// The workspace, for `workspace` commands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub workspace: Option<WorkspaceId>,
+}
+
+/// What running a command shows (`command.run`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandResult {
+    /// A line to show the user.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub message: Option<String>,
+    /// A declarative view to show (`docs/spec/07-ui-plugins.md`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "Record<string, unknown>")]
+    pub view: Option<serde_json::Value>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn secret_values_stay_out_of_debug_output() {
+        let p = SecretSetParams {
+            name: "bot-token".into(),
+            value: "123:abc".into(),
+        };
+        assert!(!format!("{p:?}").contains("123:abc"));
+    }
 
     #[test]
     fn names_are_unique() {

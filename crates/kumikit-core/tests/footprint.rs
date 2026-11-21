@@ -44,7 +44,7 @@ id = "test.footprint"
 name = "Footprint"
 version = "0.1.0"
 kind = ["provider"]
-api = "^0.1"
+api = "^0.2"
 [permissions]
 spawn = ["fake-acp-agent"]
 [contributes]
@@ -211,7 +211,7 @@ async fn sample_remote() -> (Duration, Sample) {
         (
             2,
             "core.hello",
-            json!({"protocol": "0.5", "client": {"name": "footprint", "version": "0"}}),
+            json!({"protocol":"0.6", "client": {"name": "footprint", "version": "0"}}),
         ),
     ] {
         ws.send(Message::text(
@@ -258,8 +258,8 @@ async fn sample_registry() -> (Option<u64>, Option<u64>) {
     std::fs::create_dir_all(&src).unwrap();
     std::fs::write(
         src.join("plugin.toml"),
-        "id = \"acme.probe\"\nname = \"Probe\"\nversion = \"0.1.0\"\nkind = [\"provider\"]\napi = \"^0.1\"\n\
-         [runtime]\nwasm = \"plugin.wasm\"\nworlds = [\"kumikit:provider/plugin@0.1.0\"]\n\
+        "id = \"acme.probe\"\nname = \"Probe\"\nversion = \"0.1.0\"\nkind = [\"provider\"]\napi = \"^0.2\"\n\
+         [runtime]\nwasm = \"plugin.wasm\"\nworlds = [\"kumikit:provider/plugin@0.2.0\"]\n\
          [contributes]\nproviders = [{ id = \"probe\", name = \"Probe\" }]\n",
     )
     .unwrap();
@@ -286,6 +286,54 @@ async fn sample_registry() -> (Option<u64>, Option<u64>) {
     drop(c);
     core.stop().await;
     (installed, enabled)
+}
+
+async fn install_m5_plugins(dirs: &Dirs) {
+    install_plugins(dirs).await;
+    let src = std::path::Path::new(kumikit_test_plugins::TOOL_DIR);
+    let manifest = std::fs::read_to_string(src.join("plugin.toml")).unwrap();
+    let tool_wasm = std::fs::read(kumikit_test_plugins::TOOL_WASM).unwrap();
+    let echo = std::fs::read(src.join("tools/echo.json")).unwrap();
+    let empty = std::fs::read(src.join("tools/empty.json")).unwrap();
+    std::fs::create_dir_all(dirs.root().join("fp-tool-src/tools")).unwrap();
+    let tool = kkp(
+        dirs,
+        "fp-tool",
+        &manifest,
+        &[
+            ("plugin.wasm", &tool_wasm),
+            ("tools/echo.json", &echo),
+            ("tools/empty.json", &empty),
+        ],
+    );
+    let client_wasm = std::fs::read(kumikit_test_plugins::CLIENT_WASM).unwrap();
+    let client = kkp(
+        dirs,
+        "fp-client",
+        kumikit_test_plugins::CLIENT_MANIFEST,
+        &[("plugin.wasm", &client_wasm)],
+    );
+    for file in [tool, client] {
+        let (ok, out, err) = plugin_cli(dirs, &["add", file.to_str().unwrap(), "--yes"]).await;
+        assert!(ok, "{out}{err}");
+    }
+}
+
+async fn sample_m5_idle() -> Sample {
+    let dirs = Dirs::new();
+    install_m5_plugins(&dirs).await;
+    let (core, start) = Core::start_timed(&dirs).await;
+    let client = Client::hello(&dirs.address).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let idle_kb = rss_kb(core.pid());
+    drop(client);
+    core.stop().await;
+    Sample {
+        start,
+        idle_kb,
+        activate: None,
+        activate_kb: None,
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -370,9 +418,19 @@ async fn core_footprint_is_within_budget() {
         );
     }
 
+    let mut m5 = Vec::new();
+    for _ in 0..RUNS {
+        m5.push(sample_m5_idle().await);
+    }
+    check_start_and_idle("M5 plugins enabled, idle", &m5);
+
     println!("core binary: {:.1} MiB", bytes as f64 / (1024.0 * 1024.0));
-    assert!(
-        bytes <= BINARY_BUDGET_BYTES,
-        "core binary {bytes} bytes exceeds {BINARY_BUDGET_BYTES} bytes"
-    );
+    // Reported, not gated, during M5: the binary may pass its budget while M5's plugins
+    // land, and is optimised afterwards as a separate task (the user's decision of
+    // 2026-11-19, docs/plans/2026-11-19-m5-plugins.md). Put the assert back then.
+    if bytes > BINARY_BUDGET_BYTES {
+        println!(
+            "core binary {bytes} bytes is over its {BINARY_BUDGET_BYTES}-byte budget (reported, not gated during M5)"
+        );
+    }
 }

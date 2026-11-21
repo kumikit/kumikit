@@ -94,3 +94,51 @@ describe('declarative views', () => {
     expect(ran).toEqual([['x.open', { id: '1' }]]);
   });
 });
+
+describe('secret fields of core plugins', () => {
+  const core: SettingsSchema = {
+    type: 'object',
+    properties: { token: { type: 'string', title: 'Token', 'x-secret': 'bot-token' }, name: { type: 'string' } },
+  };
+
+  it('write through secret access, never into the values, and show only whether one is set', async () => {
+    const target = document.createElement('div');
+    const set = new Set<string>();
+    const calls: string[] = [];
+    const changes: Record<string, unknown>[] = [];
+    const secrets = {
+      isSet: (n: string) => set.has(n),
+      set: async (n: string, v: string) => {
+        calls.push(`set ${n} ${v}`);
+        set.add(n);
+      },
+      clear: async (n: string) => {
+        calls.push(`clear ${n}`);
+        set.delete(n);
+      },
+    };
+    const c = mount(Form, { target, props: { schema: core, values: {}, onchange: (v: Record<string, unknown>) => changes.push(v), secrets } });
+    const input = target.querySelector<HTMLInputElement>('input[type=password]')!;
+    expect(input.disabled).toBe(false);
+    expect(input.placeholder).toBe('Not set');
+    input.value = 's3cret-value';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    const save = [...target.querySelectorAll('button')].find((b) => b.textContent === 'Save')!;
+    save.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+    expect(calls).toEqual(['set bot-token s3cret-value']);
+    expect(changes).toEqual([]);
+    expect(input.value).toBe('');
+    unmount(c);
+  });
+
+  it('stay read-only for UI plugins, which have no core secret to write', () => {
+    const target = document.createElement('div');
+    const c = mount(Form, { target, props: { schema: core, values: {}, onchange: () => {} } });
+    expect(target.querySelector<HTMLInputElement>('input[type=password]')!.disabled).toBe(true);
+    unmount(c);
+  });
+});

@@ -88,10 +88,10 @@ async fn hello(stream: Stream) -> BufReader<Stream> {
         &mut s,
         1,
         "core.hello",
-        json!({"protocol": "0.5", "client": {"name": "shell-test", "version": "0"}}),
+        json!({"protocol":"0.6", "client": {"name": "shell-test", "version": "0"}}),
     )
     .await;
-    assert_eq!(r["result"]["protocol"], "0.5", "{r}");
+    assert_eq!(r["result"]["protocol"], "0.6", "{r}");
     s
 }
 

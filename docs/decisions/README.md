@@ -33,15 +33,20 @@ Small, local choices do not need one; a clear commit message is enough.
 | [0007](0007-core-plugins-declarative-ui.md) | Core plugins contribute declarative UI only | Accepted |
 | [0008](0008-typescript-generation-with-ts-rs.md) | Generate TypeScript protocol types with ts-rs | Accepted |
 | [0009](0009-temporary-scripted-provider.md) | A temporary scripted provider compiled into the core (M0 only) | Superseded by 0011 |
-| [0010](0010-wasi-p2-and-session-instances.md) | WASI 0.2, one instance per session, blocking host imports | Proposed |
-| [0011](0011-providers-from-plugins.md) | Providers come from plugins: qualified ids and provider backends | Proposed |
-| [0012](0012-activation-memory-budget.md) | Budgets for plugin activation memory and the core binary | Proposed |
-| [0013](0013-desktop-shell.md) | The desktop shell: own asset protocol, raw-line bridge, client plugin store | Proposed |
-| [0014](0014-ui-sdk-versioning.md) | UI SDK 0.1: versioning, published lists, thread views | Proposed |
-| [0015](0015-shell-memory-budget.md) | Shell memory budget: anonymous memory, gated on Linux | Proposed |
-| [0016](0016-remote-transport-and-pairing.md) | Remote transport: WebSocket over TLS, pinned certificates, device tokens | Proposed |
-| [0017](0017-shell-remote-profiles-and-ssh.md) | The shell's remote profiles, SSH through the system `ssh`, client secrets | Proposed |
-| [0018](0018-package-signing-and-registry.md) | Package signing and the plugin registry | Proposed |
-| [0019](0019-sandboxed-panels.md) | Sandboxed panels: iframes, a CSP per panel, a narrow bridge | Proposed |
-| [0020](0020-interface-freeze-after-m5.md) | Freeze WIT and the UI SDK after M5; early publishers until then | Proposed |
-| [0021](0021-no-sidecars-in-1-0.md) | No sidecar plugins in 1.0 | Proposed |
+| [0010](0010-wasi-p2-and-session-instances.md) | WASI 0.2, one instance per session, blocking host imports | Accepted |
+| [0011](0011-providers-from-plugins.md) | Providers come from plugins: qualified ids and provider backends | Accepted |
+| [0012](0012-activation-memory-budget.md) | Budgets for plugin activation memory and the core binary | Accepted |
+| [0013](0013-desktop-shell.md) | The desktop shell: own asset protocol, raw-line bridge, client plugin store | Accepted |
+| [0014](0014-ui-sdk-versioning.md) | UI SDK 0.1: versioning, published lists, thread views | Accepted |
+| [0015](0015-shell-memory-budget.md) | Shell memory budget: anonymous memory, gated on Linux | Accepted |
+| [0016](0016-remote-transport-and-pairing.md) | Remote transport: WebSocket over TLS, pinned certificates, device tokens | Accepted |
+| [0017](0017-shell-remote-profiles-and-ssh.md) | The shell's remote profiles, SSH through the system `ssh`, client secrets | Accepted |
+| [0018](0018-package-signing-and-registry.md) | Package signing and the plugin registry | Accepted |
+| [0019](0019-sandboxed-panels.md) | Sandboxed panels: iframes, a CSP per panel, a narrow bridge | Accepted |
+| [0020](0020-interface-freeze-after-m5.md) | Freeze WIT and the UI SDK after M5; early publishers until then | Accepted |
+| [0021](0021-no-sidecars-in-1-0.md) | No sidecar plugins in 1.0 | Accepted |
+| [0022](0022-wit-0-2-and-dropping-0-1.md) | WIT 0.2.0, and the host drops 0.1.0 | Proposed |
+| [0023](0023-outgoing-http-for-plugins.md) | Outgoing HTTP for plugins: wasi:http with the host's policy | Proposed |
+| [0024](0024-schedules.md) | Schedules: kernel-owned timers that wake plugins | Proposed |
+| [0025](0025-tool-gateway.md) | The tool gateway: MCP over stdio through the core's socket | Proposed |
+| [0026](0026-first-party-plugins-in-their-own-repositories.md) | First-party plugins live in their own repositories | Proposed |

@@ -45,6 +45,11 @@ export interface Registry {
   /** Writes the probe test plugin as `acme.probe` at `version`; returns its folder.
    * `extra` are more `[permissions]` lines, joined with `;`. */
   probe(version: string, extra?: string): Promise<string>;
+  /** Writes the tool test plugin as `acme.tool` at `version`; returns its folder. */
+  tool(version: string): Promise<string>;
+  /** Writes a declarative ACP agent as `acme.agent` at `version` replaying `transcript`;
+   * returns its folder. */
+  agent(version: string, transcript: string): Promise<string>;
   publish(dir: string, how?: 'signed' | 'unsigned' | 'other-key'): Promise<void>;
   starter(...ids: string[]): Promise<void>;
   /** Writes index.json. */
@@ -77,6 +82,16 @@ export async function startRegistry(root: string): Promise<{ child: ChildProcess
       async probe(version, extra = '') {
         const dir = join(root, `probe-${version}-${++n}`);
         await send(`probe ${dir} ${version} ${extra}`.trim());
+        return dir;
+      },
+      async tool(version) {
+        const dir = join(root, `tool-${version}-${++n}`);
+        await send(`tool ${dir} ${version}`);
+        return dir;
+      },
+      async agent(version, transcript) {
+        const dir = join(root, `agent-${version}-${++n}`);
+        await send(`agent ${dir} ${version} ${transcript}`);
         return dir;
       },
       publish: async (dir, how = 'signed') => void (await send(`${how === 'signed' ? 'publish' : how === 'unsigned' ? 'publish-unsigned' : 'publish-other-key'} ${dir}`)),
@@ -132,7 +147,7 @@ function manifest(n: number, transcript: string, options: ProviderOptions): stri
     `name = "Recorded ${transcript}"`,
     'version = "0.1.0"',
     'kind = ["provider"]',
-    'api = "^0.1"',
+    'api = "^0.2"',
     '[permissions]',
     `spawn = ["${program}"]`,
     '[contributes]',

@@ -3,7 +3,7 @@
 //! The kernel stores what the plugin host decides: which plugins are installed, their
 //! state and their granted permissions. It does not interpret manifests.
 
-use kumikit_protocol::model::Timestamp;
+use kumikit_protocol::model::{Timestamp, WorkspaceId};
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::error::{KernelError, KernelResult};
@@ -302,12 +302,125 @@ impl Kernel {
             .store
             .write(move |c| {
                 let n = c.execute("DELETE FROM plugins WHERE id = ?1", [&id])?;
+                c.execute("DELETE FROM plugin_workspaces WHERE plugin = ?1", [&id])?;
+                c.execute("DELETE FROM schedules WHERE plugin = ?1", [&id])?;
                 if n == 0 {
                     return Err(KernelError::NotFound(format!("no plugin {id}")));
                 }
                 if delete_data {
                     c.execute("DELETE FROM plugin_kv WHERE plugin = ?1", [&id])?;
+                    c.execute("DELETE FROM plugin_settings WHERE plugin = ?1", [&id])?;
                 }
+                Ok(())
+            })
+            .await
+    }
+
+    // ---- linked workspaces ----
+
+    /// The workspaces linked to `plugin`, in id order.
+    pub async fn plugin_workspaces(&self, plugin: &str) -> KernelResult<Vec<WorkspaceId>> {
+        let plugin = plugin.to_owned();
+        self.inner
+            .store
+            .read(move |c| {
+                let mut stmt = c.prepare(
+                    "SELECT workspace FROM plugin_workspaces WHERE plugin = ?1 ORDER BY workspace",
+                )?;
+                let rows = stmt.query_map([&plugin], |r| r.get::<_, String>(0))?;
+                let mut out = Vec::new();
+                for r in rows {
+                    out.push(WorkspaceId(r?));
+                }
+                Ok::<_, KernelError>(out)
+            })
+            .await
+    }
+
+    /// Replaces the workspaces linked to `plugin`; each must exist (`not_found`).
+    pub async fn plugin_set_workspaces(
+        &self,
+        plugin: &str,
+        workspaces: &[WorkspaceId],
+    ) -> KernelResult<()> {
+        for w in workspaces {
+            self.workspace_require(w).await?;
+        }
+        let plugin = plugin.to_owned();
+        let workspaces: Vec<String> = workspaces.iter().map(|w| w.0.clone()).collect();
+        self.inner
+            .store
+            .write(move |c| {
+                c.execute("DELETE FROM plugin_workspaces WHERE plugin = ?1", [&plugin])?;
+                for w in &workspaces {
+                    c.execute(
+                        "INSERT OR IGNORE INTO plugin_workspaces (plugin, workspace) VALUES (?1, ?2)",
+                        params![plugin, w],
+                    )?;
+                }
+                Ok(())
+            })
+            .await
+    }
+
+    /// Whether a plugin with `grants` may act in `workspace` through the client interface.
+    pub async fn plugin_may_act_in(
+        &self,
+        plugin: &str,
+        grants: &crate::grants::Grants,
+        workspace: &WorkspaceId,
+    ) -> KernelResult<bool> {
+        use crate::grants::WorkspacesGrant;
+        Ok(match grants.workspaces {
+            WorkspacesGrant::None => false,
+            WorkspacesGrant::All => true,
+            WorkspacesGrant::Linked => self.plugin_workspaces(plugin).await?.contains(workspace),
+        })
+    }
+
+    // ---- settings ----
+
+    /// `plugin`'s stored settings (a JSON object), if any were set.
+    pub async fn settings_get(&self, plugin: &str) -> KernelResult<Option<serde_json::Value>> {
+        let plugin = plugin.to_owned();
+        let text: Option<String> = self
+            .inner
+            .store
+            .read(move |c| {
+                Ok::<_, KernelError>(
+                    c.query_row(
+                        "SELECT value FROM plugin_settings WHERE plugin = ?1",
+                        [&plugin],
+                        |r| r.get(0),
+                    )
+                    .optional()?,
+                )
+            })
+            .await?;
+        text.map(|t| {
+            serde_json::from_str(&t)
+                .map_err(|e| KernelError::Io(format!("stored settings are not JSON: {e}")))
+        })
+        .transpose()
+    }
+
+    /// Replaces `plugin`'s settings. The caller has validated them against the schema.
+    pub async fn settings_set(&self, plugin: &str, values: &serde_json::Value) -> KernelResult<()> {
+        let text = values.to_string();
+        if text.len() > KV_VALUE_MAX {
+            return Err(KernelError::Limit(format!(
+                "settings are at most {KV_VALUE_MAX} bytes"
+            )));
+        }
+        let plugin = plugin.to_owned();
+        self.inner
+            .store
+            .write(move |c| {
+                c.execute(
+                    "INSERT INTO plugin_settings (plugin, value) VALUES (?1, ?2)
+                     ON CONFLICT (plugin) DO UPDATE SET value = excluded.value",
+                    params![plugin, text],
+                )?;
                 Ok(())
             })
             .await

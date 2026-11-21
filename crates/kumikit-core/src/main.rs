@@ -86,6 +86,13 @@ enum Command {
         #[arg(long)]
         socket: Option<String>,
     },
+    /// Serve the tool gateway to an agent over stdin/stdout (agents start it; it needs
+    /// KUMIKIT_MCP_TOKEN).
+    Mcp {
+        /// The core's socket (Linux, macOS) or pipe (Windows). Default: per platform.
+        #[arg(long)]
+        socket: Option<String>,
+    },
     /// Manage core plugins (local .kkp files).
     Plugin {
         /// The core's socket (Linux, macOS) or pipe (Windows). Default: per platform.
@@ -334,6 +341,9 @@ fn main() -> Result<()> {
         Command::Bridge { socket } => {
             runtime.block_on(async { cli::bridge(&target(socket, None)?).await })
         }
+        Command::Mcp { socket } => {
+            runtime.block_on(async { cli::mcp(&target(socket, None)?).await })
+        }
     }
 }
 
@@ -534,7 +544,9 @@ fn init_logging() {
         .and_then(|v| v.parse().ok())
         .unwrap_or_else(|| Targets::new().with_default(tracing::Level::WARN));
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+        .with(
+            tracing_subscriber::fmt::layer().with_writer(kumikit_core::logwriter::RedactingStderr),
+        )
         .with(filter)
         .init();
 }

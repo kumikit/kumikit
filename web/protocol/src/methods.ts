@@ -4,10 +4,14 @@ import type { AuthPairParams } from "./AuthPairParams";
 import type { AuthPairResult } from "./AuthPairResult";
 import type { AuthTokenParams } from "./AuthTokenParams";
 import type { AuthTokenResult } from "./AuthTokenResult";
+import type { CommandListResult } from "./CommandListResult";
+import type { CommandResult } from "./CommandResult";
+import type { CommandRunParams } from "./CommandRunParams";
 import type { DeviceListResult } from "./DeviceListResult";
 import type { DeviceRef } from "./DeviceRef";
 import type { Empty } from "./Empty";
 import type { EventNotification } from "./EventNotification";
+import type { GatewayAttachParams } from "./GatewayAttachParams";
 import type { HelloParams } from "./HelloParams";
 import type { HelloResult } from "./HelloResult";
 import type { PairingCode } from "./PairingCode";
@@ -17,10 +21,12 @@ import type { PluginListResult } from "./PluginListResult";
 import type { PluginLockResult } from "./PluginLockResult";
 import type { PluginRef } from "./PluginRef";
 import type { PluginResult } from "./PluginResult";
+import type { PluginSetWorkspacesParams } from "./PluginSetWorkspacesParams";
 import type { PluginUninstallParams } from "./PluginUninstallParams";
 import type { PluginUpdateParams } from "./PluginUpdateParams";
 import type { PluginUpdatesParams } from "./PluginUpdatesParams";
 import type { PluginUpdatesResult } from "./PluginUpdatesResult";
+import type { PluginWorkspacesResult } from "./PluginWorkspacesResult";
 import type { PluginsChanged } from "./PluginsChanged";
 import type { ProviderListResult } from "./ProviderListResult";
 import type { ProviderModelsParams } from "./ProviderModelsParams";
@@ -30,6 +36,15 @@ import type { RegistrySearchParams } from "./RegistrySearchParams";
 import type { RegistrySearchResult } from "./RegistrySearchResult";
 import type { RegistryUrl } from "./RegistryUrl";
 import type { RespondApprovalParams } from "./RespondApprovalParams";
+import type { ScheduleListResult } from "./ScheduleListResult";
+import type { ScheduleRef } from "./ScheduleRef";
+import type { ScheduleSetEnabledParams } from "./ScheduleSetEnabledParams";
+import type { SecretListResult } from "./SecretListResult";
+import type { SecretRef } from "./SecretRef";
+import type { SecretSetParams } from "./SecretSetParams";
+import type { SettingsGetResult } from "./SettingsGetResult";
+import type { SettingsSchemaResult } from "./SettingsSchemaResult";
+import type { SettingsSetParams } from "./SettingsSetParams";
 import type { SubscribeParams } from "./SubscribeParams";
 import type { SubscribeResult } from "./SubscribeResult";
 import type { ThreadCreateParams } from "./ThreadCreateParams";
@@ -47,7 +62,7 @@ import type { WorkspaceOpenResult } from "./WorkspaceOpenResult";
 import type { WorkspaceRef } from "./WorkspaceRef";
 
 /** Protocol version spoken by this package, `MAJOR.MINOR`. */
-export const PROTOCOL_VERSION = "0.5";
+export const PROTOCOL_VERSION = "0.6";
 
 /** Every request method with its params and result types. */
 export type Methods = {
@@ -84,6 +99,21 @@ export type Methods = {
   "registry.add": { params: RegistryUrl; result: Empty };
   "registry.remove": { params: RegistryUrl; result: Empty };
   "registry.search": { params: RegistrySearchParams; result: RegistrySearchResult };
+  "secret.set": { params: SecretSetParams; result: Empty };
+  "secret.delete": { params: SecretRef; result: Empty };
+  "secret.list": { params: Empty; result: SecretListResult };
+  "settings.schema": { params: PluginRef; result: SettingsSchemaResult };
+  "settings.get": { params: PluginRef; result: SettingsGetResult };
+  "settings.set": { params: SettingsSetParams; result: Empty };
+  "plugin.workspaces": { params: PluginRef; result: PluginWorkspacesResult };
+  "plugin.setWorkspaces": { params: PluginSetWorkspacesParams; result: Empty };
+  "schedule.list": { params: Empty; result: ScheduleListResult };
+  "schedule.setEnabled": { params: ScheduleSetEnabledParams; result: Empty };
+  "schedule.delete": { params: ScheduleRef; result: Empty };
+  "schedule.run": { params: ScheduleRef; result: Empty };
+  "gateway.attach": { params: GatewayAttachParams; result: Empty };
+  "command.list": { params: Empty; result: CommandListResult };
+  "command.run": { params: CommandRunParams; result: CommandResult };
 };
 
 /** Every notification the core sends, with its params type. */

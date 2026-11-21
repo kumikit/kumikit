@@ -43,6 +43,10 @@ pub struct Config {
     /// mode never asks for approval.
     #[serde(default)]
     pub mode: Option<String>,
+    /// ACP authentication method id to pass to `authenticate` after `initialize`, for
+    /// agents that require it before `session/new`.
+    #[serde(default)]
+    pub auth_method: Option<String>,
 }
 
 impl Config {
@@ -88,10 +92,11 @@ mod tests {
         assert!(c.args_for("default").is_empty());
         let c = Config::parse(
             r#"{"command":"gemini","args":["--experimental-acp"],"model-arg":"--model",
-                "models":[{"id":"pro","label":"Pro"}],"mode":"default","secret-env":{"KEY":"k"}}"#,
+                "models":[{"id":"pro","label":"Pro"}],"mode":"default","auth-method":"oauth","secret-env":{"KEY":"k"}}"#,
         )
         .unwrap();
         assert_eq!(c.args_for("pro"), ["--experimental-acp", "--model", "pro"]);
+        assert_eq!(c.auth_method.as_deref(), Some("oauth"));
         assert!(Config::parse(r#"{"command":"x","unknown":1}"#).is_err());
     }
 }

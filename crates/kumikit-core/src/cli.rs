@@ -14,7 +14,7 @@ use kumikit_plugin_host::manifest::Manifest;
 use kumikit_plugin_host::package;
 use kumikit_protocol::methods::{
     FilesAccess, InstalledPlugin, Method, Permissions, PluginEnable, PluginInstall, PluginList,
-    PluginState, PluginUninstall,
+    PluginState, PluginUninstall, WorkspacesAccess,
 };
 use kumikit_protocol::{ErrorCode, PROTOCOL_VERSION, RpcError};
 use serde_json::{Value, json};
@@ -298,7 +298,29 @@ pub fn describe(p: &Permissions) -> Vec<String> {
         lines.push(format!("can read the secret `{s}`"));
     }
     if p.tools {
-        lines.push("can call tools that other plugins contribute".into());
+        lines.push("can let its agent use tools that other plugins contribute".into());
+    }
+    for op in &p.client {
+        lines.push(
+            match op.as_str() {
+                "workspaces.list" => "can list your workspaces",
+                "threads.read" => "can read threads",
+                "threads.create" => "can start threads",
+                "threads.send" => "can send messages to threads",
+                "threads.cancel" => "can cancel running turns",
+                "approvals.respond" => "can answer approvals (allow or deny)",
+                other => return vec![format!("asks for an unknown client operation `{other}`")],
+            }
+            .into(),
+        );
+    }
+    match p.workspaces {
+        WorkspacesAccess::None => {}
+        WorkspacesAccess::Linked => lines.push("only in the workspaces you link to it".into()),
+        WorkspacesAccess::All => lines.push("in every workspace".into()),
+    }
+    if p.schedules {
+        lines.push("can run on a schedule, even when you are not using Kumikit".into());
     }
     if let Some(l) = p.limits {
         if let Some(mb) = l.memory_mb {
@@ -576,14 +598,59 @@ pub async fn devices_revoke(target: &Target, id: &str, out: &mut dyn Out) -> Res
     Ok(())
 }
 
+/// `kumikit mcp`: what an agent starts as its MCP server for the tool gateway
+/// (`docs/spec/03-kernel.md#tool-gateway`). Connects to the core on this machine, attaches
+/// with `KUMIKIT_MCP_TOKEN`, then copies MCP lines between stdin/stdout and the core.
+/// Nothing but MCP goes to stdout; problems go to stderr.
+pub async fn mcp(target: &Target) -> Result<()> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let token = std::env::var(kumikit_kernel::gateway::TOKEN_VAR).map_err(|_| {
+        anyhow!(
+            "{} is not set; agents get it from their provider",
+            kumikit_kernel::gateway::TOKEN_VAR
+        )
+    })?;
+    let stream = crate::transport::connect(&target.address)
+        .await
+        .map_err(|_| anyhow!("no core is running on this machine (at {})", target.address))?;
+    let (core_read, mut core_write) = tokio::io::split(stream);
+    let attach = serde_json::json!({
+        "jsonrpc": "2.0", "id": 0, "method": "gateway.attach", "params": { "token": token },
+    });
+    core_write
+        .write_all(format!("{attach}\n").as_bytes())
+        .await?;
+    let mut core_read = BufReader::new(core_read);
+    let mut line = String::new();
+    core_read.read_line(&mut line).await?;
+    let answer: serde_json::Value = serde_json::from_str(&line)
+        .map_err(|_| anyhow!("the core did not answer gateway.attach"))?;
+    if let Some(e) = answer.get("error") {
+        return Err(anyhow!(
+            "the core refused the tool gateway: {}",
+            e["message"].as_str().unwrap_or("no reason")
+        ));
+    }
+    copy_lines(core_read, core_write).await
+}
+
 /// `kumikit bridge`: copies JSON-RPC lines between stdin/stdout and the core on this
 /// machine (`docs/spec/02-protocol.md#stdio-over-ssh`). The desktop app runs it over SSH.
 pub async fn bridge(target: &Target) -> Result<()> {
-    use crate::messages::{LineReader, LineWriter, MessageReader, MessageWriter, Received};
     let stream = crate::transport::connect(&target.address)
         .await
         .map_err(|_| anyhow!("no core is running on this machine (at {})", target.address))?;
     let (core_read, core_write) = tokio::io::split(stream);
+    copy_lines(core_read, core_write).await
+}
+
+/// Copies lines between stdin/stdout and a core connection until either side ends.
+async fn copy_lines<R, W>(core_read: R, core_write: W) -> Result<()>
+where
+    R: tokio::io::AsyncRead + Send + Unpin + 'static,
+    W: tokio::io::AsyncWrite + Send + Unpin + 'static,
+{
+    use crate::messages::{LineReader, LineWriter, MessageReader, MessageWriter, Received};
 
     /// Copies whole messages from `from` into a writer task, until the end or an error.
     async fn copy<R: MessageReader, W: MessageWriter>(

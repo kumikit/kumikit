@@ -60,6 +60,7 @@ fn started(turn: &str) -> ThreadEvent {
     ThreadEvent::TurnStarted(TurnStarted {
         turn: TurnId(turn.into()),
         input: UserInput { text: "hi".into() },
+        from: None,
     })
 }
 
@@ -264,6 +265,7 @@ async fn snapshot_matches_derived_status() {
                 approval: ApprovalId("a1".into()),
                 decision: Resolution::Allow,
                 by: None,
+                plugin: None,
             }),
         )
         .await
@@ -296,6 +298,7 @@ async fn log_invariants_are_enforced() {
         approval: ApprovalId("a1".into()),
         decision: Resolution::Deny,
         by: None,
+        plugin: None,
     });
     e.kernel.append(&t, resolve.clone()).await.unwrap();
     let err = e.kernel.append(&t, resolve).await.unwrap_err();

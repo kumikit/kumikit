@@ -219,7 +219,7 @@ async fn bundled_plugins_are_seeded_once() {
         let hello = c
             .call(
                 "core.hello",
-                json!({"protocol": "0.5", "client": {"name": "t", "version": "0"}}),
+                json!({"protocol":"0.6", "client": {"name": "t", "version": "0"}}),
             )
             .await;
         if hello["plugins"].as_array().unwrap().is_empty() {
@@ -262,6 +262,90 @@ async fn bundled_plugins_are_seeded_once() {
             states(&list),
             [("test.probe".to_owned(), "installed".to_owned())]
         );
+        core.stop().await;
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_newer_bundled_version_replaces_the_bundled_copy() {
+    within(async {
+        let dirs = Dirs::new();
+        let bundle = dirs.root().join("bundle");
+        std::fs::create_dir_all(&bundle).unwrap();
+        let wasm = std::fs::read(kumikit_test_plugins::PROBE_WASM).unwrap();
+        let version = |v: &str, extra: &str| {
+            let manifest = PROBE_MANIFEST
+                .replace("version = \"0.1.0\"", &format!("version = \"{v}\""))
+                .replace(
+                    "spawn = [\"fake-acp-agent\"]",
+                    &format!("spawn = [\"fake-acp-agent\"]\n{extra}"),
+                );
+            kkp(
+                &dirs,
+                &format!("probe-{v}"),
+                &manifest,
+                &[("plugin.wasm", &wasm)],
+            )
+        };
+        let args = [OsStr::new("--bundled-plugins"), bundle.as_os_str()];
+
+        // 0.1.0 is seeded and the user grants it. Seeding runs in file-name order and
+        // provider-acp (seeded last) is enabled, so its announcement means both are done.
+        std::fs::copy(version("0.1.0", ""), bundle.join("probe.kkp")).unwrap();
+        std::fs::copy(provider_acp_kkp(&dirs), bundle.join("z-acp.kkp")).unwrap();
+        let (core, _) = Core::start_with_args(&dirs, None, &args).await;
+        let mut c = Client::hello(&dirs.address).await;
+        let mut list = c.call("plugin.list", json!({})).await;
+        while list["plugins"].as_array().unwrap().len() < 2 {
+            c.notification("core.pluginsChanged").await;
+            list = c.call("plugin.list", json!({})).await;
+        }
+        let plugin = |list: &Value| {
+            list["plugins"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["id"] == "test.probe")
+                .unwrap()
+                .clone()
+        };
+        let requested = plugin(&list)["requested"].clone();
+        c.call(
+            "plugin.enable",
+            json!({"plugin": "test.probe", "grant": requested}),
+        )
+        .await;
+        core.stop().await;
+
+        // 0.2.0 asks for the same: it replaces 0.1.0 and stays enabled with the grant.
+        std::fs::copy(version("0.2.0", ""), bundle.join("probe.kkp")).unwrap();
+        let (core, _) = Core::start_with_args(&dirs, None, &args).await;
+        let mut c = Client::hello(&dirs.address).await;
+        let mut p = plugin(&c.call("plugin.list", json!({})).await);
+        while p["version"] != "0.2.0" {
+            c.notification("core.pluginsChanged").await;
+            p = plugin(&c.call("plugin.list", json!({})).await);
+        }
+        assert_eq!(p["state"], "enabled", "{p}");
+        assert_eq!(p["source"], "bundled", "{p}");
+        core.stop().await;
+
+        // 0.3.0 asks for a secret too: it is installed but waits for a new grant.
+        std::fs::copy(
+            version("0.3.0", "secrets = [\"probe-token\"]"),
+            bundle.join("probe.kkp"),
+        )
+        .unwrap();
+        let (core, _) = Core::start_with_args(&dirs, None, &args).await;
+        let mut c = Client::hello(&dirs.address).await;
+        let mut p = plugin(&c.call("plugin.list", json!({})).await);
+        while p["version"] != "0.3.0" {
+            c.notification("core.pluginsChanged").await;
+            p = plugin(&c.call("plugin.list", json!({})).await);
+        }
+        assert_ne!(p["state"], "enabled", "{p}");
+        assert!(p.get("granted").is_none_or(Value::is_null), "{p}");
         core.stop().await;
     })
     .await;

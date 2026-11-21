@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use kumikit_protocol::methods::{FilesAccess, Limits, Permissions};
+use kumikit_protocol::methods::{FilesAccess, Limits, Permissions, WorkspacesAccess};
 use serde::{Deserialize, Serialize};
 
 /// The index format this code reads and writes.
@@ -206,6 +206,34 @@ pub struct PermissionsFile {
     /// Other plugins' tools.
     #[serde(default)]
     pub tools: bool,
+    /// Client operations.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub client: Vec<String>,
+    /// `none`, `linked` or `all`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspaces: Option<String>,
+    /// Runs on a schedule.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub schedules: bool,
+}
+
+/// Reads a `workspaces` value in the manifest's words.
+pub fn workspaces_access(value: Option<&str>) -> Result<WorkspacesAccess, String> {
+    match value.unwrap_or("none") {
+        "none" => Ok(WorkspacesAccess::None),
+        "linked" => Ok(WorkspacesAccess::Linked),
+        "all" => Ok(WorkspacesAccess::All),
+        other => Err(format!("workspaces = `{other}` is not none, linked or all")),
+    }
+}
+
+/// A `workspaces` value in the manifest's words.
+pub fn workspaces_word(w: WorkspacesAccess) -> &'static str {
+    match w {
+        WorkspacesAccess::None => "none",
+        WorkspacesAccess::Linked => "linked",
+        WorkspacesAccess::All => "all",
+    }
 }
 
 /// The `limits` table of a version.
@@ -251,6 +279,9 @@ impl VersionFile {
                 files: files_access(p.files.as_deref())?,
                 secrets: p.secrets,
                 tools: p.tools,
+                client: p.client,
+                workspaces: workspaces_access(p.workspaces.as_deref())?,
+                schedules: p.schedules,
                 limits,
             }))
         };

@@ -1,0 +1,45 @@
+package kumikit:host@0.2.0;
+
+/// The plugin's own schedules (`docs/spec/03-kernel.md#schedules`). Needs
+/// `permissions.schedules`. When one is due the kernel calls the plugin's
+/// `kumikit:plugin/timers.fire` with its key.
+interface timers {
+  use types.{error};
+
+  /// What to do with a run missed while the core was down (or the machine asleep).
+  enum missed {
+    /// Record it as missed.
+    skip,
+    /// Run once as soon as possible.
+    once,
+  }
+
+  /// A schedule.
+  record schedule {
+    /// Five-field cron (`30 9 * * 1-5`) or `@hourly`, `@daily`, `@weekly`, `@monthly`.
+    cron: string,
+    /// IANA time zone; none for the core's local zone.
+    time-zone: option<string>,
+    /// What it does, shown to the user next to it.
+    description: string,
+    missed: missed,
+  }
+
+  /// A schedule and its state.
+  record info {
+    key: string,
+    schedule: schedule,
+    /// False while the user has it paused.
+    enabled: bool,
+    /// RFC 3339 UTC.
+    next-run: option<string>,
+  }
+
+  /// Adds or replaces the schedule `key`; returns its next run. Keys starting with
+  /// `manifest:` belong to the manifest's triggers.
+  set: func(key: string, schedule: schedule) -> result<option<string>, error>;
+  /// Removes the schedule `key`.
+  delete: func(key: string) -> result<_, error>;
+  /// The plugin's schedules, its manifest's included.
+  %list: func() -> result<list<info>, error>;
+}

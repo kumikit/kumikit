@@ -118,6 +118,20 @@ pub async fn serve(
             )
         }),
     });
+    // Schedules run only in a serving core; the first tick handles runs missed while it
+    // was down.
+    host.start_scheduler();
+    // Provider sessions get the tool gateway through this binary's `mcp` command.
+    match std::env::current_exe() {
+        Ok(exe) => host
+            .manager()
+            .kernel()
+            .set_gateway(kumikit_kernel::gateway::GatewayConfig {
+                command: exe.to_string_lossy().into_owned(),
+                args: vec!["mcp".into(), "--socket".into(), options.address.clone()],
+            }),
+        Err(e) => tracing::warn!(error = %e, "cannot find this binary; agents get no tool gateway"),
+    }
     // Seeding compiles components, so it runs after the core accepts connections;
     // clients learn about the new plugins through `core.pluginsChanged`.
     let seeding = options

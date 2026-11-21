@@ -1,6 +1,6 @@
 # 0010 — WASI 0.2, one instance per session, blocking host imports
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-15
 
 ## Context

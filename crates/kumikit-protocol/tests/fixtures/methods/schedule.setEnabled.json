@@ -1,0 +1,17 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 112,
+    "method": "schedule.setEnabled",
+    "params": {
+      "plugin": "acme.cleanup",
+      "key": "manifest:0",
+      "enabled": false
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 112,
+    "result": {}
+  }
+]

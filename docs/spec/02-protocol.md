@@ -107,11 +107,11 @@ The first call after authentication is `core.hello`:
 ```jsonc
 // → client
 { "jsonrpc": "2.0", "id": 1, "method": "core.hello",
-  "params": { "protocol": "0.5", "client": { "name": "kumikit-desktop", "version": "0.1.0" } } }
+  "params": { "protocol": "0.6", "client": { "name": "kumikit-desktop", "version": "0.1.0" } } }
 
 // ← core
 { "jsonrpc": "2.0", "id": 1, "result": {
-    "protocol": "0.5",
+    "protocol": "0.6",
     "core": { "version": "0.1.0", "name": "devbox", "os": "linux" },
     "plugins": [
       { "id": "kumikit.provider-acp", "version": "0.1.0",
@@ -200,8 +200,33 @@ and both sides ignore fields they do not know.
 | `plugin.disable` | `plugin` | `plugin`. Cancels the plugin's running turns and unloads it. |
 | `plugin.uninstall` | `plugin`, `deleteData?` | `{}`. Disables it first; deletes its kv and data directory only if `deleteData` is true. |
 
+### Methods added in 0.6
+
+| Method | Params | Result |
+|---|---|---|
+| `secret.set` | `name`, `value` | `{}`. Stores a secret on the core. Values are never returned, logged or included in any result. |
+| `secret.delete` | `name` | `{}` |
+| `secret.list` | — | `secrets`: `{ name, set, plugins }` for every name an installed plugin declares in `permissions.secrets` and every name that is set (`plugins`: the installed plugins that may read it) |
+| `settings.schema` | `plugin` | `schema`: the plugin's settings JSON Schema, or `not_found` if it has none |
+| `settings.get` | `plugin` | `values`: the stored values (defaults from the schema filled in). Fields marked `x-secret` are never in it. |
+| `settings.set` | `plugin`, `values` | `{}`. `invalid_params` listing the problems when `values` fails the schema. |
+| `command.list` | — | `commands`: `{ plugin, id, title, scope, when? }` from enabled plugins' manifests |
+| `command.run` | `plugin`, `command`, `args?`, `workspace?` (required when the command's scope is `workspace`) | `CommandResult { message?, view? }`: a line to show and/or a declarative view ([07](07-ui-plugins.md#level-1-declarative-contributions)) |
+| `<pluginId>/<method>` | the method's own params; `workspace` when its scope is `workspace` | the plugin's result. Only methods declared in the manifest are routed (`method_not_found` otherwise); a plugin that is not enabled gives `not_found`. |
+| `plugin.workspaces` | `plugin` | `workspaces`: the workspace ids linked to the plugin (for `permissions.workspaces = "linked"`) |
+| `plugin.setWorkspaces` | `plugin`, `workspaces` | `{}`. Replaces the linked set. |
+| `schedule.list` | — | `schedules`: `{ plugin, key, description, cron, timeZone, enabled, missed, nextRun?, lastRun?, lastOutcome?, source }` (`source`: `manifest` or `plugin`; `lastOutcome`: `ran`, `failed`, `missed`, `skipped`) |
+| `schedule.setEnabled` | `plugin`, `key`, `enabled` | `{}` |
+| `schedule.delete` | `plugin`, `key` | `{}`. Manifest schedules cannot be deleted (`conflict`); pause them instead. |
+| `schedule.run` | `plugin`, `key` | `{}`, once the run has started. `conflict` while its last run is still going or the plugin is not enabled with `schedules`. |
+| `gateway.attach` | `token` | `{}`, then the connection carries MCP for that token's provider session ([03](03-kernel.md#tool-gateway)). Local connections only, as their first message (it needs no `core.hello`); remote ones get `permission_denied`, an unknown or void token `unauthenticated`. |
+
+New capabilities: `secrets`, `settings`, `commands`, `schedules`, `gateway`.
+
 `state` is `installed`, `enabled` or `disabled`. `requested` and `granted` are
-`Permissions { spawn, network, files, secrets, tools, limits? }`, with `files` one of
+`Permissions { spawn, network, files, secrets, tools, client, workspaces, schedules, limits? }`
+(`client`: the client operations of [04](04-plugin-host.md#permissions); `workspaces`:
+`none`, `linked` or `all`; `schedules`: a boolean), with `files` one of
 `none`, `read_workspace`, `workspace` and `limits { memoryMb, callTimeoutS }` present only
 when raised above the defaults. `failure { message, retryInSeconds? }` describes the last
 trap or limit breach; `retryInSeconds` is present while the plugin is in backoff. `signed`

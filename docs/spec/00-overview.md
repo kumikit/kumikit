@@ -59,7 +59,7 @@ the core binary. The others become checks when their parts exist (see
 | Core resident memory, idle | ≤ 30 MB |
 | Core cold start to accepting connections | ≤ 300 ms |
 | Activating a typical WASM plugin (the first in a core) | ≤ 50 ms, ≤ 16 MB ([ADR 0012](../decisions/0012-activation-memory-budget.md)) |
-| Core binary, release build, uncompressed | ≤ 32 MiB ([ADR 0012](../decisions/0012-activation-memory-budget.md)) |
+| Core binary, release build, uncompressed | ≤ 32 MiB ([ADR 0012](../decisions/0012-activation-memory-budget.md)); reported, not gated, during M5 ([roadmap](12-roadmap.md#m5--plugins)) |
 | Desktop shell anonymous memory, excluding the webview's processes; Linux, gated (macOS and Windows reported) | ≤ 60 MB ([ADR 0015](../decisions/0015-shell-memory-budget.md)) |
 | UI kernel JavaScript, compressed | ≤ 150 KB |
 | Installer size, per platform (`.deb`, `.rpm`, `.dmg`, NSIS `.exe`; an AppImage bundles WebKitGTK and is not counted) | ≤ 20 MB |

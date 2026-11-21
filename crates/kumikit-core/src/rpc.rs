@@ -37,6 +37,11 @@ pub const CAPABILITIES: &[&str] = &[
     "plugins",
     "providers",
     "workspace_events",
+    "secrets",
+    "settings",
+    "commands",
+    "schedules",
+    "gateway",
 ];
 
 /// What `core.hello` says about this core.
@@ -135,6 +140,7 @@ pub async fn serve_messages<R, W>(
         plugins_watch: None,
         plugin_changes: None,
     };
+    let mut first = true;
     loop {
         let received = tokio::select! {
             biased;
@@ -166,6 +172,37 @@ pub async fn serve_messages<R, W>(
         };
         if message.is_empty() {
             continue;
+        }
+        // A local connection whose first message is `gateway.attach` carries MCP from
+        // then on (`docs/spec/03-kernel.md#tool-gateway`).
+        if std::mem::take(&mut first)
+            && let Some((id, token)) = attach_request(&message)
+        {
+            let session = match (&conn.device, conn.kernel.gateway_session(&token)) {
+                (Some(_), _) => Err(RpcError::new(
+                    ErrorCode::PermissionDenied,
+                    "the tool gateway is only for local connections",
+                )),
+                (None, None) => Err(RpcError::new(
+                    ErrorCode::Unauthenticated,
+                    "this gateway token is not valid (its session ended, or it never existed)",
+                )),
+                (None, Some(s)) => Ok(s),
+            };
+            match session {
+                Ok(session) => {
+                    let ok = Response::success(id, Value::Object(Default::default()));
+                    if conn.tx.send(encode(&ok)).await.is_ok() {
+                        crate::gateway::serve(conn.host.clone(), session, reader, conn.tx.clone())
+                            .await;
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(device = ?conn.device, "gateway.attach refused");
+                    let _ = conn.tx.send(encode(&Response::error(Some(id), err))).await;
+                }
+            }
+            break;
         }
         if let Some(response) = conn.handle(&message).await
             && conn.tx.send(response).await.is_err()
@@ -280,6 +317,28 @@ fn device_info(d: kumikit_kernel::devices::DeviceRecord, current: Option<&str>) 
         name: d.name,
         created: d.created,
         last_seen: d.last_seen,
+    }
+}
+
+/// The id and token of a `gateway.attach` request; `None` for any other message.
+fn attach_request(message: &[u8]) -> Option<(RequestId, String)> {
+    let request: Request = serde_json::from_slice(message).ok()?;
+    if request.method != m::GatewayAttach::NAME {
+        return None;
+    }
+    let id = request.id?;
+    let params: m::GatewayAttachParams = serde_json::from_value(request.params?).ok()?;
+    Some((id, params.token))
+}
+
+fn check_secret_name(name: &str) -> Result<(), RpcError> {
+    if kumikit_plugin_host::manifest::is_secret_name(name) {
+        Ok(())
+    } else {
+        Err(RpcError::new(
+            ErrorCode::InvalidParams,
+            format!("secret name `{name}` is not valid"),
+        ))
     }
 }
 
@@ -584,6 +643,71 @@ impl Conn {
                     lock: self.host.manager().lock_text(),
                 })
             }
+            m::SecretSet::NAME => {
+                let p = parse::<m::SecretSet>(params)?;
+                check_secret_name(&p.name)?;
+                if p.value.is_empty() {
+                    return Err(RpcError::new(
+                        ErrorCode::InvalidParams,
+                        "a secret cannot be empty",
+                    ));
+                }
+                k.secrets()
+                    .set(&p.name, &p.value)
+                    .await
+                    .map_err(kernel_err)?;
+                tracing::info!(device = ?self.device, name = %p.name, "secret set");
+                reply::<m::SecretSet>(Empty {})
+            }
+            m::SecretDelete::NAME => {
+                let p = parse::<m::SecretDelete>(params)?;
+                check_secret_name(&p.name)?;
+                k.secrets().delete(&p.name).await.map_err(kernel_err)?;
+                tracing::info!(device = ?self.device, name = %p.name, "secret deleted");
+                reply::<m::SecretDelete>(Empty {})
+            }
+            m::SecretList::NAME => {
+                parse::<m::SecretList>(params)?;
+                let secrets = self
+                    .host
+                    .manager()
+                    .secret_list()
+                    .await
+                    .map_err(crate::plugins::host_err)?
+                    .into_iter()
+                    .map(|(name, set, plugins)| m::SecretInfo { name, set, plugins })
+                    .collect();
+                reply::<m::SecretList>(m::SecretListResult { secrets })
+            }
+            m::SettingsSchema::NAME => {
+                let p = parse::<m::SettingsSchema>(params)?;
+                let schema = self
+                    .host
+                    .manager()
+                    .settings_schema(&p.plugin)
+                    .await
+                    .map_err(crate::plugins::host_err)?;
+                reply::<m::SettingsSchema>(m::SettingsSchemaResult { schema })
+            }
+            m::SettingsGet::NAME => {
+                let p = parse::<m::SettingsGet>(params)?;
+                let values = self
+                    .host
+                    .manager()
+                    .settings_get(&p.plugin)
+                    .await
+                    .map_err(crate::plugins::host_err)?;
+                reply::<m::SettingsGet>(m::SettingsGetResult { values })
+            }
+            m::SettingsSet::NAME => {
+                let p = parse::<m::SettingsSet>(params)?;
+                self.host
+                    .manager()
+                    .settings_set(&p.plugin, &p.values)
+                    .await
+                    .map_err(crate::plugins::host_err)?;
+                reply::<m::SettingsSet>(Empty {})
+            }
             m::RegistryList::NAME => {
                 parse::<m::RegistryList>(params)?;
                 let registries = self.registry()?.list().await?;
@@ -649,11 +773,176 @@ impl Conn {
                 k.device_revoke(&p.device).await.map_err(kernel_err)?;
                 reply::<m::AuthDevicesRevoke>(Empty {})
             }
-            other => Err(RpcError::new(
-                ErrorCode::MethodNotFound,
-                format!("no method {other}"),
+            m::PluginWorkspaces::NAME => {
+                let p = parse::<m::PluginWorkspaces>(params)?;
+                self.host
+                    .manager()
+                    .get(&p.plugin)
+                    .map_err(crate::plugins::host_err)?;
+                let workspaces = k.plugin_workspaces(&p.plugin).await.map_err(kernel_err)?;
+                reply::<m::PluginWorkspaces>(m::PluginWorkspacesResult { workspaces })
+            }
+            m::PluginSetWorkspaces::NAME => {
+                let p = parse::<m::PluginSetWorkspaces>(params)?;
+                self.host
+                    .manager()
+                    .get(&p.plugin)
+                    .map_err(crate::plugins::host_err)?;
+                k.plugin_set_workspaces(&p.plugin, &p.workspaces)
+                    .await
+                    .map_err(kernel_err)?;
+                tracing::info!(device = ?self.device, plugin = %p.plugin, count = p.workspaces.len(), "linked workspaces set");
+                reply::<m::PluginSetWorkspaces>(Empty {})
+            }
+            m::ScheduleList::NAME => {
+                parse::<m::ScheduleList>(params)?;
+                let schedules = k
+                    .schedule_list()
+                    .await
+                    .map_err(kernel_err)?
+                    .into_iter()
+                    .map(|r| m::ScheduleInfo {
+                        missed: match r.spec.missed {
+                            kumikit_kernel::schedule::Missed::Skip => "skip".into(),
+                            kumikit_kernel::schedule::Missed::Once => "once".into(),
+                        },
+                        source: match r.source {
+                            kumikit_kernel::schedule::Source::Manifest => "manifest".into(),
+                            kumikit_kernel::schedule::Source::Plugin => "plugin".into(),
+                        },
+                        plugin: r.plugin,
+                        key: r.key,
+                        description: r.spec.description,
+                        cron: r.spec.cron,
+                        time_zone: r.spec.zone,
+                        enabled: r.enabled,
+                        next_run: r.next_run,
+                        last_run: r.last_run,
+                        last_outcome: r.last_outcome,
+                    })
+                    .collect();
+                reply::<m::ScheduleList>(m::ScheduleListResult { schedules })
+            }
+            m::ScheduleSetEnabled::NAME => {
+                let p = parse::<m::ScheduleSetEnabled>(params)?;
+                k.schedule_set_enabled(&p.plugin, &p.key, p.enabled, jiff::Timestamp::now())
+                    .await
+                    .map_err(kernel_err)?;
+                tracing::info!(device = ?self.device, plugin = %p.plugin, key = %p.key, enabled = p.enabled, "schedule changed");
+                reply::<m::ScheduleSetEnabled>(Empty {})
+            }
+            m::ScheduleDelete::NAME => {
+                let p = parse::<m::ScheduleDelete>(params)?;
+                if p.key.starts_with(kumikit_kernel::schedule::MANIFEST_PREFIX) {
+                    return Err(RpcError::new(
+                        ErrorCode::Conflict,
+                        "a manifest schedule cannot be deleted; pause it instead",
+                    ));
+                }
+                k.schedule_delete(&p.plugin, &p.key)
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::ScheduleDelete>(Empty {})
+            }
+            m::ScheduleRun::NAME => {
+                let p = parse::<m::ScheduleRun>(params)?;
+                k.schedule_run_now(&p.plugin, &p.key, jiff::Timestamp::now())
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::ScheduleRun>(Empty {})
+            }
+            m::GatewayAttach::NAME => Err(RpcError::new(
+                ErrorCode::InvalidRequest,
+                "gateway.attach must be a local connection's first message",
             )),
+            m::CommandList::NAME => {
+                parse::<m::CommandList>(params)?;
+                let commands = self
+                    .host
+                    .commands()
+                    .into_iter()
+                    .map(|c| m::CommandInfo {
+                        plugin: c.plugin,
+                        id: c.id,
+                        title: c.title,
+                        scope: if c.workspace {
+                            m::Scope::Workspace
+                        } else {
+                            m::Scope::Core
+                        },
+                        when: c.when,
+                    })
+                    .collect();
+                reply::<m::CommandList>(m::CommandListResult { commands })
+            }
+            m::CommandRun::NAME => {
+                let p = parse::<m::CommandRun>(params)?;
+                let scoped = self
+                    .host
+                    .command_scope(&p.plugin, &p.command)
+                    .map_err(crate::plugins::host_err)?;
+                let workspace = self.acting_workspace(scoped, p.workspace.as_ref()).await?;
+                let args = p.args.unwrap_or_else(|| Value::Object(Default::default()));
+                let (message, view) = self
+                    .host
+                    .run_command(&p.plugin, &p.command, &args, workspace)
+                    .await
+                    .map_err(crate::plugins::host_err)?;
+                reply::<m::CommandRun>(m::CommandResult { message, view })
+            }
+            other => match other.split_once('/') {
+                Some((plugin, name)) => self.plugin_method(plugin, name, params).await,
+                None => Err(RpcError::new(
+                    ErrorCode::MethodNotFound,
+                    format!("no method {other}"),
+                )),
+            },
         }
+    }
+
+    /// The workspace a `workspace`-scoped call acts for: required, open, with its root.
+    async fn acting_workspace(
+        &self,
+        scoped: bool,
+        workspace: Option<&WorkspaceId>,
+    ) -> Result<Option<kumikit_plugin_host::runtime::WorkspaceRef>, RpcError> {
+        if !scoped {
+            return Ok(None);
+        }
+        let id = workspace.ok_or_else(|| {
+            RpcError::new(ErrorCode::InvalidParams, "this call needs a workspace")
+        })?;
+        let ws = self.kernel.workspace_get(id).await.map_err(kernel_err)?;
+        Ok(Some(kumikit_plugin_host::runtime::WorkspaceRef {
+            id: ws.id.0,
+            root: ws.root,
+        }))
+    }
+
+    /// `<plugin id>/<name>`: a method the enabled plugin declares
+    /// (`docs/spec/02-protocol.md#methods-added-in-06`).
+    async fn plugin_method(
+        &self,
+        plugin: &str,
+        name: &str,
+        params: Option<Value>,
+    ) -> Result<Value, RpcError> {
+        let Some(scoped) = self.host.method_scope(plugin, name) else {
+            return Err(RpcError::new(
+                ErrorCode::MethodNotFound,
+                format!("no method {plugin}/{name}"),
+            ));
+        };
+        let params = params.unwrap_or_else(|| Value::Object(Default::default()));
+        let workspace = match params.get("workspace") {
+            Some(Value::String(w)) => Some(WorkspaceId(w.clone())),
+            _ => None,
+        };
+        let workspace = self.acting_workspace(scoped, workspace.as_ref()).await?;
+        self.host
+            .call_method(plugin, name, &params, workspace)
+            .await
+            .map_err(crate::plugins::host_err)
     }
 
     fn start(&mut self, topic: String, deferred: Deferred) {

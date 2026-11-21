@@ -1,0 +1,30 @@
+package kumikit:host@0.2.0;
+
+/// Types shared by every host interface.
+interface types {
+  /// What kind of failure a host call reports.
+  enum error-code {
+    /// The plugin's granted permissions do not allow this call.
+    permission-denied,
+    /// A named thing (key, secret, process) does not exist.
+    not-found,
+    /// An argument is malformed or out of range.
+    invalid-argument,
+    /// The call contradicts current state (for example, the turn has ended).
+    conflict,
+    /// The running turn was cancelled.
+    cancelled,
+    /// A size or count limit was exceeded.
+    limit,
+    /// An I/O error outside the plugin's control.
+    io,
+    /// A bug in the host.
+    internal,
+  }
+
+  /// A failed host call.
+  record error {
+    code: error-code,
+    message: string,
+  }
+}

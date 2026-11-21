@@ -7,37 +7,34 @@ events and answers approvals through the same operations the UI uses.
 Bots are the test of the protocol's completeness: if a bot cannot do something a user does
 in the UI, the plugin API is missing it.
 
-## The bot world
+## The bot world (planned)
 
 ```wit
-package kumikit:bot@1.0.0;
-
-interface client {
-  // The protocol surface, scoped to what the bot was granted.
-  list-workspaces: func() -> result<list<workspace>, error>;
-  create-thread: func(workspace: string, provider: string, model: string) -> result<string, error>;
-  send: func(thread: string, text: string) -> result<_, error>;
-  respond-approval: func(approval: string, decision: decision) -> result<_, error>;
-  subscribe: func(topic: string, after: u64) -> result<subscription, error>;
-}
+package kumikit:bot@0.1.0;
 
 interface bot {
+  use kumikit:host/types@0.2.0.{error};
   run: func() -> result<_, error>;   // long-running; returns when stopped
 }
 
 world plugin {
-  import client;
-  import kumikit:host/secrets;
-  import kumikit:host/kv;
+  import kumikit:host/log@0.2.0;
+  import kumikit:host/kv@0.2.0;
+  import kumikit:host/secrets@0.2.0;
+  import kumikit:host/settings@0.2.0;
+  import kumikit:host/client@0.2.0;   // the protocol surface, within the bot's grant
   import wasi:http/outgoing-handler@0.2.0;
-  export kumikit:plugin/lifecycle;
+  export kumikit:plugin/lifecycle@0.2.0;
+  export kumikit:plugin/commands@0.2.0;
   export bot;
 }
 ```
 
-`run` is activated on `startup` when the bot is enabled. It long-polls or holds a
-WebSocket to the chat service through `wasi:http` and reads kernel events through its
-subscription.
+`run` starts on its own instance when the bot is enabled (`activation.on = ["startup"]`)
+and restarts with the host's backoff if it fails. It long-polls the chat service through
+`wasi:http` ([04](04-plugin-host.md#outgoing-http)) and waits on that request and its
+kernel subscriptions at once (`wasi:io/poll`). The client interface
+([03](03-kernel.md#client-interface)) is shared with other plugins that act as clients.
 
 ## Permissions
 
@@ -45,16 +42,25 @@ subscription.
 [permissions]
 network = ["api.telegram.org"]
 secrets = ["telegram-bot-token"]
-client = ["threads.create", "threads.send", "approvals.respond"]
-workspaces = "chosen"      # only the workspaces the user links to this bot
+client = ["workspaces.list", "threads.read", "threads.create", "threads.send", "threads.cancel", "approvals.respond"]
+workspaces = "linked"      # only the workspaces the user links to this bot
 ```
 
-- `client` lists the protocol operations the bot may perform; the kernel enforces them.
-- Approvals answered by a bot are recorded with the bot as the deciding party.
+- `client` lists the operations the bot may perform; the kernel enforces them.
+- Approvals answered by a bot are recorded with the bot as the deciding party
+  (`approval.resolved.plugin`); a bot cannot answer `allow_always`.
 - Who may talk to the bot (chat IDs, user IDs) is a bot setting, enforced by the bot and
-  shown in its settings page. The kernel records every message a bot sends into a thread.
+  shown in its settings page. The kernel records every message a bot sends into a thread
+  (`turn.started.from`).
+
+## Telegram
+
+A Telegram bot is planned for a milestone after M5. The client interface it needs
+(`kumikit:host/client`, linked workspaces, `from` and `plugin` in the log) is built; the bot
+world above is not yet.
 
 ## Webhooks
+
 
 Bots that need inbound webhooks get them only when the user enables remote access; the
 core routes `POST /hooks/<pluginId>/<path>` to the bot's `handle-rpc` export. Long polling

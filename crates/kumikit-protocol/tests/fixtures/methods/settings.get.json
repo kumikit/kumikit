@@ -1,0 +1,19 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 72,
+    "method": "settings.get",
+    "params": {
+      "plugin": "kumikit.bot-telegram"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 72,
+    "result": {
+      "values": {
+        "replyInGroups": false
+      }
+    }
+  }
+]

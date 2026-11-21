@@ -24,7 +24,7 @@ the local id; the protocol and the stored `Thread.provider` use the qualified on
    name = "Gemini CLI"
    version = "0.1.0"
    kind = ["provider"]
-   api = "^0.1"
+   api = "^0.2"
    [permissions]
    spawn = ["gemini"]
    [contributes]
@@ -35,8 +35,10 @@ the local id; the protocol and the stored `Thread.provider` use the qualified on
    (variable name → secret name, checked against `permissions.secrets`), `models` (a
    list of `{ id, label, capabilities }`; default: one model, `default`), `model-arg` (a
    flag that passes the chosen model on the agent's command line, for example
-   `--model`; ACP itself has no model selection) and `mode` (a session mode to set after
-   opening, for agents whose default mode never asks for approval). The table is
+   `--model`; ACP itself has no model selection), `mode` (a session mode to set after
+   opening, for agents whose default mode never asks for approval) and `auth-method` (an
+   ACP authentication method id to call with `authenticate` after `initialize`, for
+   agents that require it before opening a session). The table is
    checked against the plugin's `acp.schema.json`. `provider-acp` starts the agent in the thread's workspace, with the
    contributing plugin's permissions, and translates ACP session updates into kernel
    events: message chunks to `text.delta`/`text.done`, thought chunks to
@@ -46,17 +48,26 @@ the local id; the protocol and the stored `Thread.provider` use the qualified on
    (command lists, titles, mode and config changes) and other notifications are
    dropped. It offers the agent no file-system or terminal client capabilities.
    `plugins/provider-acp/examples/claude-code` is a complete declarative provider for
-   Claude Code.
+   Claude Code through its ACP adapter. The first-party declarative providers are
+   `kumikit.provider-antigravity` (`agy acp`), `kumikit.provider-copilot` (`copilot
+   --acp`), `kumikit.provider-cursor` (`cursor-agent acp`) and
+   `kumikit.provider-opencode` (`opencode acp`). When the session
+   has a tool gateway, `provider-acp` passes it to the agent in `mcpServers`.
 2. **WASM adapter.** For agents with their own stream format (for example JSON-lines
    output or an app-server protocol), a plugin implements `kumikit:provider` and spawns
-   the CLI through `kumikit:host/process`.
+   the CLI through `kumikit:host/process`. `kumikit.provider-claude` runs Claude Code
+   this way, over its `stream-json` input and output with permission requests on the same
+   stream, and passes the gateway with `--mcp-config`. It is also a provider backend (key
+   `claude`: `command`, `args`, `env`, `secret-env`, `models`, `model-arg`, `permission-mode`), so a manifest can run
+   Claude Code against another Anthropic-compatible endpoint;
+   `providers/claude/examples/deepseek` in `kumikit/kumikit-plugin-agents` does that for DeepSeek.
 3. **API provider.** A plugin that calls a model API over `wasi:http` and runs its own
    agent loop, using the tool gateway for tools (when `http` is supported).
 
 ## The provider world
 
 ```wit
-package kumikit:provider@0.1.0;
+package kumikit:provider@0.2.0;
 
 interface types {
   record model { id: string, label: string, capabilities: list<string> }
@@ -68,15 +79,19 @@ interface types {
   record session-config {
     thread: string, workspace-root: string, model: string,
     resume: option<string>,            // provider's own session id, if resuming
-    mcp-endpoint: option<string>,      // tool gateway URL for this thread
+    mcp-server: option<mcp-server>,    // tool gateway for this session, if granted `tools`
     options: list<tuple<string, string>>,
   }
   record user-input { text: string }
+  record mcp-server {                  // a stdio MCP server for the agent to start
+    name: string, command: string, args: list<string>,
+    env: list<tuple<string, string>>,
+  }
 }
 
 interface provider {
   use types.{model, provider-ref, session-config, user-input};
-  use kumikit:host/types@0.1.0.{error};
+  use kumikit:host/types@0.2.0.{error};
   list-models: func(provider: provider-ref) -> result<list<model>, error>;
   start-session: func(provider: provider-ref, config: session-config) -> result<string, error>;
   send: func(session: string, input: user-input) -> result<_, error>;     // runs a turn
@@ -84,12 +99,12 @@ interface provider {
 }
 
 world plugin {
-  import kumikit:host/log@0.1.0;
-  import kumikit:host/kv@0.1.0;
-  import kumikit:host/events@0.1.0;    // emit text.delta, tool.*, usage, …; request-approval
-  import kumikit:host/process@0.1.0;
-  import kumikit:host/secrets@0.1.0;
-  export kumikit:plugin/lifecycle@0.1.0;
+  import kumikit:host/log@0.2.0;
+  import kumikit:host/kv@0.2.0;
+  import kumikit:host/events@0.2.0;    // emit text.delta, tool.*, usage, …; request-approval
+  import kumikit:host/process@0.2.0;
+  import kumikit:host/secrets@0.2.0;
+  export kumikit:plugin/lifecycle@0.2.0;
   export provider;
 }
 ```

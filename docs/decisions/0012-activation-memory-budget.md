@@ -1,6 +1,6 @@
 # 0012 — Budgets for plugin activation memory and the core binary
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-16
 
 ## Context

@@ -10,7 +10,9 @@
 //!   mid-call; a trap or limit breach ends the instance and kills its processes.
 
 pub mod bindings;
+pub mod client;
 pub mod host;
+pub mod outbound;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -24,8 +26,9 @@ use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
 use wasmtime_wasi::{FsPerms, WasiCtx};
 
 use crate::engine::{self, EngineConfig, Limits, PluginEngine, TickGuard};
-use crate::manifest::{WORLD_PLUGIN, WORLD_PROVIDER};
+use crate::manifest::{WORLD_PLUGIN, WORLD_PROVIDER, WORLD_TOOL};
 use bindings::base::kumikit::host::types::Error as GuestError;
+pub use bindings::base::kumikit::plugin::types::{CallContext, CommandResult, WorkspaceRef};
 use bindings::provider::kumikit::provider::types::{Model, ProviderRef, SessionConfig, UserInput};
 pub use host::{HostState, Identity, SessionShared};
 
@@ -65,6 +68,8 @@ pub enum Prepared {
     Base(bindings::base::PluginPre<HostState>),
     /// Provider world.
     Provider(bindings::provider::PluginPre<HostState>),
+    /// Tool world.
+    Tool(bindings::tool::PluginPre<HostState>),
 }
 
 impl std::fmt::Debug for Prepared {
@@ -72,6 +77,7 @@ impl std::fmt::Debug for Prepared {
         f.write_str(match self {
             Prepared::Base(_) => "Prepared::Base",
             Prepared::Provider(_) => "Prepared::Provider",
+            Prepared::Tool(_) => "Prepared::Tool",
         })
     }
 }
@@ -80,6 +86,7 @@ struct Linkers {
     engine: PluginEngine,
     base: Linker<HostState>,
     provider: Linker<HostState>,
+    tool: Linker<HostState>,
 }
 
 /// The lazily started WASM runtime.
@@ -97,9 +104,27 @@ impl std::fmt::Debug for Runtime {
     }
 }
 
+/// The base world's Kumikit imports, one interface at a time: its `wasi:io/poll` import
+/// (through `client`) is already in the linker from wasmtime-wasi.
+fn add_base_imports(l: &mut Linker<HostState>) -> wasmtime::Result<()> {
+    use bindings::base::kumikit::{host, plugin};
+    type D = HasSelf<HostState>;
+    host::types::add_to_linker::<HostState, D>(l, |s| s)?;
+    host::log::add_to_linker::<HostState, D>(l, |s| s)?;
+    host::kv::add_to_linker::<HostState, D>(l, |s| s)?;
+    host::process::add_to_linker::<HostState, D>(l, |s| s)?;
+    host::secrets::add_to_linker::<HostState, D>(l, |s| s)?;
+    host::settings::add_to_linker::<HostState, D>(l, |s| s)?;
+    host::client::add_to_linker::<HostState, D>(l, |s| s)?;
+    host::timers::add_to_linker::<HostState, D>(l, |s| s)?;
+    plugin::types::add_to_linker::<HostState, D>(l, |s| s)?;
+    Ok(())
+}
+
 fn wasi_linker(engine: &wasmtime::Engine) -> wasmtime::Result<Linker<HostState>> {
     let mut linker = Linker::new(engine);
     wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
+    wasmtime_wasi_http::p2::add_only_http_to_linker_async(&mut linker)?;
     Ok(linker)
 }
 
@@ -125,14 +150,16 @@ impl Runtime {
                 let engine =
                     PluginEngine::new(&self.config, &self.cache_dir).map_err(|e| e.to_string())?;
                 let mut base = wasi_linker(engine.engine()).map_err(|e| e.to_string())?;
-                bindings::base::Plugin::add_to_linker::<HostState, HasSelf<HostState>>(
-                    &mut base,
-                    |s| s,
-                )
-                .map_err(|e| e.to_string())?;
+                add_base_imports(&mut base).map_err(|e| e.to_string())?;
                 let mut provider = wasi_linker(engine.engine()).map_err(|e| e.to_string())?;
                 bindings::provider::Plugin::add_to_linker::<HostState, HasSelf<HostState>>(
                     &mut provider,
+                    |s| s,
+                )
+                .map_err(|e| e.to_string())?;
+                let mut tool = wasi_linker(engine.engine()).map_err(|e| e.to_string())?;
+                bindings::tool::Plugin::add_to_linker::<HostState, HasSelf<HostState>>(
+                    &mut tool,
                     |s| s,
                 )
                 .map_err(|e| e.to_string())?;
@@ -141,6 +168,7 @@ impl Runtime {
                     engine,
                     base,
                     provider,
+                    tool,
                 })
             })
             .as_ref()
@@ -183,6 +211,15 @@ impl Runtime {
                         PrepareError(format!("does not implement {WORLD_PROVIDER}: {e:#}"))
                     })
             }
+            WORLD_TOOL => {
+                let pre = linkers
+                    .tool
+                    .instantiate_pre(&component)
+                    .map_err(unsupported)?;
+                bindings::tool::PluginPre::new(pre)
+                    .map(Prepared::Tool)
+                    .map_err(|e| PrepareError(format!("does not implement {WORLD_TOOL}: {e:#}")))
+            }
             other => Err(PrepareError(format!("world {other} is not supported"))),
         }
     }
@@ -205,11 +242,14 @@ pub struct InstanceConfig {
     pub call_timeout: std::time::Duration,
     /// Session state shared with the host side of a provider.
     pub session: Arc<SessionShared>,
+    /// The plugin's settings schema file, if it has one (`kumikit:host/settings`).
+    pub settings_schema: Option<PathBuf>,
 }
 
 enum Bindings {
     Base(bindings::base::Plugin),
     Provider(bindings::provider::Plugin),
+    Tool(bindings::tool::Plugin),
 }
 
 type Job = Box<
@@ -230,6 +270,7 @@ pub struct Instance {
 #[derive(Debug)]
 struct InstanceInner {
     jobs: mpsc::Sender<Job>,
+    stopped: tokio::sync::watch::Receiver<bool>,
     plugin: String,
     owner: OwnerId,
     kernel: Kernel,
@@ -303,12 +344,18 @@ impl Instance {
         ));
         let state = HostState {
             wasi: wasi.build(),
+            http: wasmtime_wasi_http::WasiHttpCtx::new(),
+            outbound: outbound::Outbound {
+                plugin: config.identity.plugin.clone(),
+                network: config.identity.grants.network.clone(),
+            },
             table: ResourceTable::new(),
             limits: Limits::new(config.memory, config.call_timeout),
             kernel: kernel.clone(),
             id: config.identity,
             owner: owner.clone(),
             session: config.session,
+            settings_schema: config.settings_schema,
         };
         let mut store = Store::new(engine.engine(), state);
         engine::apply_limits(&mut store);
@@ -319,19 +366,28 @@ impl Instance {
                 .instantiate_async(&mut store)
                 .await
                 .map(Bindings::Provider),
+            Prepared::Tool(pre) => pre.instantiate_async(&mut store).await.map(Bindings::Tool),
         }
         .map_err(|e| trap(&plugin, &store, &e))?;
 
         let (jobs, rx) = mpsc::channel::<Job>(8);
-        tokio::spawn(run(store, bindings, rx, tick));
+        let (stopped_tx, stopped) = tokio::sync::watch::channel(false);
+        tokio::spawn(run(store, bindings, rx, tick, stopped_tx));
         Ok(Instance {
             inner: Arc::new(InstanceInner {
                 jobs,
+                stopped,
                 plugin,
                 owner,
                 kernel,
             }),
         })
+    }
+
+    /// Becomes `true` once the instance's task has dropped its store (closing its
+    /// preopened data directory handle on Windows).
+    pub fn stopped(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.inner.stopped.clone()
     }
 
     /// The supervisor owner of this instance's processes.
@@ -388,6 +444,12 @@ impl Instance {
                             .call_activate(&mut *store)
                             .await
                     }
+
+                    Bindings::Tool(p) => {
+                        p.kumikit_plugin_lifecycle()
+                            .call_activate(&mut *store)
+                            .await
+                    }
                 };
                 finish(&plugin, store, r)
             })
@@ -411,7 +473,144 @@ impl Instance {
                             .call_deactivate(&mut *store)
                             .await
                     }
+
+                    Bindings::Tool(p) => {
+                        p.kumikit_plugin_lifecycle()
+                            .call_deactivate(&mut *store)
+                            .await
+                    }
                 };
+                finish(&plugin, store, r)
+            })
+        })
+        .await
+    }
+
+    /// Calls `rpc.handle`, acting for `workspace` (its root) during the call.
+    pub async fn handle_rpc(
+        &self,
+        method: String,
+        params: String,
+        ctx: CallContext,
+    ) -> Result<Result<String, GuestError>, CallError> {
+        let plugin = self.inner.plugin.clone();
+        self.call(move |store, b| {
+            Box::pin(async move {
+                let acting = act_for(store, &ctx);
+                let r = match b {
+                    Bindings::Base(p) => {
+                        p.kumikit_plugin_rpc()
+                            .call_handle(&mut *store, &method, &params, &ctx)
+                            .await
+                    }
+                    Bindings::Provider(p) => {
+                        p.kumikit_plugin_rpc()
+                            .call_handle(&mut *store, &method, &params, &ctx)
+                            .await
+                    }
+
+                    Bindings::Tool(p) => {
+                        p.kumikit_plugin_rpc()
+                            .call_handle(&mut *store, &method, &params, &ctx)
+                            .await
+                    }
+                };
+                store.data_mut().id.workspaces = acting;
+                finish(&plugin, store, r)
+            })
+        })
+        .await
+    }
+
+    /// Calls `commands.run`, acting for the context's workspace during the call.
+    pub async fn run_command(
+        &self,
+        id: String,
+        args: String,
+        ctx: CallContext,
+    ) -> Result<Result<CommandResult, GuestError>, CallError> {
+        let plugin = self.inner.plugin.clone();
+        self.call(move |store, b| {
+            Box::pin(async move {
+                let acting = act_for(store, &ctx);
+                let r = match b {
+                    Bindings::Base(p) => {
+                        p.kumikit_plugin_commands()
+                            .call_run(&mut *store, &id, &args, &ctx)
+                            .await
+                    }
+                    Bindings::Provider(p) => {
+                        p.kumikit_plugin_commands()
+                            .call_run(&mut *store, &id, &args, &ctx)
+                            .await
+                    }
+
+                    Bindings::Tool(p) => {
+                        p.kumikit_plugin_commands()
+                            .call_run(&mut *store, &id, &args, &ctx)
+                            .await
+                    }
+                };
+                store.data_mut().id.workspaces = acting;
+                finish(&plugin, store, r)
+            })
+        })
+        .await
+    }
+
+    /// Calls `timers.fire`.
+    pub async fn fire_timer(
+        &self,
+        key: String,
+        due: String,
+    ) -> Result<Result<(), GuestError>, CallError> {
+        let plugin = self.inner.plugin.clone();
+        self.call(move |store, b| {
+            Box::pin(async move {
+                let r = match b {
+                    Bindings::Base(p) => {
+                        p.kumikit_plugin_timers()
+                            .call_fire(&mut *store, &key, &due)
+                            .await
+                    }
+                    Bindings::Provider(p) => {
+                        p.kumikit_plugin_timers()
+                            .call_fire(&mut *store, &key, &due)
+                            .await
+                    }
+
+                    Bindings::Tool(p) => {
+                        p.kumikit_plugin_timers()
+                            .call_fire(&mut *store, &key, &due)
+                            .await
+                    }
+                };
+                finish(&plugin, store, r)
+            })
+        })
+        .await
+    }
+
+    /// Calls `tool.call`, acting for `workspace_root` during the call.
+    pub async fn call_tool(
+        &self,
+        call: bindings::tool::exports::kumikit::tool::tool::ToolCall,
+    ) -> Result<
+        Result<bindings::tool::exports::kumikit::tool::tool::ToolResult, GuestError>,
+        CallError,
+    > {
+        let plugin = self.inner.plugin.clone();
+        self.call(move |store, b| {
+            Box::pin(async move {
+                let Bindings::Tool(p) = b else {
+                    return (Err(CallError::WrongWorld(WORLD_TOOL)), true);
+                };
+                let acting = std::mem::replace(
+                    &mut store.data_mut().id.workspaces,
+                    vec![PathBuf::from(&call.workspace_root)],
+                );
+                let r = p.kumikit_tool_tool().call_call(&mut *store, &call).await;
+                store.data_mut().id.workspaces = acting;
                 finish(&plugin, store, r)
             })
         })
@@ -503,6 +702,17 @@ impl Instance {
 }
 
 /// Turns a call's outcome into the caller's result and whether the instance survives.
+/// Makes the instance act for the context's workspace (or none) for one call; returns
+/// what it acted for before, to restore afterwards.
+fn act_for(store: &mut Store<HostState>, ctx: &CallContext) -> Vec<PathBuf> {
+    let now = ctx
+        .workspace
+        .as_ref()
+        .map(|w| vec![PathBuf::from(&w.root)])
+        .unwrap_or_default();
+    std::mem::replace(&mut store.data_mut().id.workspaces, now)
+}
+
 fn finish<T>(
     plugin: &str,
     store: &Store<HostState>,
@@ -524,6 +734,7 @@ async fn run(
     bindings: Bindings,
     mut jobs: mpsc::Receiver<Job>,
     _tick: TickGuard,
+    stopped: tokio::sync::watch::Sender<bool>,
 ) {
     while let Some(job) = jobs.recv().await {
         if !job(&mut store, &bindings).await {
@@ -533,5 +744,6 @@ async fn run(
     let owner = store.data().owner.clone();
     let kernel = store.data().kernel.clone();
     drop(store);
+    let _ = stopped.send(true);
     kernel.supervisor().kill_owner(&owner).await;
 }

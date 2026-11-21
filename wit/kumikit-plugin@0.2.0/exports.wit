@@ -1,0 +1,55 @@
+package kumikit:plugin@0.2.0;
+
+/// Types shared by the plugin exports.
+interface types {
+  /// A workspace a call acts for.
+  record workspace-ref {
+    /// The workspace id.
+    id: string,
+    /// Its absolute root; `process.spawn` may use it (or a directory inside) as cwd.
+    root: string,
+  }
+
+  /// What running a command shows.
+  record command-result {
+    /// A line to show the user.
+    message: option<string>,
+    /// A declarative view (JSON, `docs/spec/07-ui-plugins.md#level-1-declarative-contributions`).
+    view: option<string>,
+  }
+
+  /// What a method, command or timer call acts for.
+  record call-context {
+    /// Set for `workspace`-scoped methods and commands.
+    workspace: option<workspace-ref>,
+  }
+}
+
+/// Plugin methods clients call as `<plugin id>/<name>` (the manifest's
+/// `contributes.methods`). Plugins without methods answer `not-found`.
+interface rpc {
+  use kumikit:host/types@0.2.0.{error};
+  use types.{call-context};
+
+  /// Handles one call. `params` and the result are JSON text.
+  handle: func(method: string, params: string, ctx: call-context) -> result<string, error>;
+}
+
+/// Commands from the manifest's `contributes.commands`. Plugins without commands answer
+/// `not-found`.
+interface commands {
+  use kumikit:host/types@0.2.0.{error};
+  use types.{call-context, command-result};
+
+  /// Runs a command. `args` is JSON text (`{}` when there are none).
+  run: func(id: string, args: string, ctx: call-context) -> result<command-result, error>;
+}
+
+/// Schedules (`docs/spec/03-kernel.md#schedules`). Plugins without schedules answer
+/// `not-found`.
+interface timers {
+  use kumikit:host/types@0.2.0.{error};
+
+  /// A schedule is due. `due` is the time it was due, RFC 3339 in UTC.
+  fire: func(key: string, due: string) -> result<_, error>;
+}

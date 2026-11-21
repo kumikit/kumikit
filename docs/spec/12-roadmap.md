@@ -90,14 +90,54 @@ protocol (`crates/kumikit-core/tests/exit_m4.rs`), in the browser build
 publisher whose key is made for the test, a fixture registry on loopback that its own
 checker accepts, and a fresh machine; the permissions are shown before the grant, and
 calls outside it fail with `permission_denied`. The official registry
-(`github.com/kumikit/registry`) is not created yet. Plan:
+(`github.com/kumikit/registry`) is live: its CI runs `kumikit-registry check` on pull
+requests and publishes `index.json` to `https://kumikit.github.io/registry/index.json`;
+the `kumikit` publisher is its only (early) publisher so far. Plan:
 [M4 — Ecosystem](../plans/2026-11-18-m4-ecosystem.md).
 
 ## M5 — Plugins
 
-Adapters for popular agent CLIs, the tool gateway (MCP), git and GitHub, a Telegram bot,
-the VS Code theme importer, schedules. Each is a separate plugin and none needs a kernel
-change; if one does, the kernel change lands first as a general API.
+- General APIs first, each in its own step: secrets and plugin settings over the protocol;
+  WIT 0.2.0 ([ADR 0022](../decisions/0022-wit-0-2-and-dropping-0-1.md)); plugin methods and
+  core commands; outgoing HTTP ([ADR 0023](../decisions/0023-outgoing-http-for-plugins.md));
+  a client interface with linked workspaces; schedules
+  ([ADR 0024](../decisions/0024-schedules.md)); the tool gateway
+  ([ADR 0025](../decisions/0025-tool-gateway.md)).
+- Providers: Antigravity, GitHub Copilot CLI, Cursor CLI and OpenCode as declarative ACP
+  manifests; Claude Code as a WASM adapter over its `stream-json` protocol, also a provider
+  backend (DeepSeek through it as a community example).
+- `kumikit.git` and its panel `kumikit.ui-git`, `kumikit.github`, `kumikit.schedules`.
+- The first-party plugins live in their own repositories: `kumikit/kumikit-plugin-agents`
+  (every agent provider), `kumikit/kumikit-plugin-git`, `kumikit/kumikit-plugin-github`
+  and `kumikit/kumikit-plugin-schedules`. A Telegram bot comes in a later milestone.
+
+Each is a separate plugin and none needs a kernel special case; where one needs something
+the kernel lacks, a general API lands first.
+
+**Exit:**
+1. Each new provider replays recorded output of its real agent and runs a turn with an
+   approval end to end from its package, against a fake agent.
+2. An agent turn uses a plugin tool through the gateway (`kumikit.git`'s `status`); a write
+   tool waits for an approval; a provider without the `tools` grant gets no gateway; a
+   wrong or expired token is refused.
+3. The `ui-git` panel shows the workspace's changes; an agent creates a GitHub pull request
+   through the gateway after an approval, against a fake GitHub API; the token reaches no
+   log, event or client.
+4. A scheduled prompt runs at its time; `schedule.list` shows it; pausing stops it; missed
+   runs follow their policy; with no schedules no timer is armed.
+5. In the desktop app, a user installs `kumikit.git` and `kumikit.ui-git` from a registry,
+   asks an agent about the workspace's changes, and the agent answers with the git tool
+   while the panel shows the same changes.
+
+**Status:** built. The exit tests pass on the core (`crates/kumikit-core/tests/exit_m5.rs`),
+in the browser build (`web/e2e/tests/exit-m5.spec.ts`, Chromium locally and WebKit in CI),
+and on the real desktop app over WebDriver (`web/e2e-desktop/exit-m5.test.mjs`, Linux
+locally and Windows in CI), and each first-party plugin repository passes its own CI
+(`kumikit-plugin-agents`, `kumikit-plugin-git`, `kumikit-plugin-github`,
+`kumikit-plugin-schedules`). The core release binary is 33.9 MiB (allowed past its 32 MiB
+budget during M5; reported by `scripts/footprint.sh`, not gated); optimising it is a
+separate task after M5. Plan: [M5 — Plugins](../plans/2026-11-19-m5-plugins.md); interface
+freeze review: [freeze review](../plans/2026-11-20-freeze-review.md).
 
 ## Open questions
 

@@ -17,6 +17,19 @@ pub enum FilesGrant {
     Workspace,
 }
 
+/// Where a plugin's client operations may act.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspacesGrant {
+    /// Nowhere.
+    #[default]
+    None,
+    /// The workspaces the user linked to the plugin.
+    Linked,
+    /// Every workspace.
+    All,
+}
+
 /// The permissions granted to a plugin. The default grants nothing. Stored as JSON in
 /// the `plugins` table.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -30,14 +43,25 @@ pub struct Grants {
     pub files: FilesGrant,
     /// Secret names it may read.
     pub secrets: BTreeSet<String>,
-    /// Whether it may call tools contributed by other plugins.
+    /// Whether it may hand tools contributed by other plugins to its agent.
     pub tools: bool,
+    /// Client operations it may perform (`kumikit:host/client`).
+    pub client: BTreeSet<String>,
+    /// Where those operations may act.
+    pub workspaces: WorkspacesGrant,
+    /// Whether it may run on a schedule.
+    pub schedules: bool,
 }
 
 impl Grants {
     /// Whether `program` (a bare name) may be started.
     pub fn may_spawn(&self, program: &str) -> bool {
         self.spawn.contains(program)
+    }
+
+    /// Whether the client operation `op` (`threads.send`, …) is granted.
+    pub fn may_client(&self, op: &str) -> bool {
+        self.client.contains(op)
     }
 
     /// Whether the secret `name` may be read.

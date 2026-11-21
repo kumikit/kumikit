@@ -1,0 +1,19 @@
+[package]
+name = "kumikit-test-tool"
+description = "Test plugin: tools for the tool gateway, for host and core tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+kumikit-tool = { path = "../../sdk/rust-tool" }
+serde_json = "1.0.154"

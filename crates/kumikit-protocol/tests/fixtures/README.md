@@ -29,4 +29,5 @@ Error cases and kinds the scripted provider never emits (`reasoning.delta`,
 (added in 0.3), and the `auth.*` methods and `plugin.install { package }` (added in 0.4), and the
 `registry.*` methods, `plugin.updates`, `plugin.update`, `plugin.lock`, `plugin.install
 { registry }`, publishers and the `untrusted` and `unavailable` errors (added in 0.5),
-are written by hand from the spec. Device ids are `01JCDV…`; tokens and codes are made up.
+and the `secret.*` and `settings.*` methods (added in 0.6), are written by hand from the
+spec. Secret values in them are made up. Device ids are `01JCDV…`; tokens and codes are made up.
