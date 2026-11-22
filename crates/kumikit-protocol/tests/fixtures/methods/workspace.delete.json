@@ -1,0 +1,15 @@
+[
+  {
+    "id": 12,
+    "jsonrpc": "2.0",
+    "method": "workspace.delete",
+    "params": {
+      "workspace": "01JCWS00000000000000000001"
+    }
+  },
+  {
+    "id": 12,
+    "jsonrpc": "2.0",
+    "result": {}
+  }
+]

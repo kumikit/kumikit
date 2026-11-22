@@ -64,6 +64,14 @@ export type MainView =
 export type Dialog =
   | { kind: 'palette' }
   | { kind: 'open-folder'; connection: string }
+  | {
+      kind: 'confirm';
+      title: string;
+      message: string;
+      confirmLabel: string;
+      tone?: 'danger' | 'primary';
+      onConfirm: () => Promise<void> | void;
+    }
   | undefined;
 
 /** The home profile before the shell lists profiles. */
@@ -423,10 +431,124 @@ export class Kernel {
       i = tabs.length - 1;
       this.#watch(connection, workspace);
     }
-    if (thread) tabs[i] = { ...tabs[i]!, thread };
+    if (thread) tabs[i] = { connection, workspace, thread };
     const next = updateLeaf(this.layoutRoot, target.id, (leaf) => ({ ...leaf, tabs, activeTab: i }));
     this.#commitLayout(next, target.id);
     this.main = { kind: 'tab' };
+  }
+
+  /** Clears a thread from every pane tab showing it (for example after archiving or deleting). */
+  #clearThreadFromTabs(connection: string, workspace: string, threadId: string): void {
+    let changed = false;
+    const walk = (n: LayoutNode): LayoutNode => {
+      if (n.kind === 'split') {
+        const first = walk(n.first);
+        const second = walk(n.second);
+        return first === n.first && second === n.second ? n : { ...n, first, second };
+      }
+      const tabs = n.tabs.map((t) => {
+        if (t.connection === connection && t.workspace === workspace && t.thread === threadId) {
+          changed = true;
+          return { connection: t.connection, workspace: t.workspace };
+        }
+        return t;
+      });
+      return changed ? { ...n, tabs } : n;
+    };
+    const next = walk(this.layoutRoot);
+    if (changed) this.#commitLayout(next, this.activePaneId);
+  }
+
+  /** Archives a thread, moving it out of its workspace into the sidebar's Archived section. */
+  async archiveThread(connection: string, workspace: string, threadId: string): Promise<boolean> {
+    const c = this.connectionFor(connection);
+    if (!c) return false;
+    const ok = await this.attempt('Cannot archive thread', () => c.call('thread.archive', { thread: threadId }));
+    if (!ok) return false;
+    const existing = (c.threads[workspace] ?? []).find((t) => t.id === threadId);
+    if (existing) c.noteThread({ ...existing, status: 'archived' });
+    this.#clearThreadFromTabs(connection, workspace, threadId);
+    this.notify('Thread archived', 'info');
+    return true;
+  }
+
+  /** Restores an archived thread back into its parent workspace. */
+  async unarchiveThread(connection: string, workspace: string, threadId: string): Promise<boolean> {
+    const c = this.connectionFor(connection);
+    if (!c) return false;
+    const res = await this.attempt('Cannot unarchive thread', () => c.call('thread.unarchive', { thread: threadId }));
+    if (!res) return false;
+    c.noteThread(res.thread);
+    this.notify('Thread restored', 'success');
+    return true;
+  }
+
+  /** Opens an in-app confirmation dialog. */
+  confirm(options: {
+    title: string;
+    message: string;
+    confirmLabel: string;
+    tone?: 'danger' | 'primary';
+    onConfirm: () => Promise<void> | void;
+  }): void {
+    this.dialog = { kind: 'confirm', ...options };
+  }
+
+  /** Removes every tab of a deleted workspace across all split panes, closing empty secondary panes. */
+  #removeWorkspaceFromTabs(connection: string, workspace: string): void {
+    let changed = false;
+    const walk = (n: LayoutNode): LayoutNode => {
+      if (n.kind === 'split') {
+        const first = walk(n.first);
+        const second = walk(n.second);
+        return first === n.first && second === n.second ? n : { ...n, first, second };
+      }
+      const tabs = n.tabs.filter((t) => !(t.connection === connection && t.workspace === workspace));
+      if (tabs.length === n.tabs.length) return n;
+      changed = true;
+      return { ...n, tabs, activeTab: clampTabIndex(tabs, n.activeTab) };
+    };
+    let root = walk(this.layoutRoot);
+    if (!changed) return;
+    let activeId = this.activePaneId;
+    for (const leaf of allLeaves(root)) {
+      if (leaf.tabs.length === 0 && allLeaves(root).length > 1) {
+        const closed = closeLeaf(root, leaf.id);
+        root = closed.root;
+        if (activeId === leaf.id) activeId = closed.nextActiveId;
+      }
+    }
+    this.#commitLayout(root, activeId);
+  }
+
+  /** Permanently deletes a workspace and all its threads from Kumikit, closing its tabs. */
+  async deleteWorkspace(connection: string, workspace: string): Promise<boolean> {
+    const c = this.connectionFor(connection);
+    if (!c) return false;
+    const ok = await this.attempt('Cannot delete project', () => c.call('workspace.delete', { workspace }));
+    if (!ok) return false;
+    const key = `${connection}/${workspace}`;
+    const stop = this.#unwatch.get(key);
+    if (stop) {
+      stop();
+      this.#unwatch.delete(key);
+    }
+    c.removeWorkspace(workspace);
+    this.#removeWorkspaceFromTabs(connection, workspace);
+    this.notify('Project deleted', 'info');
+    return true;
+  }
+
+  /** Permanently deletes a thread and removes it from all open panes. */
+  async deleteThread(connection: string, workspace: string, threadId: string): Promise<boolean> {
+    const c = this.connectionFor(connection);
+    if (!c) return false;
+    const ok = await this.attempt('Cannot delete thread', () => c.call('thread.delete', { thread: threadId }));
+    if (!ok) return false;
+    c.removeThread(workspace, threadId);
+    this.#clearThreadFromTabs(connection, workspace, threadId);
+    this.notify('Thread deleted', 'info');
+    return true;
   }
 
   closeTab(index: number, paneId: string = this.activePaneId): void {
@@ -520,12 +642,15 @@ export class Kernel {
     if (ws) this.openTab(connection, ws.id);
   }
 
-  /** Opens the native multi-file attachment dialog rooted at the workspace folder on the
-   * desktop shell, or returns `null` when the platform should fall back to `<input type="file">`. */
-  async pickAttachments(connection: string, workspace: string): Promise<PickedAttachment[] | null> {
+  /** Opens the native multi-file attachment dialog rooted at the workspace (or thread worktree)
+   * folder on the desktop shell, or returns `null` when the platform should fall back to `<input type="file">`. */
+  async pickAttachments(connection: string, workspace: string, worktreePath?: string): Promise<PickedAttachment[] | null> {
     if (!this.platform.pickAttachments) return null;
     const conn = this.connectionFor(connection);
-    const root = conn?.kind === 'local' ? conn.workspaces.find((w) => w.id === workspace)?.root : undefined;
+    const root =
+      conn?.kind === 'local'
+        ? (worktreePath ?? conn.workspaces.find((w) => w.id === workspace)?.root)
+        : undefined;
     const picked = await this.attempt('Cannot attach files', () =>
       this.platform.pickAttachments!('Attach files', root),
     );
@@ -533,19 +658,26 @@ export class Kernel {
   }
 
   /** Starts a fresh draft thread in a workspace tab (clears its open thread so the inline
-   * new-thread composer appears, with no modal dialog). */
-  startDraftThread(target?: { connection: string; workspace: string }, paneId: string = this.activePaneId): void {
+   * new-thread composer appears, with no modal dialog). Optionally pins the draft to a
+   * linked Git worktree path while keeping the thread under the parent workspace. */
+  startDraftThread(
+    target?: { connection: string; workspace: string; worktreePath?: string },
+    paneId: string = this.activePaneId,
+  ): void {
     const dest = target ?? this.activeTab;
     if (!dest) return;
     const leaf = findLeaf(this.layoutRoot, paneId) ?? this.activePane;
     const tabs = [...leaf.tabs];
+    const draftTab: TabSpec = target?.worktreePath
+      ? { connection: dest.connection, workspace: dest.workspace, worktreePath: target.worktreePath }
+      : { connection: dest.connection, workspace: dest.workspace };
     let i = tabs.findIndex((t) => t.connection === dest.connection && t.workspace === dest.workspace);
     if (i < 0) {
-      tabs.push({ connection: dest.connection, workspace: dest.workspace });
+      tabs.push(draftTab);
       i = tabs.length - 1;
       this.#watch(dest.connection, dest.workspace);
     } else {
-      tabs[i] = { connection: dest.connection, workspace: dest.workspace };
+      tabs[i] = draftTab;
     }
     const next = updateLeaf(this.layoutRoot, leaf.id, (l) => ({ ...l, tabs, activeTab: i }));
     this.#commitLayout(next, leaf.id);
@@ -560,6 +692,7 @@ export class Kernel {
     target?: { connection: string; workspace: string },
     paneId: string = this.activePaneId,
     permissionMode?: PermissionMode,
+    worktreePath?: string,
   ): Promise<Thread | undefined> {
     const tab = target ?? this.activeTab;
     if (!tab) return undefined;
@@ -569,10 +702,12 @@ export class Kernel {
       model?: string;
       title?: string;
       permissionMode?: PermissionMode;
+      worktreePath?: string;
     } = { workspace: tab.workspace, provider };
     if (model) params.model = model;
     if (title) params.title = title;
     if (permissionMode && permissionMode !== 'standard') params.permissionMode = permissionMode;
+    if (worktreePath) params.worktreePath = worktreePath;
     const c = this.connectionFor(tab.connection);
     if (!c) return undefined;
     const r = await this.attempt('Cannot start the thread', () => c.call('thread.create', params));
@@ -595,7 +730,7 @@ export class Kernel {
     model: string | undefined,
     text: string,
     paneId: string = this.activePaneId,
-    options?: { permissionMode?: PermissionMode; attachments?: Attachment[] },
+    options?: { permissionMode?: PermissionMode; attachments?: Attachment[]; worktreePath?: string },
   ): Promise<Thread | undefined> {
     const firstLine = text.split(/\r?\n/)[0]?.trim() ?? '';
     const fallbackTitle = options?.attachments?.[0]?.name;
@@ -608,6 +743,7 @@ export class Kernel {
       { connection, workspace },
       paneId,
       options?.permissionMode,
+      options?.worktreePath,
     );
     if (!thread) return undefined;
     await this.attempt('Cannot send', () =>
@@ -661,8 +797,18 @@ export class Kernel {
     c.register({ id: 'workspace.open', title: 'Open a project folder…', keybinding: 'Mod+O', when: 'connection.ready' }, () =>
       this.openWorkspaceFolder(),
     );
-    c.register({ id: 'thread.new', title: 'New thread', keybinding: 'Mod+N', when: 'connection.ready && tab.open' }, () => {
-      this.startDraftThread();
+    c.register({ id: 'thread.new', title: 'New thread', keybinding: 'Mod+N', when: 'connection.ready && tab.open' }, (args) => {
+      const a = args as { connection?: string; workspace?: string; worktreePath?: string } | undefined;
+      if (a?.connection && a?.workspace) {
+        const target: { connection: string; workspace: string; worktreePath?: string } = {
+          connection: a.connection,
+          workspace: a.workspace,
+        };
+        if (a.worktreePath) target.worktreePath = a.worktreePath;
+        this.startDraftThread(target);
+      } else {
+        this.startDraftThread();
+      }
     });
     c.register({ id: 'thread.cancel', title: 'Cancel the running turn', when: 'thread.open' }, async () => {
       const t = this.activeThread;
@@ -730,10 +876,10 @@ export class Kernel {
       await this.attempt('Cannot update thread', () => this.threads.update(a.address, patch));
     });
     c.register({ id: 'attachment.pick', title: 'Attach files', when: 'never' }, async (args) => {
-      const a = args as { address?: ThreadAddress; connection?: string; workspace?: string } | undefined;
+      const a = args as { address?: ThreadAddress; connection?: string; workspace?: string; worktreePath?: string } | undefined;
       const connection = a?.address?.connection ?? a?.connection ?? this.activeTab?.connection ?? this.connection.id;
       const workspace = a?.address?.workspace ?? a?.workspace ?? this.activeTab?.workspace ?? '';
-      return this.pickAttachments(connection, workspace);
+      return this.pickAttachments(connection, workspace, a?.worktreePath);
     });
   }
 

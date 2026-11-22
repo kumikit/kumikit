@@ -3,27 +3,60 @@
 <script lang="ts">
   import type { Kernel } from '../app.svelte';
   import CoreSettings from './CoreSettings.svelte';
+  import GeneralSettings from './GeneralSettings.svelte';
   import SlotHost from './SlotHost.svelte';
+  import WorktreesSettings from './WorktreesSettings.svelte';
 
   let { kernel, page }: { kernel: Kernel; page: string | undefined } = $props();
   const pages = $derived(
     [...kernel.slots.in('settings.page')].sort((a, b) => (a.contribution.order ?? 100) - (b.contribution.order ?? 100)),
   );
+  const showGeneral = $derived(!kernel.platform.safeMode);
   /** Core plugins with settings on the active tab's core; page ids are `core:<plugin id>`. */
   const conn = $derived(kernel.connection);
   const corePages = $derived(
     conn.hello?.capabilities.includes('settings') ? conn.plugins.filter((p) => p.contributes.settings) : [],
   );
+  const generalCurrent = $derived(showGeneral && (page === undefined || page === 'general'));
+  const worktreesCurrent = $derived(showGeneral && page === 'worktrees');
   const coreCurrent = $derived(
-    page?.startsWith('core:') ? corePages.find((p) => `core:${p.id}` === page) : pages.length ? undefined : corePages[0],
+    generalCurrent || worktreesCurrent
+      ? undefined
+      : page?.startsWith('core:')
+        ? corePages.find((p) => `core:${p.id}` === page)
+        : pages.length
+          ? undefined
+          : corePages[0],
   );
-  const current = $derived(coreCurrent ? undefined : (pages.find((p) => p.contribution.id === page) ?? pages[0]));
+  const current = $derived(
+    generalCurrent || worktreesCurrent || coreCurrent
+      ? undefined
+      : (pages.find((p) => p.contribution.id === page) ?? pages[0]),
+  );
 </script>
 
 <div class="settings">
   <nav aria-label="Settings pages">
-    {#if pages.length}
+    {#if showGeneral || pages.length}
       <span class="group-label">Client</span>
+      {#if showGeneral}
+        <button
+          type="button"
+          class:current={generalCurrent}
+          aria-current={generalCurrent ? 'page' : undefined}
+          onclick={() => (kernel.main = { kind: 'settings', page: 'general' })}
+        >
+          General
+        </button>
+        <button
+          type="button"
+          class:current={worktreesCurrent}
+          aria-current={worktreesCurrent ? 'page' : undefined}
+          onclick={() => (kernel.main = { kind: 'settings', page: 'worktrees' })}
+        >
+          Worktrees
+        </button>
+      {/if}
       {#each pages as p (p)}
         <button
           type="button"
@@ -51,7 +84,11 @@
   </nav>
   <div class="page">
     <div class="page-inner">
-      {#if coreCurrent}
+      {#if generalCurrent}
+        <GeneralSettings {kernel} />
+      {:else if worktreesCurrent}
+        <WorktreesSettings {kernel} />
+      {:else if coreCurrent}
         {#key coreCurrent.id}
           <h2 class="core-heading">{coreCurrent.id}</h2>
           <p class="kk-muted core-sub">Plugin settings stored on {conn.label}.</p>

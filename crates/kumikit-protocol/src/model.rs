@@ -184,6 +184,9 @@ pub struct Thread {
     /// Permission mode for the agent session; absent means `standard`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<PermissionMode>,
+    /// Linked Git worktree directory this thread runs in; absent means the workspace root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_path: Option<String>,
     /// Current status.
     pub status: ThreadStatus,
     /// When it was created.
@@ -383,6 +386,7 @@ mod tests {
             provider: "p".into(),
             model: "m".into(),
             permission_mode: None,
+            worktree_path: None,
             status: ThreadStatus::AwaitingApproval,
             created: Timestamp("t0".into()),
             updated: Timestamp("t1".into()),

@@ -23,7 +23,11 @@
     | 'layers'
     | 'search'
     | 'arrow-left'
-    | 'panel';
+    | 'panel'
+    | 'archive'
+    | 'archive-restore'
+    | 'trash'
+    | 'worktree';
 
   let { name, size = 14 }: { name: IconName; size?: number } = $props();
 </script>
@@ -107,6 +111,23 @@
   {:else if name === 'panel'}
     <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
     <line x1="2" y1="6" x2="14" y2="6" />
+  {:else if name === 'archive'}
+    <rect x="2" y="2.75" width="12" height="3" rx="0.9" />
+    <path d="M3.25 5.75v6.5a1.25 1.25 0 0 0 1.25 1.25h7a1.25 1.25 0 0 0 1.25-1.25v-6.5" />
+    <line x1="6.25" y1="8.75" x2="9.75" y2="8.75" />
+  {:else if name === 'archive-restore'}
+    <rect x="2" y="2.75" width="12" height="3" rx="0.9" />
+    <path d="M3.25 5.75v6.5a1.25 1.25 0 0 0 1.25 1.25h7a1.25 1.25 0 0 0 1.25-1.25v-6.5" />
+    <polyline points="6 9.75 8 7.75 10 9.75" />
+    <line x1="8" y1="7.75" x2="8" y2="11.5" />
+  {:else if name === 'trash'}
+    <path d="M2.75 4.25h10.5" />
+    <path d="M6 4.25V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.25" />
+    <path d="M4 4.25l.6 8.3a1.2 1.2 0 0 0 1.2 1.2h4.4a1.2 1.2 0 0 0 1.2-1.2l.6-8.3" />
+  {:else if name === 'worktree'}
+    <rect x="2" y="2.25" width="4.75" height="4.75" rx="1" />
+    <rect x="9.25" y="9" width="4.75" height="4.75" rx="1" />
+    <path d="M6.75 4.6h2.75a2 2 0 0 1 2 2V9" />
   {/if}
 </svg>
 

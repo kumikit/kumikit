@@ -25,4 +25,8 @@ title?: string,
 /**
  * Permission mode for the thread; defaults to `standard`.
  */
-permissionMode?: PermissionMode, };
+permissionMode?: PermissionMode, 
+/**
+ * Optional linked Git worktree path for this thread (keeps the thread under `workspace`).
+ */
+worktreePath?: string, };

@@ -2,6 +2,7 @@
  * Client settings (06-client, Client settings): kept in the webview's storage, inside
  * the client data directory. Nothing secret is stored here.
  */
+import type { PermissionMode } from '@kumikit/protocol';
 import {
   LEFT_DEFAULT,
   LEFT_MAX,
@@ -23,6 +24,8 @@ export interface TabSpec {
   workspace: string;
   /** The thread open in the tab, if any. */
   thread?: string;
+  /** Optional linked Git worktree path for a draft thread in this workspace. */
+  worktreePath?: string;
 }
 
 export interface Settings {
@@ -50,6 +53,8 @@ export interface Settings {
   /** Last-used agent provider and model for inline new-thread creation. */
   lastProvider?: string;
   lastModel?: string;
+  /** Default agent permission mode applied when starting a new thread (default `standard`). */
+  defaultPermissionMode: PermissionMode;
   /** UI plugins the user disabled (bundled ones are enabled unless listed). */
   disabledPlugins: string[];
   /** Installed inline UI plugins the user trusts. */
@@ -72,6 +77,7 @@ export const DEFAULTS: Settings = {
   leftSidebarView: 'workspaces',
   rightSidebarOpen: false,
   rightSidebarWidth: RIGHT_DEFAULT,
+  defaultPermissionMode: 'standard',
   disabledPlugins: [],
   trustedPlugins: [],
   pluginStorage: {},
@@ -120,6 +126,13 @@ export function parseSettings(text: string | null): Settings {
     leftSidebarView: r.leftSidebarView === 'threads' ? 'threads' : 'workspaces',
     rightSidebarOpen: r.rightSidebarOpen === true,
     rightSidebarWidth: typeof r.rightSidebarWidth === 'number' ? clamp(r.rightSidebarWidth, RIGHT_MIN, RIGHT_MAX) : DEFAULTS.rightSidebarWidth,
+    defaultPermissionMode:
+      r.defaultPermissionMode === 'standard' ||
+      r.defaultPermissionMode === 'accept_edits' ||
+      r.defaultPermissionMode === 'plan' ||
+      r.defaultPermissionMode === 'full_access'
+        ? r.defaultPermissionMode
+        : DEFAULTS.defaultPermissionMode,
     disabledPlugins: strings(r.disabledPlugins),
     trustedPlugins: strings(r.trustedPlugins),
     pluginStorage:

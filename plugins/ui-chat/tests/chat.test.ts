@@ -112,6 +112,46 @@ describe('the chat view', () => {
     expect(ran).toEqual([['thread.update', { address, permissionMode: 'full_access' }]]);
     unmount(c);
   });
+
+  it('loads workspace git status and workspace list once on mount without looping', async () => {
+    const calls: string[] = [];
+    const connection = {
+      id: 'local',
+      ready: true,
+      call: async (method: string) => {
+        calls.push(method);
+        if (method === 'workspace.git.status') {
+          return {
+            isRepo: true,
+            branch: 'main',
+            detached: false,
+            isWorktree: false,
+            repoRoot: '/tmp/proj',
+            defaultBranch: 'main',
+            branches: [{ name: 'main', current: true }],
+          };
+        }
+        if (method === 'workspace.list') {
+          return { workspaces: [{ id: 'w', name: 'proj', root: '/tmp/proj' }] };
+        }
+        return {};
+      },
+      subscribe: () => () => {},
+      models: async () => [],
+    };
+    const { ctx } = fakeCtx(base);
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address, connection: connection as never } });
+    flushSync();
+    // Flush several microtask turns to prove no reactive re-trigger loop occurs.
+    for (let i = 0; i < 6; i++) {
+      await Promise.resolve();
+      flushSync();
+    }
+    expect(calls.filter((m) => m === 'workspace.git.status')).toHaveLength(1);
+    expect(calls.filter((m) => m === 'workspace.list')).toHaveLength(1);
+    unmount(c);
+  });
 });
 
 describe('the approval renderer', () => {

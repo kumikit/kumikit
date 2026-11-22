@@ -3,6 +3,7 @@
 <script lang="ts">
   import type { Kernel } from '../app.svelte';
   import { RATIO_MAX, RATIO_MIN, type LayoutNode } from '../layout/layout';
+  import ContextMenu, { type ContextMenuItem } from './ContextMenu.svelte';
   import SplitHost from './SplitHost.svelte';
   import TabBar from './TabBar.svelte';
   import ThreadPane from './ThreadPane.svelte';
@@ -11,6 +12,37 @@
 
   let container: HTMLElement | undefined = $state();
   let dragging = $state(false);
+  let paneMenu = $state<{ x: number; y: number; paneId: string } | undefined>();
+
+  function onPaneContextMenu(e: MouseEvent, paneId: string) {
+    const el = e.target as HTMLElement | null;
+    if (el?.closest('input, textarea, [contenteditable="true"]')) return;
+    e.preventDefault();
+    kernel.focusPane(paneId);
+    paneMenu = { x: e.clientX, y: e.clientY, paneId };
+  }
+
+  const paneMenuItems = $derived.by((): ContextMenuItem[] => {
+    const m = paneMenu;
+    if (!m) return [];
+    const mod = kernel.mac ? '⌘' : 'Ctrl+';
+    return [
+      {
+        id: 'split-h',
+        label: 'Split horizontally',
+        icon: 'split-h',
+        shortcut: `${mod}\\`,
+        onSelect: () => kernel.splitPane('horizontal', m.paneId),
+      },
+      {
+        id: 'split-v',
+        label: 'Split vertically',
+        icon: 'split-v',
+        shortcut: `${mod}⇧\\`,
+        onSelect: () => kernel.splitPane('vertical', m.paneId),
+      },
+    ];
+  });
 
   function startDrag(e: PointerEvent, splitId: string, direction: 'horizontal' | 'vertical') {
     if (!container) return;
@@ -108,10 +140,21 @@
     use:focusPane={node.id}
   >
     <TabBar {kernel} pane={node} />
-    <div class="leaf-body">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="leaf-body" oncontextmenu={(e) => onPaneContextMenu(e, node.id)}>
       <ThreadPane {kernel} pane={node} />
     </div>
   </div>
+{/if}
+
+{#if paneMenu}
+  <ContextMenu
+    x={paneMenu.x}
+    y={paneMenu.y}
+    label="Pane actions"
+    items={paneMenuItems}
+    onClose={() => (paneMenu = undefined)}
+  />
 {/if}
 
 <style>

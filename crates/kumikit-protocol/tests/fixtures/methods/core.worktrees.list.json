@@ -1,0 +1,27 @@
+[
+  {
+    "id": 12,
+    "jsonrpc": "2.0",
+    "method": "core.worktrees.list",
+    "params": {}
+  },
+  {
+    "id": 12,
+    "jsonrpc": "2.0",
+    "result": {
+      "root": "/home/user/.kumikit/worktrees",
+      "totalBytes": 1048576,
+      "worktrees": [
+        {
+          "branch": "feat/worktrees",
+          "inUse": false,
+          "name": "feat-worktrees",
+          "path": "/home/user/.kumikit/worktrees/proj/feat-worktrees",
+          "repo": "proj",
+          "sizeBytes": 1048576,
+          "threadCount": 1
+        }
+      ]
+    }
+  }
+]

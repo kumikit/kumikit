@@ -106,14 +106,14 @@ Svelte 5 with runes, TypeScript strict, Vite
 | Part | Does |
 |---|---|
 | Connection manager | One connection per profile (local, paired remotes, SSH), each connecting on its own; reconnect with backoff (0.5 s doubling to 30 s) and a "Reconnect now" action; per-connection status (`connecting`, `ready`, `reconnecting`, `mismatch`, and `unauthorized` and `certificate_changed`, which stop retrying); after a reconnect it repeats `core.hello` and resubscribes every topic with its last `seq` |
-| Layout and splits | Resizable, collapsible left sidebar and right inspector dock, thin top toolbar (sidebar toggles, open folder, new thread, split controls) and bottom status bar (plugins, settings, theme, command palette on the left; status items and core connection state on the right), and a recursive horizontal/vertical split tree of workspace panes; splitting opens a fresh draft thread in the same workspace, where agent, model, and permission-mode controls (defaulting to `full_access`, with a padlock menu to restrict to `standard`, `accept_edits`, or `plan`) live directly under the composer (and active threads show their model switcher and permission-mode padlock menu under the chat composer, with a paperclip file picker defaulting to the project folder on desktop, drag-and-drop, and clipboard image/file paste) |
+| Layout and splits | Resizable, collapsible left sidebar and right inspector dock, thin top toolbar (sidebar toggles, open folder, new thread, split controls) and bottom status bar (plugins, settings, theme, command palette on the left; status items and core connection state on the right), and a recursive horizontal/vertical split tree of workspace panes (right-clicking a pane offers Split horizontally and Split vertically); splitting opens a fresh draft thread in the same workspace, where agent, model, and permission-mode controls (initialized from Settings → General's default permission mode, defaulting to `standard`, with a padlock menu to pick `standard`, `accept_edits`, `plan`, or `full_access`) live on the left under the composer and an active Git branch/worktree picker (distinct worktree icon when opened in a linked worktree vs branch icon in the root project folder; Switch to default branch, Other branch…, New thread in a worktree… keeping the thread under the parent workspace, Copy project path) lives on the right under both the draft and active chat composers (with a paperclip file picker defaulting to the project or worktree folder on desktop, drag-and-drop, and clipboard image/file paste) |
 | Thread store | Owns every wire subscription (one per topic per connection), folds thread events into view state, and shares it with plugins (`ctx.threads`) |
 | Slot registry | Places where UI plugins contribute ([07](07-ui-plugins.md)), including `sidebar.section` in the left sidebar and `inspector.tab` in the right inspector dock |
 | Command registry | Commands from the UI kernel, UI plugins and core plugins; one palette |
 | Declarative renderer | Renders core plugins' declarative UI: settings forms, status items, views |
 | Theme engine | Applies the active theme's tokens as CSS custom properties ([08](08-themes.md)) |
 | Plugin manager | Overlay sheet covering most of the window (closes via its close button, Escape, or clicking outside) to discover, install, update and configure plugins on the client and on each core |
-| Sidebar | One group per connection (label and status), with its workspaces and their threads (tree or active-threads view), quick per-workspace thread creation, kept current by the `workspace:<id>` topic, plus docked `sidebar.section` plugin panels |
+| Sidebar | One group per connection (label and status), with its workspaces and their threads (tree or active-threads view, worktree threads marked under their parent workspace), quick per-workspace thread creation, right-click thread menu (Archive, Delete), a collapsible filterable **Archived** section at the bottom (collapsed by default, right-click Unarchive or Delete), kept current by the `workspace:<id>` topic, plus docked `sidebar.section` plugin panels |
 | Inspector dock | Resizable right-hand sidebar hosting `inspector.tab` plugin contributions for the active tab's core and workspace, with closable open tabs and a `+` icon menu that opens a plugin as a new tab or focuses its existing tab |
 | Cores view | Overlay sheet covering most of the window (closes via its close button, Escape, or clicking outside) that lists connections, adds a core by address and pairing code (showing the fingerprint before the code is sent) or by SSH destination, and removes one |
 
@@ -157,9 +157,13 @@ still load.
 
 ### Client settings
 
-The theme and appearance, open tabs and split layout, sidebar widths and open/collapsed
-state, which UI plugins are enabled and trusted, and each plugin's `ctx.storage` live in
-the webview's storage, inside the client data directory. Nothing secret is stored there.
+The theme and appearance, default permission mode for new threads (default `standard`),
+open tabs and split layout, sidebar widths and open/collapsed state, which UI plugins are
+enabled and trusted, and each plugin's `ctx.storage` live in the webview's storage,
+inside the client data directory. Nothing secret is stored there. Core-level settings such as the Kumikit home folder (`~/.kumikit` by default on Linux/macOS,
+`%USERPROFILE%\.kumikit` on Windows) live on each core and are edited under Settings →
+General. Managed Git worktrees under `<homeDir>/worktrees/` can be inspected (with disk
+usage and linked thread counts) and deleted under Settings → Worktrees.
 
 ### State per connection
 
@@ -227,5 +231,9 @@ of the desktop or browser bundle.
 - Accessibility: semantic HTML first, ARIA where needed, contrast checked by theme
   validation, forced-colors respected.
 - Enter and Escape handlers in text inputs ignore IME composition.
+- Right-clicking a project or thread in the left sidebar opens a context menu (**Delete**
+  for projects; **Archive** / **Unarchive** and **Delete** for threads); destructive
+  deletions always ask for confirmation in an in-app dialog first. Outside editable text
+  inputs and custom context menus, the default webview context menu is suppressed.
 - Links in agent output and plugin markdown are not opened by the app; it offers to copy
   them. Raw HTML in markdown is shown as text.

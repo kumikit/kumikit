@@ -1,0 +1,15 @@
+[
+  {
+    "id": 13,
+    "jsonrpc": "2.0",
+    "method": "core.worktrees.delete",
+    "params": {
+      "path": "/home/user/.kumikit/worktrees/proj/feat-worktrees"
+    }
+  },
+  {
+    "id": 13,
+    "jsonrpc": "2.0",
+    "result": {}
+  }
+]

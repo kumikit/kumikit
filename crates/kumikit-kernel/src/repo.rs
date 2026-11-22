@@ -123,6 +123,43 @@ pub fn workspace_set_closed(conn: &Connection, id: &WorkspaceId, closed: bool) -
     Ok(())
 }
 
+/// Permanently deletes a workspace and all its threads, turns, approvals, events, and plugin links.
+/// Fails with `not_found` if absent, or `conflict` if any thread has a running or waiting turn.
+pub fn workspace_delete(conn: &Connection, id: &WorkspaceId) -> KernelResult<Vec<Thread>> {
+    if workspace_get(conn, id)?.is_none() {
+        return Err(KernelError::NotFound(format!("no workspace {id}")));
+    }
+    let rows = thread_list(conn, id, true)?;
+    for row in &rows {
+        if matches!(
+            row.thread.status,
+            ThreadStatus::Running | ThreadStatus::AwaitingApproval
+        ) {
+            return Err(KernelError::Conflict(format!(
+                "thread {} in workspace {id} has a running turn",
+                row.thread.id
+            )));
+        }
+    }
+    let wid = id.as_str();
+    conn.execute(
+        "DELETE FROM approvals WHERE thread IN (SELECT id FROM threads WHERE workspace = ?1)",
+        [wid],
+    )?;
+    conn.execute(
+        "DELETE FROM turns WHERE thread IN (SELECT id FROM threads WHERE workspace = ?1)",
+        [wid],
+    )?;
+    conn.execute(
+        "DELETE FROM events WHERE thread IN (SELECT id FROM threads WHERE workspace = ?1)",
+        [wid],
+    )?;
+    conn.execute("DELETE FROM threads WHERE workspace = ?1", [wid])?;
+    conn.execute("DELETE FROM plugin_workspaces WHERE workspace = ?1", [wid])?;
+    conn.execute("DELETE FROM workspaces WHERE id = ?1", [wid])?;
+    Ok(rows.into_iter().map(|r| r.public()).collect())
+}
+
 /// Open workspaces, by name.
 pub fn workspace_list(conn: &Connection) -> KernelResult<Vec<Workspace>> {
     let mut stmt = conn.prepare(
@@ -136,7 +173,7 @@ pub fn workspace_list(conn: &Connection) -> KernelResult<Vec<Workspace>> {
     Ok(out)
 }
 
-const THREAD_COLUMNS: &str = "id, workspace, title, provider, model, permission_mode, status, archived, created, updated, head, provider_session";
+const THREAD_COLUMNS: &str = "id, workspace, title, provider, model, permission_mode, worktree_path, status, archived, created, updated, head, provider_session";
 
 fn thread_from_row(row: &Row<'_>) -> rusqlite::Result<(ThreadRow, String, Option<String>, i64)> {
     let status: String = row.get("status")?;
@@ -151,6 +188,7 @@ fn thread_from_row(row: &Row<'_>) -> rusqlite::Result<(ThreadRow, String, Option
                 provider: row.get("provider")?,
                 model: row.get("model")?,
                 permission_mode: None,
+                worktree_path: row.get("worktree_path")?,
                 status: ThreadStatus::Idle,
                 created: Timestamp(row.get("created")?),
                 updated: Timestamp(row.get("updated")?),
@@ -184,8 +222,8 @@ fn finish_thread(
 /// Inserts a new thread (status `idle`, head 0).
 pub fn thread_insert(conn: &Connection, t: &Thread) -> KernelResult<()> {
     conn.execute(
-        "INSERT INTO threads (id, workspace, title, provider, model, permission_mode, status, created, updated)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        "INSERT INTO threads (id, workspace, title, provider, model, permission_mode, worktree_path, status, created, updated)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             t.id.as_str(),
             t.workspace.as_str(),
@@ -193,6 +231,7 @@ pub fn thread_insert(conn: &Connection, t: &Thread) -> KernelResult<()> {
             t.provider,
             t.model,
             t.permission_mode.map(PermissionMode::as_str),
+            t.worktree_path,
             t.status.as_str(),
             t.created.0,
             t.updated.0
@@ -267,6 +306,72 @@ pub fn thread_set_archived(conn: &Connection, id: &ThreadId) -> KernelResult<()>
     conn.execute(
         "UPDATE threads SET archived = 1 WHERE id = ?1",
         [id.as_str()],
+    )?;
+    Ok(())
+}
+
+/// Restores an archived thread back to active status.
+pub fn thread_set_unarchived(
+    conn: &Connection,
+    id: &ThreadId,
+    updated: &Timestamp,
+) -> KernelResult<ThreadRow> {
+    conn.execute(
+        "UPDATE threads SET archived = 0, updated = ?2 WHERE id = ?1",
+        params![id.as_str(), updated.0],
+    )?;
+    thread_require(conn, id)
+}
+
+/// Permanently deletes a thread and all its approvals, turns, and events.
+pub fn thread_delete(conn: &Connection, id: &ThreadId) -> KernelResult<Thread> {
+    let row = thread_require(conn, id)?;
+    if matches!(
+        row.thread.status,
+        ThreadStatus::Running | ThreadStatus::AwaitingApproval
+    ) {
+        return Err(KernelError::Conflict(format!(
+            "thread {id} has a running turn"
+        )));
+    }
+    let tid = id.as_str();
+    conn.execute("DELETE FROM approvals WHERE thread = ?1", [tid])?;
+    conn.execute("DELETE FROM turns WHERE thread = ?1", [tid])?;
+    conn.execute("DELETE FROM events WHERE thread = ?1", [tid])?;
+    conn.execute("DELETE FROM threads WHERE id = ?1", [tid])?;
+    Ok(row.public())
+}
+
+/// Returns every thread id linked to a worktree path, grouped by `worktree_path`.
+pub fn threads_by_worktree_path(
+    conn: &Connection,
+) -> KernelResult<std::collections::HashMap<String, Vec<ThreadId>>> {
+    let mut stmt =
+        conn.prepare("SELECT worktree_path, id FROM threads WHERE worktree_path IS NOT NULL")?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, ThreadId(r.get(1)?))))?;
+    let mut map: std::collections::HashMap<String, Vec<ThreadId>> =
+        std::collections::HashMap::new();
+    for row in rows {
+        let (path, id) = row?;
+        map.entry(path).or_default().push(id);
+    }
+    Ok(map)
+}
+
+/// Counts threads currently linked to `worktree_path`.
+pub fn threads_using_worktree(conn: &Connection, path: &str) -> KernelResult<i64> {
+    Ok(conn.query_row(
+        "SELECT count(*) FROM threads WHERE worktree_path = ?1",
+        [path],
+        |r| r.get(0),
+    )?)
+}
+
+/// Detaches threads from a worktree path that has been removed from disk.
+pub fn threads_clear_worktree_path(conn: &Connection, path: &str) -> KernelResult<()> {
+    conn.execute(
+        "UPDATE threads SET worktree_path = NULL WHERE worktree_path = ?1",
+        [path],
     )?;
     Ok(())
 }
@@ -458,4 +563,31 @@ pub fn approval_get(
             |r| Ok((ThreadId(r.get(0)?), TurnId(r.get(1)?), r.get(2)?)),
         )
         .optional()?)
+}
+
+/// Reads a core-level configuration value by key.
+pub fn core_setting_get(conn: &Connection, key: &str) -> KernelResult<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT value FROM core_settings WHERE key = ?1",
+            [key],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
+/// Writes or replaces a core-level configuration value.
+pub fn core_setting_set(conn: &Connection, key: &str, value: &str) -> KernelResult<()> {
+    conn.execute(
+        "INSERT INTO core_settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+/// Removes a core-level configuration value so the platform default applies.
+pub fn core_setting_delete(conn: &Connection, key: &str) -> KernelResult<()> {
+    conn.execute("DELETE FROM core_settings WHERE key = ?1", [key])?;
+    Ok(())
 }

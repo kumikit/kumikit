@@ -23,6 +23,7 @@
     toProtocolAttachments,
     type PendingAttachment,
   } from './attachments';
+  import BranchPicker from './BranchPicker.svelte';
   import PermissionModePicker from './PermissionModePicker.svelte';
 
   let {
@@ -128,7 +129,10 @@
   }
 
   async function openAttachmentPicker() {
-    const picked = (await run('attachment.pick', { address })) as
+    const picked = (await run('attachment.pick', {
+      address,
+      worktreePath: view?.thread?.worktreePath,
+    })) as
       | { name: string; mimeType: string; data: string; size: number }[]
       | null
       | undefined;
@@ -417,15 +421,28 @@
             onChange={onPermissionChange}
           />
         </div>
-        <span class="hint" role="status">
+        <div class="footer-right">
           {#if armedCancel}
-            Press Escape again to cancel the turn
+            <span class="hint" role="status">Press Escape again to cancel the turn</span>
           {:else if view && !view.live}
-            Reconnecting… messages are sent when the core is back
-          {:else}
-            Enter to send · Shift+Enter for new line
+            <span class="hint" role="status">Reconnecting…</span>
           {/if}
-        </span>
+          <BranchPicker
+            connection={activeConn}
+            workspaceId={address.workspace}
+            worktreePath={view?.thread?.worktreePath}
+            disabled={busy}
+            onNotify={(m, t) => ctx.notify(m, t)}
+            onSelectWorktree={(path) => {
+              const args: { connection: string; workspace: string; worktreePath?: string } = {
+                connection: address.connection,
+                workspace: address.workspace,
+              };
+              if (path) args.worktreePath = path;
+              void run('thread.new', args);
+            }}
+          />
+        </div>
       </div>
     </form>
   </div>
@@ -741,6 +758,12 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    min-width: 0;
+  }
+  .footer-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     min-width: 0;
   }
   .model-select {

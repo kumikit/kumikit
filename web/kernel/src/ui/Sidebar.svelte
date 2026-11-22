@@ -6,6 +6,7 @@
   import type { Kernel } from '../app.svelte';
   import type { CoreConnection } from '../connections/connection.svelte';
   import { untrack } from 'svelte';
+  import ContextMenu, { type ContextMenuItem } from './ContextMenu.svelte';
   import Icon from './Icon.svelte';
   import SlotHost from './SlotHost.svelte';
 
@@ -14,6 +15,159 @@
   let filterOpen = $state(false);
   let query = $state('');
   let collapsed = $state<Record<string, boolean>>({});
+  let archivedOpen = $state(false);
+  type SidebarMenu =
+    | {
+        kind: 'thread';
+        x: number;
+        y: number;
+        connection: string;
+        workspace: string;
+        threadId: string;
+        title: string;
+        archived: boolean;
+        running: boolean;
+        hasWorktree: boolean;
+      }
+    | {
+        kind: 'workspace';
+        x: number;
+        y: number;
+        connection: string;
+        workspace: string;
+        workspaceName: string;
+        threadCount: number;
+        running: boolean;
+      };
+
+  let menu = $state<SidebarMenu | undefined>();
+
+  function openThreadMenu(
+    e: MouseEvent,
+    connection: string,
+    workspace: string,
+    threadId: string,
+    title: string,
+    status: string,
+    hasWorktree: boolean,
+  ) {
+    e.preventDefault();
+    e.stopPropagation();
+    menu = {
+      kind: 'thread',
+      x: e.clientX,
+      y: e.clientY,
+      connection,
+      workspace,
+      threadId,
+      title,
+      archived: status === 'archived',
+      running: status === 'running' || status === 'awaiting_approval',
+      hasWorktree,
+    };
+  }
+
+  function openWorkspaceMenu(
+    e: MouseEvent,
+    connection: string,
+    workspace: string,
+    workspaceName: string,
+    allThreads: { status: string }[],
+  ) {
+    e.preventDefault();
+    e.stopPropagation();
+    menu = {
+      kind: 'workspace',
+      x: e.clientX,
+      y: e.clientY,
+      connection,
+      workspace,
+      workspaceName,
+      threadCount: allThreads.length,
+      running: allThreads.some((t) => t.status === 'running' || t.status === 'awaiting_approval'),
+    };
+  }
+
+  function confirmDeleteThread(m: Extract<SidebarMenu, { kind: 'thread' }>) {
+    kernel.confirm({
+      title: `Delete thread “${m.title}”?`,
+      message: m.hasWorktree
+        ? 'This permanently deletes this thread and its history, and removes its managed worktree folder if no other thread uses it.'
+        : 'This permanently deletes this thread and its message history.',
+      confirmLabel: 'Delete thread',
+      tone: 'danger',
+      onConfirm: async () => {
+        await kernel.deleteThread(m.connection, m.workspace, m.threadId);
+      },
+    });
+  }
+
+  function confirmDeleteWorkspace(m: Extract<SidebarMenu, { kind: 'workspace' }>) {
+    const message =
+      m.threadCount > 0
+        ? `This permanently deletes “${m.workspaceName}” and all ${m.threadCount} ${m.threadCount === 1 ? 'thread' : 'threads'} (including archived) and any managed worktrees created for them in Kumikit. Your project files on disk will not be touched.`
+        : `This removes “${m.workspaceName}” from Kumikit. Your project files on disk will not be touched.`;
+    kernel.confirm({
+      title: `Delete project “${m.workspaceName}”?`,
+      message,
+      confirmLabel: 'Delete project',
+      tone: 'danger',
+      onConfirm: async () => {
+        await kernel.deleteWorkspace(m.connection, m.workspace);
+      },
+    });
+  }
+
+  const menuItems = $derived.by((): ContextMenuItem[] => {
+    const m = menu;
+    if (!m) return [];
+    if (m.kind === 'workspace') {
+      return [
+        {
+          id: 'delete-workspace',
+          label: 'Delete',
+          icon: 'trash',
+          tone: 'danger',
+          disabled: m.running,
+          onSelect: () => confirmDeleteWorkspace(m),
+        },
+      ];
+    }
+    if (m.archived) {
+      return [
+        {
+          id: 'unarchive',
+          label: 'Unarchive',
+          icon: 'archive-restore',
+          onSelect: () => void kernel.unarchiveThread(m.connection, m.workspace, m.threadId),
+        },
+        {
+          id: 'delete',
+          label: 'Delete',
+          icon: 'trash',
+          tone: 'danger',
+          onSelect: () => confirmDeleteThread(m),
+        },
+      ];
+    }
+    return [
+      {
+        id: 'archive',
+        label: 'Archive',
+        icon: 'archive',
+        disabled: m.running,
+        onSelect: () => void kernel.archiveThread(m.connection, m.workspace, m.threadId),
+      },
+      {
+        id: 'delete',
+        label: 'Delete',
+        icon: 'trash',
+        tone: 'danger',
+        disabled: m.running,
+        onSelect: () => confirmDeleteThread(m),
+      },
+    ];
+  });
 
   // Sidebar sections get the active core's connection. The props change only when that
   // core does: a new object on every render would remount every section on any change.
@@ -78,6 +232,7 @@
       status: string;
       created: string;
       model: string;
+      worktreePath?: string;
     }[] = [];
     for (const conn of kernel.connections) {
       for (const ws of conn.workspaces) {
@@ -85,7 +240,7 @@
           if (t.status === 'archived') continue;
           const title = t.title ?? `Thread ${t.created.slice(0, 16).replace('T', ' ')}`;
           if (!matchesFilter(`${title} ${ws.name} ${conn.label}`)) continue;
-          items.push({
+          const entry: (typeof items)[number] = {
             conn,
             wsId: ws.id,
             wsName: ws.name,
@@ -94,7 +249,9 @@
             status: t.status,
             created: t.created,
             model: t.model,
-          });
+          };
+          if (t.worktreePath) entry.worktreePath = t.worktreePath;
+          items.push(entry);
         }
       }
     }
@@ -105,6 +262,47 @@
       return b.created.localeCompare(a.created);
     });
   });
+
+  /** All archived threads across cores/workspaces, plus filtered subset when searching. */
+  const allArchivedThreads = $derived.by(() => {
+    const items: {
+      conn: CoreConnection;
+      wsId: string;
+      wsName: string;
+      id: string;
+      title: string;
+      created: string;
+      updated: string;
+      worktreePath?: string;
+    }[] = [];
+    for (const conn of kernel.connections) {
+      for (const ws of conn.workspaces) {
+        for (const t of conn.threads[ws.id] ?? []) {
+          if (t.status !== 'archived') continue;
+          const title = t.title ?? `Thread ${t.created.slice(0, 16).replace('T', ' ')}`;
+          const entry: (typeof items)[number] = {
+            conn,
+            wsId: ws.id,
+            wsName: ws.name,
+            id: t.id,
+            title,
+            created: t.created,
+            updated: t.updated,
+          };
+          if (t.worktreePath) entry.worktreePath = t.worktreePath;
+          items.push(entry);
+        }
+      }
+    }
+    return items.sort((a, b) => b.updated.localeCompare(a.updated));
+  });
+
+  const filteredArchivedThreads = $derived(
+    allArchivedThreads.filter((item) => matchesFilter(`${item.title} ${item.wsName} ${item.conn.label}`)),
+  );
+  const showArchivedItems = $derived(
+    archivedOpen || (normalizedQuery.length > 0 && filteredArchivedThreads.length > 0),
+  );
 
   function onFilterKey(e: KeyboardEvent) {
     if (!isComposing(e) && e.key === 'Escape') {
@@ -196,10 +394,17 @@
               class:current={here}
               aria-current={here ? 'page' : undefined}
               onclick={() => kernel.openTab(item.conn.id, item.wsId, item.id)}
+              oncontextmenu={(e) =>
+                openThreadMenu(e, item.conn.id, item.wsId, item.id, item.title, item.status, Boolean(item.worktreePath))}
             >
               <span class="kk-status {item.status}" aria-hidden="true"></span>
               <span class="thread-main">
-                <span class="title">{item.title}</span>
+                <span class="title-row">
+                  {#if item.worktreePath}
+                    <span class="wt-mark" title={`Worktree: ${item.worktreePath}`}><Icon name="worktree" size={11} /></span>
+                  {/if}
+                  <span class="title">{item.title}</span>
+                </span>
                 <span class="meta">{item.wsName} · {shortTime(item.created)}</span>
               </span>
               <span class="kk-sr-only">, {statusText[item.status] ?? item.status}</span>
@@ -230,14 +435,21 @@
             </button>
           </div>
           {#each conn.workspaces as ws (ws.id)}
-            {@const wsThreads = (conn.threads[ws.id] ?? []).filter((t) => t.status !== 'archived')}
+            {@const allWsThreads = conn.threads[ws.id] ?? []}
+            {@const wsThreads = allWsThreads.filter((t) => t.status !== 'archived')}
             {@const filteredThreads = wsThreads.filter((t) => matchesFilter(`${t.title ?? ''} ${ws.name}`))}
             {@const showWs = !normalizedQuery || matchesFilter(ws.name) || filteredThreads.length > 0}
             {#if showWs}
               {@const expanded = normalizedQuery ? true : isWorkspaceOpen(conn.id, ws.id)}
               {@const current = kernel.activeTab?.connection === conn.id && kernel.activeTab?.workspace === ws.id}
               <section class="ws-group" aria-label={ws.name}>
-                <div class="ws-row" class:current>
+                <div
+                  class="ws-row"
+                  class:current
+                  role="group"
+                  aria-label={ws.name}
+                  oncontextmenu={(e) => openWorkspaceMenu(e, conn.id, ws.id, ws.name, allWsThreads)}
+                >
                   <button
                     type="button"
                     class="disclosure"
@@ -273,17 +485,24 @@
                   <ul>
                     {#each filteredThreads as t (t.id)}
                       {@const here = current && kernel.activeThread?.thread === t.id}
+                      {@const tLabel = t.title ?? `Thread ${t.created.slice(0, 16).replace('T', ' ')}`}
                       <li>
                         <button
                           type="button"
                           class="thread"
                           class:current={here}
                           aria-current={here ? 'page' : undefined}
-                          title={t.title ?? `Thread ${shortTime(t.created)}`}
+                          title={t.worktreePath
+                            ? `${tLabel} (Worktree: ${t.worktreePath})`
+                            : tLabel}
                           onclick={() => kernel.openTab(conn.id, ws.id, t.id)}
+                          oncontextmenu={(e) => openThreadMenu(e, conn.id, ws.id, t.id, tLabel, t.status, Boolean(t.worktreePath))}
                         >
                           <span class="kk-status {t.status}" aria-hidden="true"></span>
-                          <span class="title">{t.title ?? `Thread ${t.created.slice(0, 16).replace('T', ' ')}`}</span>
+                          {#if t.worktreePath}
+                            <span class="wt-mark" aria-hidden="true"><Icon name="worktree" size={11} /></span>
+                          {/if}
+                          <span class="title">{tLabel}</span>
                           <span class="kk-sr-only">, {statusText[t.status] ?? t.status}</span>
                         </button>
                       </li>
@@ -310,7 +529,64 @@
       </section>
     {/each}
   </div>
+
+  {#if allArchivedThreads.length > 0}
+    <section class="archived-section" aria-label="Archived threads">
+      <button
+        type="button"
+        class="archived-toggle"
+        aria-expanded={showArchivedItems}
+        onclick={() => (archivedOpen = !archivedOpen)}
+      >
+        <Icon name={showArchivedItems ? 'chevron-down' : 'chevron-right'} size={12} />
+        <Icon name="archive" size={12} />
+        <span class="archived-label">Archived</span>
+        <span class="count">{normalizedQuery ? filteredArchivedThreads.length : allArchivedThreads.length}</span>
+      </button>
+      {#if showArchivedItems}
+        <ul class="archived-list">
+          {#each filteredArchivedThreads as item (`${item.conn.id}/${item.wsId}/${item.id}`)}
+            {@const here =
+              kernel.activeTab?.connection === item.conn.id &&
+              kernel.activeTab?.workspace === item.wsId &&
+              kernel.activeThread?.thread === item.id}
+            <li>
+              <button
+                type="button"
+                class="thread archived-thread"
+                class:current={here}
+                aria-current={here ? 'page' : undefined}
+                title={`${item.title} · ${item.wsName}`}
+                onclick={() => kernel.openTab(item.conn.id, item.wsId, item.id)}
+                oncontextmenu={(e) =>
+                  openThreadMenu(e, item.conn.id, item.wsId, item.id, item.title, 'archived', Boolean(item.worktreePath))}
+              >
+                {#if item.worktreePath}
+                  <span class="wt-mark" aria-hidden="true"><Icon name="worktree" size={11} /></span>
+                {/if}
+                <span class="title">{item.title}</span>
+                <span class="ws-tag">{item.wsName}</span>
+                <span class="kk-sr-only">, archived</span>
+              </button>
+            </li>
+          {:else}
+            <li class="kk-muted none">No matching archived threads</li>
+          {/each}
+        </ul>
+      {/if}
+    </section>
+  {/if}
 </nav>
+
+{#if menu}
+  <ContextMenu
+    x={menu.x}
+    y={menu.y}
+    label={menu.kind === 'workspace' ? 'Project actions' : 'Thread actions'}
+    items={menuItems}
+    onClose={() => (menu = undefined)}
+  />
+{/if}
 
 <style>
   .sidebar {
@@ -529,5 +805,69 @@
     min-height: 160px;
     display: flex;
     flex-direction: column;
+  }
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+  }
+  .wt-mark {
+    display: inline-flex;
+    align-items: center;
+    color: var(--kk-accent, Highlight);
+    flex: none;
+  }
+  .archived-section {
+    flex: none;
+    border-top: 1px solid var(--kk-border-subtle, CanvasText);
+    padding: 4px 6px 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 40%;
+  }
+  .archived-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    height: 26px;
+    padding: 0 4px;
+    border: 0;
+    border-radius: var(--kk-radius-small, 0);
+    background: transparent;
+    color: var(--kk-text-secondary, CanvasText);
+    font-size: var(--kk-font-size-small, small);
+    font-weight: var(--kk-font-weight-strong, bold);
+    text-align: left;
+    cursor: pointer;
+  }
+  .archived-toggle:hover {
+    background: var(--kk-surface-hover, ButtonFace);
+    color: var(--kk-text-primary, CanvasText);
+  }
+  .archived-label {
+    flex: 1;
+  }
+  .archived-list {
+    padding: 0;
+    overflow: auto;
+    max-height: 200px;
+  }
+  .archived-thread {
+    color: var(--kk-text-muted, GrayText);
+  }
+  .ws-tag {
+    margin-left: auto;
+    padding: 0 5px;
+    border-radius: var(--kk-radius-small, 0);
+    background: var(--kk-surface-raised, Canvas);
+    color: var(--kk-text-muted, GrayText);
+    flex: none;
+    max-width: 84px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

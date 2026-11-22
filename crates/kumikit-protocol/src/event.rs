@@ -303,11 +303,19 @@ pub enum WorkspaceEvent {
     /// `thread.archived`
     #[serde(rename = "thread.archived")]
     ThreadArchived(ThreadChange),
+    /// `thread.deleted`: the thread was permanently removed.
+    #[serde(rename = "thread.deleted")]
+    ThreadDeleted(ThreadChange),
 }
 
 impl WorkspaceEvent {
     /// Every kind string, in spec table order.
-    pub const KINDS: [&'static str; 3] = ["thread.created", "thread.updated", "thread.archived"];
+    pub const KINDS: [&'static str; 4] = [
+        "thread.created",
+        "thread.updated",
+        "thread.archived",
+        "thread.deleted",
+    ];
 
     /// This event's kind string.
     pub fn kind(&self) -> &'static str {
@@ -315,6 +323,7 @@ impl WorkspaceEvent {
             WorkspaceEvent::ThreadCreated(_) => "thread.created",
             WorkspaceEvent::ThreadUpdated(_) => "thread.updated",
             WorkspaceEvent::ThreadArchived(_) => "thread.archived",
+            WorkspaceEvent::ThreadDeleted(_) => "thread.deleted",
         }
     }
 
@@ -323,7 +332,8 @@ impl WorkspaceEvent {
         match self {
             WorkspaceEvent::ThreadCreated(c)
             | WorkspaceEvent::ThreadUpdated(c)
-            | WorkspaceEvent::ThreadArchived(c) => &c.thread,
+            | WorkspaceEvent::ThreadArchived(c)
+            | WorkspaceEvent::ThreadDeleted(c) => &c.thread,
         }
     }
 }

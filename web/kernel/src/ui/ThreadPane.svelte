@@ -109,6 +109,7 @@
         connection={conn}
         workspaceId={tab.workspace}
         workspaceName={wsName}
+        worktreePath={tab.worktreePath}
         paneId={target.id}
       />
     {/if}
@@ -121,6 +122,12 @@
             <span class="kk-status {thread.status}" aria-hidden="true"></span>
             <span>{statusText[thread.status] ?? thread.status}</span>
           </span>
+          {#if thread.worktreePath}
+            <span class="wt-pill" title={`Worktree: ${thread.worktreePath}`}>
+              <Icon name="worktree" size={11} />
+              <span>Worktree</span>
+            </span>
+          {/if}
           <span class="model-tag">{conn?.providers.find((p) => p.id === thread.provider)?.name ?? thread.provider} · {thread.model}</span>
         {/if}
         <span class="spacer"></span>
@@ -246,6 +253,18 @@
     background: var(--kk-surface-card, Canvas);
     font-size: var(--kk-font-size-small, small);
     color: var(--kk-text-secondary, CanvasText);
+    white-space: nowrap;
+  }
+  .wt-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-large, 0);
+    background: var(--kk-surface-raised, Canvas);
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-accent, Highlight);
     white-space: nowrap;
   }
   .model-tag {

@@ -34,6 +34,10 @@ model: string,
  */
 permissionMode?: PermissionMode, 
 /**
+ * Linked Git worktree directory this thread runs in; absent means the workspace root.
+ */
+worktreePath?: string, 
+/**
  * Current status.
  */
 status: ThreadStatus, 

@@ -15,6 +15,7 @@
     toProtocolAttachments,
     type PendingAttachment,
   } from './attachments';
+  import BranchPicker from './BranchPicker.svelte';
   import PermissionModePicker from './PermissionModePicker.svelte';
 
   let {
@@ -22,19 +23,29 @@
     connection,
     workspaceId,
     workspaceName,
+    worktreePath,
     paneId,
   }: {
     kernel: Kernel;
     connection: CoreConnection;
     workspaceId: string;
     workspaceName: string | undefined;
+    worktreePath?: string | undefined;
     paneId: string;
   } = $props();
 
+  const worktreeLabel = $derived.by(() => {
+    if (!worktreePath) return '';
+    const parts = worktreePath.split(/[\\/]/).filter(Boolean);
+    return parts[parts.length - 1] ?? worktreePath;
+  });
+
   const providers = $derived(connection.providers);
+  const workspaceRoot = $derived(connection.workspaces.find((w) => w.id === workspaceId)?.root);
   let provider = $state(untrack(() => kernel.settings.value.lastProvider ?? ''));
   let model = $state(untrack(() => kernel.settings.value.lastModel ?? ''));
-  let permissionMode = $state<PermissionMode>('full_access');
+  let permissionMode = $state<PermissionMode>(untrack(() => kernel.settings.value.defaultPermissionMode));
+  let permissionOverridden = $state(false);
   let models = $state.raw<ModelInfo[]>([]);
   let loadingModels = $state(false);
   let text = $state('');
@@ -86,14 +97,23 @@
     );
   });
 
-  // Focus the composer and reset permissions to Full access when starting a fresh draft thread.
+  // Follow the Settings default permission mode until the user overrides it for this draft.
+  $effect(() => {
+    const def = kernel.settings.value.defaultPermissionMode;
+    if (!permissionOverridden) permissionMode = def;
+  });
+
+  // Focus the composer and reset permissions to the configured default when starting a fresh draft thread.
   let seenDraftNonce = untrack(() => kernel.draftFocusNonce);
   $effect(() => {
     const nonce = kernel.draftFocusNonce;
     const isFresh = nonce !== seenDraftNonce;
     seenDraftNonce = nonce;
     if (kernel.activePaneId === paneId) {
-      if (isFresh) permissionMode = 'full_access';
+      if (isFresh) {
+        permissionOverridden = false;
+        permissionMode = kernel.settings.value.defaultPermissionMode;
+      }
       if (textarea) textarea.focus();
     }
   });
@@ -122,7 +142,7 @@
   }
 
   async function openAttachmentPicker() {
-    const picked = await kernel.pickAttachments(connection.id, workspaceId);
+    const picked = await kernel.pickAttachments(connection.id, workspaceId, worktreePath);
     if (picked === null) {
       fileInput?.click();
       return;
@@ -152,10 +172,15 @@
     const pending = attachments;
     if ((!message && pending.length === 0) || !provider || busy) return;
     busy = true;
-    const opts: { permissionMode?: PermissionMode; attachments?: ReturnType<typeof toProtocolAttachments> } = {
+    const opts: {
+      permissionMode?: PermissionMode;
+      attachments?: ReturnType<typeof toProtocolAttachments>;
+      worktreePath?: string;
+    } = {
       permissionMode,
     };
     if (pending.length > 0) opts.attachments = toProtocolAttachments(pending);
+    if (worktreePath) opts.worktreePath = worktreePath;
     const created = await kernel.startThreadWithMessage(
       connection.id,
       workspaceId,
@@ -185,7 +210,27 @@
   <div class="inner">
     <div class="intro">
       <h1>{workspaceName ?? 'Workspace'}</h1>
-      <p class="kk-muted">Start a new thread — pick an agent, model, and permissions below, then type or paste.</p>
+      {#if worktreePath}
+        <div class="wt-badge" title={worktreePath}>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="2.25" width="4.75" height="4.75" rx="1" />
+            <rect x="9.25" y="9" width="4.75" height="4.75" rx="1" />
+            <path d="M6.75 4.6h2.75a2 2 0 0 1 2 2V9" />
+          </svg>
+          <span>Worktree · {worktreeLabel}</span>
+          <button
+            type="button"
+            class="wt-clear"
+            aria-label="Use root project folder"
+            title="Switch back to root project folder"
+            onclick={() => kernel.startDraftThread({ connection: connection.id, workspace: workspaceId }, paneId)}
+          >
+            ×
+          </button>
+        </div>
+      {:else}
+        <p class="kk-muted">Start a new thread — pick an agent, model, and permissions below, then type or paste.</p>
+      {/if}
     </div>
 
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -336,11 +381,28 @@
               value={permissionMode}
               disabled={busy}
               onChange={(mode) => {
+                permissionOverridden = true;
                 permissionMode = mode;
               }}
             />
           </div>
-          <span class="footer-hint">Enter to send · Shift+Enter for new line</span>
+          <BranchPicker
+            {connection}
+            {workspaceId}
+            {workspaceRoot}
+            {workspaceName}
+            {worktreePath}
+            disabled={busy}
+            onNotify={(m, t) => kernel.notify(m, t)}
+            onSelectWorktree={(path) => {
+              const target: { connection: string; workspace: string; worktreePath?: string } = {
+                connection: connection.id,
+                workspace: workspaceId,
+              };
+              if (path) target.worktreePath = path;
+              kernel.startDraftThread(target, paneId);
+            }}
+          />
         {/if}
       </div>
     </form>
@@ -378,6 +440,38 @@
   .intro p {
     margin: 0;
     font-size: var(--kk-font-size-small, small);
+  }
+  .wt-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-self: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-large, 0);
+    background: var(--kk-surface-raised, Canvas);
+    color: var(--kk-text-secondary, CanvasText);
+    font-size: var(--kk-font-size-small, small);
+  }
+  .wt-badge svg {
+    color: var(--kk-accent, Highlight);
+  }
+  .wt-clear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--kk-radius-small, 0);
+    background: transparent;
+    color: var(--kk-text-muted, GrayText);
+    cursor: pointer;
+  }
+  .wt-clear:hover {
+    background: var(--kk-surface-hover, ButtonFace);
+    color: var(--kk-text-primary, CanvasText);
   }
   .composer-shell {
     display: flex;
@@ -577,13 +671,6 @@
   .picker:disabled {
     opacity: 0.55;
     cursor: default;
-  }
-  .footer-hint {
-    font-size: var(--kk-font-size-small, small);
-    color: var(--kk-text-muted, GrayText);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
   .no-provider {
     font-size: var(--kk-font-size-small, small);

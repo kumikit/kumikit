@@ -4,6 +4,7 @@
 <script lang="ts">
   import type { Kernel } from '../app.svelte';
   import { LEFT_MAX, LEFT_MIN, RIGHT_MAX, RIGHT_MIN } from '../layout/layout';
+  import ConfirmDialog from './ConfirmDialog.svelte';
   import CoreView from './CoreView.svelte';
   import CoresView from './CoresView.svelte';
   import OpenFolder from './OpenFolder.svelte';
@@ -47,6 +48,21 @@
     void kernel.attempt('The command failed', () => Promise.resolve(cmd.run()));
   }
 
+  /** Suppress the default webview context menu (Back/Forward/Reload/Inspect) outside editable text inputs. */
+  function onContextMenu(e: MouseEvent) {
+    if (e.defaultPrevented) return;
+    const target = e.target as HTMLElement | null;
+    if (
+      target &&
+      ((target instanceof HTMLInputElement && !target.readOnly && !target.disabled) ||
+        (target instanceof HTMLTextAreaElement && !target.readOnly && !target.disabled) ||
+        target.isContentEditable)
+    ) {
+      return;
+    }
+    e.preventDefault();
+  }
+
   function dragSidebar(e: PointerEvent, side: 'left' | 'right') {
     e.preventDefault();
     const target = e.currentTarget as HTMLElement;
@@ -86,7 +102,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKey} oncontextmenu={onContextMenu} />
 
 {#if pairing}
   <PairBrowser {kernel} />
@@ -197,6 +213,15 @@
   <Palette {kernel} />
 {:else if kernel.dialog?.kind === 'open-folder'}
   <OpenFolder {kernel} connection={kernel.dialog.connection} />
+{:else if kernel.dialog?.kind === 'confirm'}
+  <ConfirmDialog
+    {kernel}
+    title={kernel.dialog.title}
+    message={kernel.dialog.message}
+    confirmLabel={kernel.dialog.confirmLabel}
+    tone={kernel.dialog.tone ?? 'danger'}
+    onConfirm={kernel.dialog.onConfirm}
+  />
 {/if}
 <Toasts {kernel} />
 

@@ -22,7 +22,7 @@ be a plugin is one.
 
 ```
 Workspace { id, name, root: path }
-Thread    { id, workspace, title, provider, model, status, created, updated }
+Thread    { id, workspace, title, provider, model, permissionMode?, worktreePath?, status, created, updated }
 Turn      { id, thread, started, ended?, outcome? }
 Event     { thread, seq, time, kind, data }
 Approval  { id, thread, turn, kind, summary, detail, status }

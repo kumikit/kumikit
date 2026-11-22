@@ -84,7 +84,8 @@ impl wasmtime_wasi::p2::Pollable for SubscriptionRes {
                         let thread = match &change {
                             WorkspaceEvent::ThreadCreated(c)
                             | WorkspaceEvent::ThreadUpdated(c)
-                            | WorkspaceEvent::ThreadArchived(c) => &c.thread,
+                            | WorkspaceEvent::ThreadArchived(c)
+                            | WorkspaceEvent::ThreadDeleted(c) => &c.thread,
                         };
                         if &thread.workspace != ws {
                             continue;

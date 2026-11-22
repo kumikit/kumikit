@@ -462,3 +462,22 @@ async fn the_tool_gateway_is_refused_on_remote_connections_and_without_a_token()
     assert_eq!(code(&r), "unauthenticated", "{r}");
     assert!(local.recv().await.is_none(), "the connection closes");
 }
+
+#[tokio::test]
+async fn core_config_round_trip() {
+    let mut c = client().await;
+    c.hello().await;
+    let initial = c.call("core.config.get", json!({})).await;
+    let default_home = initial["result"]["defaultHomeDir"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(initial["result"]["homeDir"], default_home);
+
+    let custom = format!("{}/custom-home", c.dir());
+    let updated = c.call("core.config.set", json!({"homeDir": custom})).await;
+    assert_eq!(updated["result"]["homeDir"], custom);
+
+    let reset = c.call("core.config.set", json!({})).await;
+    assert_eq!(reset["result"]["homeDir"], default_home);
+}

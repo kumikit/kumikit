@@ -188,6 +188,21 @@ impl Kernel {
         title: Option<String>,
         permission_mode: Option<PermissionMode>,
     ) -> KernelResult<Thread> {
+        self.thread_create_with_worktree(workspace, provider, model, title, permission_mode, None)
+            .await
+    }
+
+    /// Creates a thread, optionally running inside a linked Git worktree path while
+    /// keeping the thread attached to `workspace`.
+    pub async fn thread_create_with_worktree(
+        &self,
+        workspace: &WorkspaceId,
+        provider: Option<String>,
+        model: Option<String>,
+        title: Option<String>,
+        permission_mode: Option<PermissionMode>,
+        worktree_path: Option<String>,
+    ) -> KernelResult<Thread> {
         let provider = match provider {
             Some(id) => self
                 .provider(&id)
@@ -221,12 +236,13 @@ impl Kernel {
                 KernelError::PluginFailed(format!("provider {} has no models", provider.id()))
             })?,
         };
-        self.thread_insert(
+        self.thread_insert_with_worktree(
             workspace,
             provider.id().to_owned(),
             model,
             title,
             permission_mode,
+            worktree_path,
         )
         .await
     }
@@ -606,11 +622,16 @@ impl Kernel {
             .await
             .map_err(|e| e.to_string())?;
         let workspace = workspace.ok_or_else(|| format!("no workspace {}", meta.workspace))?;
+        let effective_root = row
+            .thread
+            .worktree_path
+            .clone()
+            .unwrap_or_else(|| workspace.workspace.root.clone());
         let mcp_server = self
             .gateway_for_session(
                 &meta.id,
                 &meta.workspace,
-                &workspace.workspace.root,
+                &effective_root,
                 provider.contributor(),
             )
             .await
@@ -619,7 +640,7 @@ impl Kernel {
         let session = provider
             .start_session(SessionConfig {
                 thread: meta.id.clone(),
-                workspace_root: workspace.workspace.root,
+                workspace_root: effective_root,
                 model: row.thread.model,
                 resume: row.provider_session,
                 mcp_server,

@@ -1,0 +1,15 @@
+[
+  {
+    "id": 11,
+    "jsonrpc": "2.0",
+    "method": "thread.delete",
+    "params": {
+      "thread": "01JCTH00000000000000000001"
+    }
+  },
+  {
+    "id": 11,
+    "jsonrpc": "2.0",
+    "result": {}
+  }
+]

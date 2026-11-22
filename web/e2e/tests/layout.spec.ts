@@ -9,7 +9,8 @@
  *   and closable tabs, passing WCAG AA axe checks in dark and light themes.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 import { ROOT, command, expect, mod, open, test } from './fixtures';
@@ -29,6 +30,20 @@ function files(dir: string, root = dir): Record<string, string> {
 
 test('sidebars resize and collapse, splits start new threads, and right inspector dropdown manages plugin tabs', async ({ page, kk }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
+  // Turn the temp project into a local Git repo with two branches so branch/worktree UI is exercised.
+  const gitEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'Test',
+    GIT_AUTHOR_EMAIL: 'test@example.com',
+    GIT_COMMITTER_NAME: 'Test',
+    GIT_COMMITTER_EMAIL: 'test@example.com',
+  };
+  execFileSync('git', ['init', '-b', 'main'], { cwd: kk.project, env: gitEnv });
+  writeFileSync(join(kk.project, 'README.md'), 'hello\n');
+  execFileSync('git', ['add', 'README.md'], { cwd: kk.project, env: gitEnv });
+  execFileSync('git', ['commit', '-m', 'init'], { cwd: kk.project, env: gitEnv });
+  execFileSync('git', ['branch', 'feature-a'], { cwd: kk.project, env: gitEnv });
+
   await open(page, kk);
 
   // Verify status bar layout: plugins, settings, theme, commands on left; Connected on right;
@@ -149,10 +164,11 @@ test('sidebars resize and collapse, splits start new threads, and right inspecto
   await page.locator('[data-pane]').last().getByRole('button', { name: 'Close split pane' }).click();
   await expect(page.locator('[data-pane]')).toHaveCount(2);
 
-  // Composer footer: new threads default to Full access; switch to Standard and back, then attach a file.
+  // Composer footer: new threads default to Standard (configured in Settings -> General);
+  // switch to Accept edits, attach a file, and confirm it persists on the thread.
   const firstPane = page.locator('[data-pane]').first();
-  await expect(firstPane.getByRole('button', { name: 'Permissions: Full access' })).toBeVisible();
-  await firstPane.getByRole('button', { name: 'Permissions: Full access' }).click();
+  await expect(firstPane.getByRole('button', { name: 'Permissions: Standard' })).toBeVisible();
+  await firstPane.getByRole('button', { name: 'Permissions: Standard' }).click();
   await firstPane.getByRole('menuitemradio', { name: /Accept edits/ }).click();
   await expect(firstPane.getByRole('button', { name: 'Permissions: Accept edits' })).toBeVisible();
 
@@ -169,7 +185,133 @@ test('sidebars resize and collapse, splits start new threads, and right inspecto
   await expect(firstPane.getByText('sample.txt')).toBeVisible();
   await expect(firstPane.getByRole('button', { name: 'Permissions: Accept edits' })).toBeVisible();
 
-  // Starting a brand-new thread still defaults to Full access (does not inherit the earlier restriction).
+  // Settings -> General: switch default permission mode to Full access and set Kumikit home folder.
+  const customHome = join(kk.work, 'kk-home');
+  await footer.getByRole('button', { name: 'Open settings' }).click();
+  const settingsSheet = page.locator('[data-overlay="settings"]');
+  await expect(settingsSheet.getByRole('heading', { name: 'General' })).toBeVisible();
+  await settingsSheet.getByRole('radio', { name: /Full access/ }).check();
+  const homeBox = settingsSheet.getByRole('textbox', { name: 'Kumikit home folder' });
+  await expect(homeBox).toBeEnabled();
+  await homeBox.fill(customHome);
+  await settingsSheet.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(settingsSheet.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+  await settingsSheet.getByRole('button', { name: 'Close', exact: true }).click();
+
+  // New threads now inherit Full access from Settings -> General.
   await page.getByRole('button', { name: 'New thread in proj' }).click();
   await expect(firstPane.getByRole('button', { name: 'Permissions: Full access' })).toBeVisible();
+
+  // Active branch pill: switch to feature-a via Other branch…, then Switch to main, then create a worktree.
+  await expect(firstPane.getByRole('button', { name: 'Git branch: main' })).toBeVisible();
+  await firstPane.getByRole('button', { name: 'Git branch: main' }).click();
+  await expect(firstPane.getByRole('menuitem', { name: 'Copy project path' })).toBeVisible();
+  await firstPane.getByRole('menuitem', { name: /Other branch/ }).click();
+  await firstPane.getByRole('menuitem', { name: 'feature-a' }).click();
+  await expect(firstPane.getByRole('button', { name: 'Git branch: feature-a' })).toBeVisible();
+
+  await firstPane.getByRole('button', { name: 'Git branch: feature-a' }).click();
+  await firstPane.getByRole('menuitem', { name: 'Switch to main' }).click();
+  await expect(firstPane.getByRole('button', { name: 'Git branch: main' })).toBeVisible();
+
+  await firstPane.getByRole('button', { name: 'Git branch: main' }).click();
+  await firstPane.getByRole('menuitem', { name: /New thread in a worktree/ }).click();
+  await firstPane.getByPlaceholder('feat/my-change').fill('feat/demo-wt');
+  await firstPane.getByRole('button', { name: 'Create worktree & start thread' }).click();
+  // Worktree thread stays under the parent `proj` workspace (no extra workspace added) and
+  // shows the distinct worktree trigger in the composer footer.
+  await expect(firstPane.getByRole('button', { name: 'Git worktree: feat/demo-wt' })).toBeVisible();
+  await expect(firstPane.getByRole('heading', { name: 'proj' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'feat-demo-wt' })).toHaveCount(0);
+  expect(existsSync(join(customHome, 'worktrees', 'proj', 'feat-demo-wt'))).toBe(true);
+
+  // Send a message in the worktree thread and verify it appears under `proj`, then right-click
+  // to Archive -> filter inside Archived section -> Unarchive -> Delete.
+  await firstPane.locator('textarea').fill('Worktree hello');
+  await firstPane.locator('textarea').press('Enter');
+  const sidebar = page.getByRole('navigation', { name: 'Workspaces', exact: true });
+  const wtThreadBtn = sidebar.getByRole('button', { name: /Worktree hello/ });
+  await expect(wtThreadBtn).toBeVisible();
+
+  await wtThreadBtn.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Archive' }).click();
+  const archivedSection = sidebar.getByRole('region', { name: 'Archived threads' });
+  await expect(archivedSection).toBeVisible();
+  // Collapsed by default until expanded or matched by the filter.
+  await expect(archivedSection.getByRole('button', { name: /Worktree hello/ })).toHaveCount(0);
+
+  // Filtering reveals matching archived threads automatically.
+  await sidebar.getByRole('button', { name: 'Filter workspaces and threads' }).click();
+  await sidebar.getByRole('searchbox', { name: 'Filter workspaces or threads' }).fill('Worktree hello');
+  const archivedBtn = archivedSection.getByRole('button', { name: /Worktree hello/ });
+  await expect(archivedBtn).toBeVisible();
+  await archivedBtn.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Unarchive' }).click();
+  await sidebar.getByRole('searchbox', { name: 'Filter workspaces or threads' }).fill('');
+  await expect(sidebar.getByRole('button', { name: /Worktree hello/ })).toBeVisible();
+
+  await sidebar.getByRole('button', { name: /Worktree hello/ }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Delete' }).click();
+  // Confirm dialog appears before deleting; Cancel keeps the thread.
+  const confirmDialog = page.getByRole('alertdialog');
+  await expect(confirmDialog).toContainText('Delete thread');
+  await confirmDialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(confirmDialog).toHaveCount(0);
+  await expect(sidebar.getByRole('button', { name: /Worktree hello/ })).toBeVisible();
+
+  // Confirming deletes the thread and removes its managed worktree folder on disk.
+  await sidebar.getByRole('button', { name: /Worktree hello/ }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Delete' }).click();
+  await expect(confirmDialog).toBeVisible();
+  await confirmDialog.getByRole('button', { name: 'Delete thread' }).click();
+  await expect(sidebar.getByRole('button', { name: /Worktree hello/ })).toHaveCount(0);
+  await expect.poll(() => existsSync(join(customHome, 'worktrees', 'proj', 'feat-demo-wt'))).toBe(false);
+
+  // Create another worktree and manage/delete it from Settings -> Worktrees.
+  await page.getByRole('button', { name: 'New thread in proj' }).click();
+  await firstPane.getByRole('button', { name: 'Git branch: main' }).click();
+  await firstPane.getByRole('menuitem', { name: /New thread in a worktree/ }).click();
+  await firstPane.getByPlaceholder('feat/my-change').fill('feat/manage-wt');
+  await firstPane.getByRole('button', { name: 'Create worktree & start thread' }).click();
+  await expect(firstPane.getByRole('button', { name: 'Git worktree: feat/manage-wt' })).toBeVisible();
+  expect(existsSync(join(customHome, 'worktrees', 'proj', 'feat-manage-wt'))).toBe(true);
+
+  await footer.getByRole('button', { name: 'Open settings' }).click();
+  await settingsSheet.getByRole('button', { name: 'Worktrees', exact: true }).click();
+  await expect(settingsSheet.getByRole('heading', { name: 'Worktrees' })).toBeVisible();
+  const wtItem = settingsSheet.getByRole('listitem').filter({ hasText: 'feat/manage-wt' });
+  await expect(wtItem).toBeVisible();
+  await expect(wtItem).toContainText(/\d+(\.\d+)?\s*(B|KB|MB|GB)/);
+  await wtItem.getByRole('button', { name: 'Delete worktree feat/manage-wt' }).click();
+  await expect(settingsSheet.getByText('No managed worktrees')).toBeVisible();
+  expect(existsSync(join(customHome, 'worktrees', 'proj', 'feat-manage-wt'))).toBe(false);
+  await settingsSheet.getByRole('button', { name: 'Close', exact: true }).click();
+
+  // Right-click in main panel offers Split horizontally and Split vertically.
+  const panesBefore = await page.locator('[data-pane]').count();
+  await firstPane.locator('.leaf-body').click({ button: 'right', position: { x: 24, y: 80 } });
+  await expect(page.getByRole('menuitem', { name: /Split horizontally/ })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: /Split vertically/ })).toBeVisible();
+  await page.getByRole('menuitem', { name: /Split horizontally/ }).click();
+  await expect(page.locator('[data-pane]')).toHaveCount(panesBefore + 1);
+
+  // Right-clicking neutral chrome suppresses the default webview context menu.
+  const suppressed = await footer.evaluate((el) => {
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    el.dispatchEvent(ev);
+    return ev.defaultPrevented;
+  });
+  expect(suppressed).toBe(true);
+
+  // Right-clicking a project in the sidebar offers Delete with a confirmation dialog.
+  await sidebar.getByRole('button', { name: /^proj/ }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Delete' }).click();
+  await expect(confirmDialog).toContainText('Delete project');
+  // Verify the confirmation dialog passes WCAG AA axe checks.
+  const dialogAxe = await new AxeBuilder({ page: page as never }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  expect(dialogAxe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);
+  await confirmDialog.getByRole('button', { name: 'Delete project' }).click();
+  await expect(sidebar.getByRole('button', { name: /^proj/ })).toHaveCount(0);
+  // Project files on disk remain untouched.
+  expect(existsSync(join(kk.project, 'README.md'))).toBe(true);
 });
