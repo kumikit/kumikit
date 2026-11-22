@@ -45,14 +45,20 @@
   let armedCancel = $state(false);
   let models = $state.raw<ModelInfo[]>([]);
   let log: HTMLElement;
+  let textarea: HTMLTextAreaElement | undefined = $state();
   let fileInput: HTMLInputElement | undefined = $state();
   let stuck = true;
 
-  // Keep `#kk-chat-input` unique across split panes while preserving the id in single-pane mode.
-  const inputId =
-    typeof document !== 'undefined' && document.getElementById('kk-chat-input')
-      ? `kk-chat-input-${untrack(() => address.thread).slice(0, 8)}`
-      : 'kk-chat-input';
+  // Claim `#kk-chat-input` after DOM commit so any outgoing tab's composer has already
+  // unmounted, while keeping every split pane's textarea id unique.
+  const fallbackInputId = `kk-chat-input-${untrack(() => address.thread).slice(0, 8)}`;
+  let inputId = $state(fallbackInputId);
+
+  $effect(() => {
+    if (!textarea || typeof document === 'undefined') return;
+    const existing = document.getElementById('kk-chat-input');
+    inputId = !existing || existing === textarea ? 'kk-chat-input' : fallbackInputId;
+  });
 
   $effect(() => ctx.threads.watch(address, (v) => (view = v)));
 
@@ -327,6 +333,7 @@
       <div class="composer-box">
         <label class="kk-sr-only" for={inputId}>Message</label>
         <textarea
+          bind:this={textarea}
           id={inputId}
           rows="2"
           disabled={archived}

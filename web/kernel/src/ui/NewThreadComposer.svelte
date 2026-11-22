@@ -55,10 +55,17 @@
   let textarea: HTMLTextAreaElement | undefined = $state();
   let fileInput: HTMLInputElement | undefined = $state();
 
-  const inputId =
-    typeof document !== 'undefined' && document.getElementById('kk-chat-input')
-      ? `kk-draft-input-${untrack(() => paneId)}`
-      : 'kk-chat-input';
+  const fallbackInputId = `kk-draft-input-${untrack(() => paneId)}`;
+  let inputId = $state(fallbackInputId);
+
+  // Claim `#kk-chat-input` after DOM commit so any outgoing tab's composer has already
+  // unmounted, while keeping every split pane's textarea id unique.
+  $effect(() => {
+    void kernel.activePaneId;
+    if (!textarea || typeof document === 'undefined') return;
+    const existing = document.getElementById('kk-chat-input');
+    inputId = !existing || existing === textarea ? 'kk-chat-input' : fallbackInputId;
+  });
 
   // Keep a valid provider selected once providers arrive from the core.
   $effect(() => {

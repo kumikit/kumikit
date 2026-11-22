@@ -1066,11 +1066,16 @@ mod tests {
         assert!(wt.git.is_repo);
         assert!(wt.git.is_worktree);
         assert_eq!(wt.git.branch.as_deref(), Some("feat/wt"));
-        let expected_prefix = std::fs::canonicalize(&override_home)
+        let raw_expected = std::fs::canonicalize(&override_home)
             .unwrap()
             .join("worktrees")
             .join("my-repo")
             .join("feat-wt");
+        let raw_expected_str = raw_expected.to_string_lossy();
+        let expected_prefix = match raw_expected_str.strip_prefix(r"\\?\") {
+            Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+            _ => raw_expected.clone(),
+        };
         assert_eq!(PathBuf::from(&wt.path), expected_prefix);
 
         // Only the parent workspace is registered; worktree threads live under it.
