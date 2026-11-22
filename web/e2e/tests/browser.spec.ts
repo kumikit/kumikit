@@ -148,6 +148,8 @@ test('pair a browser, then the M2 flow through the core it came from', async ({ 
   // matches nothing (this raced on the macOS runner).
   await expect(page.getByRole('navigation', { name: 'Open workspaces' }).getByRole('button', { name: 'proj', exact: true })).toBeVisible();
   await page.getByLabel('Agent').selectOption({ label: 'Recorded Claude Code' });
+  await page.getByRole('button', { name: /Permissions:/ }).click();
+  await page.getByRole('menuitemradio', { name: /Standard/ }).click();
   await page.getByLabel('Message').fill('Add a line to notes.txt');
   await page.getByLabel('Message').press('Enter');
   await expect(page.getByRole('region', { name: 'Approval' })).toContainText('Needs your approval');

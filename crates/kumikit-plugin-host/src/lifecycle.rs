@@ -1315,6 +1315,13 @@ impl Provider for WasmProvider {
             let s = host
                 .session(&self.spec.backend, &session)
                 .ok_or_else(|| ProviderError::new("the provider session is no longer running"))?;
+            let text = if input.attachments.is_empty() {
+                input.text
+            } else {
+                let data_dir = host.inner.manager.dirs().plugin_data(&self.spec.backend);
+                let turn_id = sink.turn().as_str().to_owned();
+                materialize_attachments(data_dir, turn_id, input.text, input.attachments).await?
+            };
             *lock(&s.last_used) = host.now();
             s.busy.store(true, Ordering::Release);
             s.shared.begin_turn(sink);
@@ -1324,10 +1331,7 @@ impl Provider for WasmProvider {
                 let s = Arc::clone(&s);
                 let host = host.clone();
                 tokio::spawn(async move {
-                    let r = s
-                        .instance
-                        .send(session, wit::UserInput { text: input.text })
-                        .await;
+                    let r = s.instance.send(session, wit::UserInput { text }).await;
                     s.shared.end_turn();
                     s.busy.store(false, Ordering::Release);
                     *lock(&s.last_used) = host.now();
@@ -1408,6 +1412,110 @@ impl Provider for WasmProvider {
             host.drop_instance(&s.instance).await;
         })
     }
+}
+
+/// Sanitizes an attachment filename into a safe single path component.
+fn sanitize_attachment_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(64)
+        .collect();
+    let trimmed = cleaned.trim_start_matches('.');
+    if trimmed.is_empty() {
+        "attachment".to_owned()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+/// Writes turn attachments into the provider backend's preopened `/data/attachments/<turn>`
+/// directory alongside a `manifest.json`, and appends a parseable marker plus human-readable
+/// fallback file list to `text` so both multimodal-aware and generic `0.2.0` providers work.
+async fn materialize_attachments(
+    data_dir: PathBuf,
+    turn_id: String,
+    text: String,
+    attachments: Vec<kumikit_protocol::model::Attachment>,
+) -> ProviderResult<String> {
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD as BASE64;
+
+    tokio::task::spawn_blocking(move || {
+        let safe_turn = sanitize_attachment_name(&turn_id);
+        let dir = data_dir.join("attachments").join(&safe_turn);
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| ProviderError::new(format!("cannot create attachment directory: {e}")))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+        }
+
+        let mut manifest_entries = Vec::with_capacity(attachments.len());
+        let mut fallback_lines = Vec::with_capacity(attachments.len());
+
+        for (i, a) in attachments.into_iter().enumerate() {
+            let bytes = BASE64
+                .decode(&a.data)
+                .map_err(|e| ProviderError::new(format!("invalid attachment base64: {e}")))?;
+            let filename = format!("{i}-{}", sanitize_attachment_name(&a.name));
+            let host_path = dir.join(&filename);
+            std::fs::write(&host_path, &bytes)
+                .map_err(|e| ProviderError::new(format!("cannot write attachment: {e}")))?;
+            let host_str = host_path.to_string_lossy().into_owned();
+            let guest_path = format!("/data/attachments/{safe_turn}/{filename}");
+            let is_image = a.mime_type.starts_with("image/");
+            let dims = match (a.width, a.height) {
+                (Some(w), Some(h)) => format!(", {w}x{h}"),
+                _ => String::new(),
+            };
+            fallback_lines.push(format!(
+                "- {} ({}{}): {}",
+                a.name, a.mime_type, dims, host_str
+            ));
+            let mut entry = serde_json::json!({
+                "name": a.name,
+                "mimeType": a.mime_type,
+                "hostPath": host_str,
+                "guestPath": guest_path,
+            });
+            if is_image {
+                entry["data"] = serde_json::Value::String(a.data);
+            }
+            if let Some(w) = a.width {
+                entry["width"] = serde_json::Value::from(w);
+            }
+            if let Some(h) = a.height {
+                entry["height"] = serde_json::Value::from(h);
+            }
+            manifest_entries.push(entry);
+        }
+
+        let manifest_host = dir.join("manifest.json");
+        let manifest = serde_json::json!({ "attachments": manifest_entries });
+        std::fs::write(&manifest_host, manifest.to_string())
+            .map_err(|e| ProviderError::new(format!("cannot write attachment manifest: {e}")))?;
+
+        let guest_manifest = format!("/data/attachments/{safe_turn}/manifest.json");
+        let trailer = format!(
+            "[kumikit-attachments:{guest_manifest}]\nAttached files:\n{}",
+            fallback_lines.join("\n")
+        );
+        if text.is_empty() {
+            Ok(trailer)
+        } else {
+            Ok(format!("{text}\n\n{trailer}"))
+        }
+    })
+    .await
+    .map_err(|e| ProviderError::new(format!("attachment task failed: {e}")))?
 }
 
 /// Wakes plugins for the kernel's scheduler (`docs/spec/03-kernel.md#schedules`).

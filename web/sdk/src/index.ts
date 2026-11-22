@@ -6,14 +6,18 @@
  */
 import type {
   Approval,
+  Attachment,
   EventNotification,
   Methods,
   ModelInfo,
+  PermissionMode,
   Resolution,
   Thread,
   ThreadStatus,
   TurnOutcome,
 } from '@kumikit/protocol';
+
+export type { Attachment, PermissionMode };
 
 import type { Slot, TokenName } from './generated';
 
@@ -67,6 +71,7 @@ export type TranscriptKind = TranscriptItem['kind'];
 export interface TurnView {
   id: string;
   input: string;
+  attachments?: Attachment[];
   started: string;
   ended?: string;
   outcome?: TurnOutcome;

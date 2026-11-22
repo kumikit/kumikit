@@ -83,7 +83,11 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
     seq = e.seq;
     switch (e.kind) {
       case 'turn.started': {
-        turns.push({ id: e.data.turn, input: e.data.input.text, started: e.time, items: [] });
+        const turn: TurnView = { id: e.data.turn, input: e.data.input.text, started: e.time, items: [] };
+        if (e.data.input.attachments && e.data.input.attachments.length > 0) {
+          turn.attachments = e.data.input.attachments;
+        }
+        turns.push(turn);
         if (queued[0] === e.data.input.text) queued = queued.slice(1);
         break;
       }

@@ -2561,6 +2561,7 @@ dependencies = [
 name = "kumikit-kernel"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "getrandom 0.3.4",
  "jiff",
  "kumikit-protocol",
@@ -2605,6 +2606,7 @@ name = "kumikit-plugin-host"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "bytes",
  "http",
  "http-body-util",
@@ -2711,6 +2713,7 @@ name = "kumikit-shell"
 version = "0.1.0"
 dependencies = [
  "apple-native-keyring-store",
+ "base64 0.22.1",
  "futures-util",
  "keyring-core",
  "kumikit-assets",

@@ -174,7 +174,13 @@ impl Env {
     async fn thread(&self, provider: &str, model: &str) -> ThreadId {
         let ws = self.kernel.workspace_open(&self.workspace).await.unwrap();
         self.kernel
-            .thread_create(&ws.id, Some(provider.into()), Some(model.into()), None)
+            .thread_create(
+                &ws.id,
+                Some(provider.into()),
+                Some(model.into()),
+                None,
+                None,
+            )
             .await
             .unwrap()
             .id
@@ -182,7 +188,7 @@ impl Env {
 
     async fn send(&self, thread: &ThreadId, text: &str) {
         self.kernel
-            .thread_send(thread, UserInput { text: text.into() })
+            .thread_send(thread, UserInput::text(text))
             .await
             .unwrap();
     }
@@ -383,7 +389,7 @@ async fn disabling_cancels_running_turns_and_removes_providers() {
     let ws = e.kernel.workspace_open(&e.workspace).await.unwrap();
     assert!(
         e.kernel
-            .thread_create(&ws.id, Some("test.probe/probe".into()), None, None)
+            .thread_create(&ws.id, Some("test.probe/probe".into()), None, None, None)
             .await
             .is_err()
     );

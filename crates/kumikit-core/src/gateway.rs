@@ -10,7 +10,7 @@ use std::time::Duration;
 use kumikit_kernel::gateway::GatewaySession;
 use kumikit_plugin_host::lifecycle::{PluginHost, ToolInfo};
 use kumikit_protocol::event::ToolSource;
-use kumikit_protocol::model::Resolution;
+use kumikit_protocol::model::{PermissionMode, Resolution};
 use serde_json::{Value, json};
 use tokio::sync::{Semaphore, mpsc};
 
@@ -198,10 +198,20 @@ async fn call(host: &PluginHost, session: &GatewaySession, params: &Value) -> Va
         }
     };
     if tool.write {
-        let always = kernel
-            .gateway_always_allowed(&session.thread, &tool.mcp_name)
+        let mode = kernel
+            .thread_permission_mode(&session.thread)
             .await
-            .unwrap_or(false);
+            .unwrap_or_default();
+        if mode == PermissionMode::Plan {
+            let why = "write tools are disabled in plan mode".to_owned();
+            finish(false, why.clone(), Some(json!({ "denied": true }))).await;
+            return tool_error(why);
+        }
+        let always = mode == PermissionMode::FullAccess
+            || kernel
+                .gateway_always_allowed(&session.thread, &tool.mcp_name)
+                .await
+                .unwrap_or(false);
         if !always {
             let detail = json!({ "tool": tool.mcp_name, "plugin": tool.plugin, "input": input });
             let decision = kernel

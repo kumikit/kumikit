@@ -156,7 +156,7 @@ async fn env() -> Env {
         .await
         .unwrap();
     let thread = kernel
-        .thread_create(&ws.id, None, None, None)
+        .thread_create(&ws.id, None, None, None, None)
         .await
         .unwrap()
         .id;
@@ -171,7 +171,7 @@ async fn env() -> Env {
 impl Env {
     async fn send(&self, text: &str) -> ThreadSendResult {
         self.kernel
-            .thread_send(&self.thread, UserInput { text: text.into() })
+            .thread_send(&self.thread, UserInput::text(text))
             .await
             .unwrap()
     }
@@ -403,8 +403,13 @@ async fn archive_is_refused_while_a_turn_runs() {
 async fn thread_create_defaults_and_validation() {
     let e = env().await;
     let ws = e.kernel.workspace_list().await.unwrap()[0].id.clone();
-    let t = e.kernel.thread_create(&ws, None, None, None).await.unwrap();
+    let t = e
+        .kernel
+        .thread_create(&ws, None, None, None, None)
+        .await
+        .unwrap();
     assert_eq!((t.provider.as_str(), t.model.as_str()), ("fake", "one"));
+    assert_eq!(t.permission_mode, None);
     let t = e
         .kernel
         .thread_create(
@@ -412,19 +417,24 @@ async fn thread_create_defaults_and_validation() {
             Some("fake".into()),
             Some("two".into()),
             Some("T".into()),
+            Some(kumikit_protocol::model::PermissionMode::AcceptEdits),
         )
         .await
         .unwrap();
     assert_eq!(t.model, "two");
+    assert_eq!(
+        t.permission_mode,
+        Some(kumikit_protocol::model::PermissionMode::AcceptEdits)
+    );
     let err = e
         .kernel
-        .thread_create(&ws, None, Some("three".into()), None)
+        .thread_create(&ws, None, Some("three".into()), None, None)
         .await
         .unwrap_err();
     assert_eq!(err.code(), ErrorCode::InvalidParams);
     let err = e
         .kernel
-        .thread_create(&ws, Some("other".into()), None, None)
+        .thread_create(&ws, Some("other".into()), None, None, None)
         .await
         .unwrap_err();
     assert_eq!(err.code(), ErrorCode::InvalidParams);
@@ -444,7 +454,7 @@ async fn no_provider_is_unsupported() {
         .await
         .unwrap();
     let err = kernel
-        .thread_create(&ws.id, None, None, None)
+        .thread_create(&ws.id, None, None, None, None)
         .await
         .unwrap_err();
     assert_eq!(err.code(), ErrorCode::Unsupported);
@@ -464,12 +474,7 @@ async fn session_starts_once_and_resumes_after_restart() {
     let fake = Arc::new(Fake::default());
     kernel.register_provider(fake.clone()).unwrap();
     kernel
-        .thread_send(
-            &e.thread,
-            UserInput {
-                text: "echo c".into(),
-            },
-        )
+        .thread_send(&e.thread, UserInput::text("echo c"))
         .await
         .unwrap();
     let mut sub = kernel.subscribe(&e.thread, 0).await.unwrap();
@@ -517,12 +522,7 @@ async fn unregistering_a_provider_cancels_its_running_turn() {
     assert!(!e.kernel.unregister_provider("fake"), "already gone");
     let err = e
         .kernel
-        .thread_send(
-            &e.thread,
-            UserInput {
-                text: "echo x".into(),
-            },
-        )
+        .thread_send(&e.thread, UserInput::text("echo x"))
         .await
         .unwrap_err();
     assert_eq!(err.code(), ErrorCode::PluginFailed);
@@ -588,11 +588,92 @@ async fn workspace_changes_follow_thread_status() {
     let ws = ev.thread().workspace.clone();
     let created = e
         .kernel
-        .thread_create(&ws, None, None, Some("second".into()))
+        .thread_create(&ws, None, None, Some("second".into()), None)
         .await
         .unwrap();
     let ev = rx.recv().await.unwrap();
     assert!(matches!(ev, WorkspaceEvent::ThreadCreated(_)));
     assert_eq!(ev.thread(), &created);
     assert!(rx.try_recv().is_err(), "no other change");
+}
+
+#[tokio::test]
+async fn thread_update_changes_mode_and_restarts_idle_session() {
+    use kumikit_protocol::model::PermissionMode;
+
+    let e = env().await;
+    e.send("echo a").await;
+    let first = e.until(0, "turn.ended").await;
+    assert_eq!(*e.fake.resumes.lock().unwrap(), vec![None]);
+
+    let updated = e
+        .kernel
+        .thread_update(
+            &e.thread,
+            Some("two".into()),
+            Some(PermissionMode::FullAccess),
+            Some("Updated".into()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(updated.model, "two");
+    assert_eq!(updated.permission_mode, Some(PermissionMode::FullAccess));
+    assert_eq!(updated.title.as_deref(), Some("Updated"));
+
+    // Next turn restarts the session with resume and the updated config.
+    e.send("echo b").await;
+    e.until(first.last().unwrap().seq, "turn.ended").await;
+    let expected = format!("session-{}", e.thread);
+    assert_eq!(*e.fake.resumes.lock().unwrap(), vec![None, Some(expected)]);
+
+    // Resetting back to Standard clears the stored override.
+    let reset = e
+        .kernel
+        .thread_update(&e.thread, None, Some(PermissionMode::Standard), None)
+        .await
+        .unwrap();
+    assert_eq!(reset.permission_mode, None);
+}
+
+#[tokio::test]
+async fn thread_send_validates_attachments() {
+    use kumikit_protocol::model::Attachment;
+
+    let e = env().await;
+    let bad = e
+        .kernel
+        .thread_send(
+            &e.thread,
+            UserInput {
+                text: "hi".into(),
+                attachments: vec![Attachment {
+                    name: "img.png".into(),
+                    mime_type: "image/png".into(),
+                    data: "not-valid-base64!!!".into(),
+                    width: None,
+                    height: None,
+                }],
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(bad.code(), ErrorCode::InvalidParams);
+
+    e.kernel
+        .thread_send(
+            &e.thread,
+            UserInput {
+                text: "echo ok".into(),
+                attachments: vec![Attachment {
+                    name: "shot.png".into(),
+                    mime_type: "image/png".into(),
+                    data: "iVBORw0KGgo=".into(),
+                    width: Some(10),
+                    height: Some(10),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+    e.until(0, "turn.ended").await;
 }

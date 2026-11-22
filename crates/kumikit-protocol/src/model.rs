@@ -126,6 +126,45 @@ impl ThreadStatus {
     }
 }
 
+/// How aggressively an agent provider asks for approval before acting.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionMode {
+    /// Ask before edits and commands (default).
+    #[default]
+    Standard,
+    /// Approve file edits automatically; ask before running commands.
+    AcceptEdits,
+    /// Read-only planning and exploration; do not edit files or run mutating commands.
+    Plan,
+    /// Allow edits and commands without asking.
+    FullAccess,
+}
+
+impl PermissionMode {
+    /// The wire string.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PermissionMode::Standard => "standard",
+            PermissionMode::AcceptEdits => "accept_edits",
+            PermissionMode::Plan => "plan",
+            PermissionMode::FullAccess => "full_access",
+        }
+    }
+
+    /// Parses the wire string.
+    pub fn parse(value: &str) -> Option<Self> {
+        [
+            PermissionMode::Standard,
+            PermissionMode::AcceptEdits,
+            PermissionMode::Plan,
+            PermissionMode::FullAccess,
+        ]
+        .into_iter()
+        .find(|m| m.as_str() == value)
+    }
+}
+
 /// A conversation with an agent inside a workspace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -142,6 +181,9 @@ pub struct Thread {
     pub provider: String,
     /// Model id, as reported by the provider.
     pub model: String,
+    /// Permission mode for the agent session; absent means `standard`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<PermissionMode>,
     /// Current status.
     pub status: ThreadStatus,
     /// When it was created.
@@ -286,12 +328,45 @@ pub struct Approval {
     pub status: ApprovalStatus,
 }
 
+/// A file or image attached to a user message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct Attachment {
+    /// Display filename, for example `Pasted image.png`.
+    pub name: String,
+    /// MIME type, for example `image/png` or `text/plain`.
+    pub mime_type: String,
+    /// Base64-encoded bytes (standard alphabet).
+    pub data: String,
+    /// Image width in pixels, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    /// Image height in pixels, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+}
+
 /// A user message.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UserInput {
     /// The message text.
     pub text: String,
+    /// Optional files or images attached to the message.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<Attachment>>", optional)]
+    pub attachments: Vec<Attachment>,
+}
+
+impl UserInput {
+    /// A plain text user message with no attachments.
+    pub fn text(text: impl Into<String>) -> Self {
+        UserInput {
+            text: text.into(),
+            attachments: Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -307,6 +382,7 @@ mod tests {
             title: None,
             provider: "p".into(),
             model: "m".into(),
+            permission_mode: None,
             status: ThreadStatus::AwaitingApproval,
             created: Timestamp("t0".into()),
             updated: Timestamp("t1".into()),
@@ -316,6 +392,14 @@ mod tests {
             json!({"id":"th","workspace":"ws","provider":"p","model":"m",
                    "status":"awaiting_approval","created":"t0","updated":"t1"})
         );
+    }
+
+    #[test]
+    fn permission_mode_round_trip() {
+        for s in ["standard", "accept_edits", "plan", "full_access"] {
+            let parsed = PermissionMode::parse(s).unwrap();
+            assert_eq!(serde_json::to_value(parsed).unwrap(), s);
+        }
     }
 
     #[test]

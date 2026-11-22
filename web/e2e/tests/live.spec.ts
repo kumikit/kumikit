@@ -21,6 +21,8 @@ test('a real Claude Code turn with an approved file edit', async ({ page, kk }) 
   await kk.pick(kk.project);
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
   await expect(page.getByLabel('Agent')).toBeVisible();
+  await page.getByRole('button', { name: /Permissions:/ }).click();
+  await page.getByRole('menuitemradio', { name: /Standard/ }).click();
   await page.getByLabel('Message').fill('Create a file named hello.txt in this folder containing exactly the word hi. Do nothing else.');
   await page.getByLabel('Message').press('Enter');
   const approval = page.getByRole('region', { name: 'Approval' }).filter({ hasText: 'Needs your approval' }).first();

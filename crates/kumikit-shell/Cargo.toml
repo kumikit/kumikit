@@ -24,6 +24,7 @@ path = "src/main.rs"
 test-hooks = []
 
 [dependencies]
+base64 = "0.22"
 kumikit-assets.workspace = true
 kumikit-package.workspace = true
 kumikit-registry.workspace = true

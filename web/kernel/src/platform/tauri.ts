@@ -2,7 +2,16 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 
-import type { ClientPluginEntry, ClientRegistryResult, ClientUpdate, Incoming, Platform, ProfileInfo, Removed } from './index';
+import type {
+  ClientPluginEntry,
+  ClientRegistryResult,
+  ClientUpdate,
+  Incoming,
+  PickedAttachment,
+  Platform,
+  ProfileInfo,
+  Removed,
+} from './index';
 import { asConnectError, pickWithInput, safeModeFromUrl } from './index';
 
 /** Invokes a shell command; its `{ code, message }` failures become ConnectErrors. */
@@ -37,6 +46,8 @@ export function tauriPlatform(): Platform {
       remove: (name) => call<Removed>('profile_remove', { name }),
     },
     pickBytes: (accept) => pickWithInput(accept),
+    pickAttachments: (title, defaultPath) =>
+      call<PickedAttachment[]>('pick_attachments', defaultPath ? { title, defaultPath } : { title }),
     async pickFile(title, extensions) {
       const path = await open({ title, multiple: false, directory: false, filters: [{ name: title, extensions }] });
       return typeof path === 'string' ? path : null;

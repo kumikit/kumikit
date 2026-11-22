@@ -55,6 +55,8 @@ import type { ThreadRef } from "./ThreadRef";
 import type { ThreadSendParams } from "./ThreadSendParams";
 import type { ThreadSendResult } from "./ThreadSendResult";
 import type { ThreadSnapshot } from "./ThreadSnapshot";
+import type { ThreadUpdateParams } from "./ThreadUpdateParams";
+import type { ThreadUpdateResult } from "./ThreadUpdateResult";
 import type { UnsubscribeParams } from "./UnsubscribeParams";
 import type { WorkspaceListResult } from "./WorkspaceListResult";
 import type { WorkspaceOpenParams } from "./WorkspaceOpenParams";
@@ -80,6 +82,7 @@ export type Methods = {
   "workspace.close": { params: WorkspaceRef; result: Empty };
   "thread.list": { params: ThreadListParams; result: ThreadListResult };
   "thread.create": { params: ThreadCreateParams; result: ThreadCreateResult };
+  "thread.update": { params: ThreadUpdateParams; result: ThreadUpdateResult };
   "thread.get": { params: ThreadRef; result: ThreadSnapshot };
   "thread.send": { params: ThreadSendParams; result: ThreadSendResult };
   "thread.cancel": { params: ThreadRef; result: Empty };

@@ -249,6 +249,8 @@ async function flow(b) {
   await b.click(await button(b, '[role="dialog"]', 'Open'));
   await b.wait(`${TABS} [data-core="dev-box"]`);
   await b.wait('select[aria-label="Agent"] option');
+  await b.click(await b.wait('button[aria-label^="Permissions:"]'));
+  await b.click(await b.wait('[role="menuitemradio"]', 'Standard'));
   await b.type(await b.wait('#kk-chat-input'), 'Add a line to notes.txt');
   await b.keys('Enter');
   await b.wait(APPROVAL, 'Needs your approval');
@@ -265,6 +267,8 @@ async function flow(b) {
 
   step('the local core keeps streaming');
   await b.wait('select[aria-label="Agent"] option');
+  await b.click(await b.wait('button[aria-label^="Permissions:"]'));
+  await b.click(await b.wait('[role="menuitemradio"]', 'Standard'));
   await b.type(await b.wait('#kk-chat-input'), 'Add a line to notes.txt');
   await b.keys('Enter');
   await b.wait(APPROVAL, 'Needs your approval');

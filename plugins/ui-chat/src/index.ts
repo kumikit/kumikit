@@ -45,7 +45,7 @@ export default {
     unlink = linkStyles();
     ctx.slots.register('thread.view', {
       id: 'chat',
-      mount: (el, props) => show(Chat, el, { ctx, address: props.address }),
+      mount: (el, props) => show(Chat, el, { ctx, address: props.address, connection: props.connection }),
     });
     for (const [kind, render] of renderers(ctx)) {
       ctx.slots.register('transcript.renderer', { kind, mount: render });

@@ -15,6 +15,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0006_plugin_settings.sql"),
     include_str!("../../migrations/0007_plugin_workspaces.sql"),
     include_str!("../../migrations/0008_schedules.sql"),
+    include_str!("../../migrations/0009_thread_permission_mode.sql"),
 ];
 
 /// Applies the migrations `conn` has not seen yet, each in its own transaction. Fails
@@ -47,8 +48,8 @@ mod tests {
     #[test]
     fn fresh_database_reaches_latest() {
         let mut conn = Connection::open_in_memory().unwrap();
-        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 8);
-        assert_eq!(version(&conn), 8);
+        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 9);
+        assert_eq!(version(&conn), 9);
         let tables: i64 = conn
             .query_row(
                 "SELECT count(*) FROM sqlite_master WHERE type = 'table'
@@ -71,7 +72,7 @@ mod tests {
             [],
         )
         .unwrap();
-        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 8);
+        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 9);
         let n: i64 = conn
             .query_row("SELECT count(*) FROM workspaces", [], |r| r.get(0))
             .unwrap();
@@ -142,11 +143,14 @@ mod tests {
     #[test]
     fn refuses_newer_database() {
         let mut conn = Connection::open_in_memory().unwrap();
-        conn.pragma_update(None, "user_version", 9).unwrap();
+        conn.pragma_update(None, "user_version", 10).unwrap();
         let err = migrate(&mut conn, MIGRATIONS).unwrap_err();
         assert!(matches!(
             err,
-            StoreError::NewerSchema { found: 9, known: 8 }
+            StoreError::NewerSchema {
+                found: 10,
+                known: 9
+            }
         ));
     }
 }

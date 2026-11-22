@@ -176,9 +176,10 @@ and both sides ignore fields they do not know.
 | `workspace.open` | `path` | `workspace`. The path is canonicalized; opening the same root again returns the same workspace, and reopens it if it was closed. |
 | `workspace.close` | `workspace` | `{}`. Hides the workspace from `list`; its threads and events are kept. |
 | `thread.list` | `workspace`, `includeArchived?` | `threads`, most recently updated first |
-| `thread.create` | `workspace`, `provider?` (qualified id), `model?`, `title?` | `thread`. `provider` defaults to the only provider when exactly one exists (`unsupported` if there is none, `invalid_params` if there are several); `model` defaults to the provider's first model. A closed workspace gives `conflict`. |
+| `thread.create` | `workspace`, `provider?` (qualified id), `model?`, `title?`, `permissionMode?` (`standard`, `accept_edits`, `plan`, `full_access`) | `thread`. `provider` defaults to the only provider when exactly one exists (`unsupported` if there is none, `invalid_params` if there are several); `model` defaults to the provider's first model; `permissionMode` defaults to `standard`. A closed workspace gives `conflict`. |
+| `thread.update` | `thread`, `model?`, `permissionMode?`, `title?` | `thread`. Fails with `conflict` while a turn runs or on an archived thread. Changing `model` or `permissionMode` ends any idle provider session so the next turn resumes with the new configuration, and emits `thread.updated`. |
 | `thread.get` | `thread` | `thread`, `turns`, `pendingApprovals`, `seq`: a snapshot folded from the log up to `seq` |
-| `thread.send` | `thread`, `input { text }` | `turn`, `queued`. One turn runs per thread; a message sent during a turn is queued in memory and starts when the turn ends. |
+| `thread.send` | `thread`, `input { text, attachments? }` (`attachments`: `{ name, mimeType, data (base64), width?, height? }`, at most 16 files / 4 MiB total decoded) | `turn`, `queued`. One turn runs per thread; a message sent during a turn is queued in memory and starts when the turn ends. |
 | `thread.cancel` | `thread` | `{}`. Cancels the running turn and drops queued messages; does nothing if no turn runs. |
 | `thread.respondApproval` | `approval`, `decision` | `{}`. The first answer wins; later answers fail with `conflict`. |
 | `thread.archive` | `thread` | `{}`. Sets `status` to `archived`; no thread event is appended (archiving is not thread content). Fails with `conflict` while a turn runs or waits; an archived thread refuses `thread.send`. |

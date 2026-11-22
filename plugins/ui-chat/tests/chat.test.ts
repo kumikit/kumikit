@@ -76,6 +76,42 @@ describe('the chat view', () => {
     expect(ran).toEqual([['thread.cancel', undefined]]);
     unmount(c);
   });
+
+  it('displays the selected model below the composer and changes permission mode via popover', () => {
+    const viewWithThread: ThreadView = {
+      ...base,
+      thread: {
+        id: 't',
+        workspace: 'w',
+        provider: 'test/p',
+        model: 'opus-5-5',
+        permissionMode: 'standard',
+        status: 'idle',
+        created: '2026-11-22T00:00:00Z',
+        updated: '2026-11-22T00:00:00Z',
+      },
+    };
+    const { ctx, ran } = fakeCtx(viewWithThread);
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address } });
+    flushSync();
+
+    expect(target.textContent).toContain('opus-5-5');
+    const permBtn = target.querySelector<HTMLButtonElement>('button[aria-label^="Permissions:"]');
+    expect(permBtn).not.toBeNull();
+    permBtn!.click();
+    flushSync();
+
+    const fullAccess = [...target.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find((b) =>
+      b.textContent?.includes('Full access'),
+    );
+    expect(fullAccess).toBeDefined();
+    fullAccess!.click();
+    flushSync();
+
+    expect(ran).toEqual([['thread.update', { address, permissionMode: 'full_access' }]]);
+    unmount(c);
+  });
 });
 
 describe('the approval renderer', () => {

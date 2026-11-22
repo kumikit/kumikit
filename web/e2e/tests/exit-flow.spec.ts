@@ -28,6 +28,8 @@ test('install a provider, approve a tool call across a reopen, switch themes', a
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
   await expect(page.getByRole('navigation', { name: 'Open workspaces' }).getByRole('button', { name: 'proj', exact: true })).toBeVisible();
   await page.getByLabel('Agent').selectOption({ label: 'Recorded agent 1' });
+  await page.getByRole('button', { name: /Permissions:/ }).click();
+  await page.getByRole('menuitemradio', { name: /Standard/ }).click();
 
   await page.getByLabel('Message').fill('Add a line to notes.txt');
   await page.getByLabel('Message').press('Enter');

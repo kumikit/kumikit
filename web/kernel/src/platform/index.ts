@@ -120,6 +120,14 @@ export interface PickedFile {
   bytes: Uint8Array;
 }
 
+/** A file picked for attachment via a native OS file dialog rooted at a project directory. */
+export interface PickedAttachment {
+  name: string;
+  mimeType: string;
+  data: string;
+  size: number;
+}
+
 export interface Platform {
   readonly kind: 'tauri' | 'relay' | 'browser';
   /** The profile that always exists: `local` on the desktop, `core` in a browser. */
@@ -139,6 +147,8 @@ export interface Platform {
   };
   /** A file's contents, picked with a file input (for uploads to a core). */
   pickBytes(accept: string): Promise<PickedFile | null>;
+  /** Multi-file native picker rooted at `defaultPath` when supported (desktop shell). */
+  pickAttachments?(title: string, defaultPath?: string): Promise<PickedAttachment[]>;
   /** A path on the core's machine, or null if the user cancelled. */
   pickFile(title: string, extensions: string[]): Promise<string | null>;
   pickFolder(title: string): Promise<string | null>;

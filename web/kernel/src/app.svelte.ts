@@ -3,7 +3,7 @@
  * commands, slots, theme and settings, and the kernel's own commands. Components read it;
  * nothing here names a plugin.
  */
-import type { Thread } from '@kumikit/protocol';
+import type { Attachment, PermissionMode, Thread } from '@kumikit/protocol';
 import type { Connection, Slot, ThreadAddress } from '@kumikit/ui-sdk';
 
 import { CommandRegistry, type WhenContext } from './commands/registry.svelte';
@@ -33,7 +33,7 @@ import {
   type LeftSidebarView,
   type SplitDirection,
 } from './layout/layout';
-import type { Platform, ProfileInfo } from './platform/index';
+import type { PickedAttachment, Platform, ProfileInfo } from './platform/index';
 import { meetsRequirements } from './plugins/requires';
 import type { Command } from './commands/registry.svelte';
 import type { Entry } from './slots/registry.svelte';
@@ -520,6 +520,18 @@ export class Kernel {
     if (ws) this.openTab(connection, ws.id);
   }
 
+  /** Opens the native multi-file attachment dialog rooted at the workspace folder on the
+   * desktop shell, or returns `null` when the platform should fall back to `<input type="file">`. */
+  async pickAttachments(connection: string, workspace: string): Promise<PickedAttachment[] | null> {
+    if (!this.platform.pickAttachments) return null;
+    const conn = this.connectionFor(connection);
+    const root = conn?.kind === 'local' ? conn.workspaces.find((w) => w.id === workspace)?.root : undefined;
+    const picked = await this.attempt('Cannot attach files', () =>
+      this.platform.pickAttachments!('Attach files', root),
+    );
+    return picked ?? [];
+  }
+
   /** Starts a fresh draft thread in a workspace tab (clears its open thread so the inline
    * new-thread composer appears, with no modal dialog). */
   startDraftThread(target?: { connection: string; workspace: string }, paneId: string = this.activePaneId): void {
@@ -547,17 +559,29 @@ export class Kernel {
     title: string | undefined,
     target?: { connection: string; workspace: string },
     paneId: string = this.activePaneId,
+    permissionMode?: PermissionMode,
   ): Promise<Thread | undefined> {
     const tab = target ?? this.activeTab;
     if (!tab) return undefined;
-    const params: { workspace: string; provider: string; model?: string; title?: string } = { workspace: tab.workspace, provider };
+    const params: {
+      workspace: string;
+      provider: string;
+      model?: string;
+      title?: string;
+      permissionMode?: PermissionMode;
+    } = { workspace: tab.workspace, provider };
     if (model) params.model = model;
     if (title) params.title = title;
+    if (permissionMode && permissionMode !== 'standard') params.permissionMode = permissionMode;
     const c = this.connectionFor(tab.connection);
     if (!c) return undefined;
     const r = await this.attempt('Cannot start the thread', () => c.call('thread.create', params));
     if (!r) return undefined;
-    this.settings.update(model ? { lastProvider: provider, lastModel: model } : { lastProvider: provider });
+    const prefs: { lastProvider: string; lastModel?: string } = {
+      lastProvider: provider,
+    };
+    if (model) prefs.lastModel = model;
+    this.settings.update(prefs);
     c.noteThread(r.thread);
     this.openTab(tab.connection, tab.workspace, r.thread.id, paneId);
     return r.thread;
@@ -571,12 +595,24 @@ export class Kernel {
     model: string | undefined,
     text: string,
     paneId: string = this.activePaneId,
+    options?: { permissionMode?: PermissionMode; attachments?: Attachment[] },
   ): Promise<Thread | undefined> {
     const firstLine = text.split(/\r?\n/)[0]?.trim() ?? '';
-    const title = firstLine.length > 60 ? `${firstLine.slice(0, 57)}…` : firstLine || undefined;
-    const thread = await this.createThread(provider, model, title, { connection, workspace }, paneId);
+    const fallbackTitle = options?.attachments?.[0]?.name;
+    const rawTitle = firstLine || fallbackTitle || '';
+    const title = rawTitle.length > 60 ? `${rawTitle.slice(0, 57)}…` : rawTitle || undefined;
+    const thread = await this.createThread(
+      provider,
+      model,
+      title,
+      { connection, workspace },
+      paneId,
+      options?.permissionMode,
+    );
     if (!thread) return undefined;
-    await this.attempt('Cannot send', () => this.threads.send({ connection, workspace, thread: thread.id }, text));
+    await this.attempt('Cannot send', () =>
+      this.threads.send({ connection, workspace, thread: thread.id }, text, options?.attachments),
+    );
     return thread;
   }
 
@@ -677,8 +713,27 @@ export class Kernel {
       await this.attempt('Cannot answer the approval', () => this.threads.respond(connection, a.approval, a.decision));
     });
     c.register({ id: 'thread.send', title: 'Send a message', when: 'never' }, async (args) => {
-      const a = args as { address: ThreadAddress; text: string };
-      await this.attempt('Cannot send', () => this.threads.send(a.address, a.text));
+      const a = args as { address: ThreadAddress; text: string; attachments?: Attachment[] };
+      await this.attempt('Cannot send', () => this.threads.send(a.address, a.text, a.attachments));
+    });
+    c.register({ id: 'thread.update', title: 'Update thread settings', when: 'never' }, async (args) => {
+      const a = args as {
+        address: ThreadAddress;
+        model?: string;
+        permissionMode?: PermissionMode;
+        title?: string;
+      };
+      const patch: { model?: string; permissionMode?: PermissionMode; title?: string } = {};
+      if (a.model !== undefined) patch.model = a.model;
+      if (a.permissionMode !== undefined) patch.permissionMode = a.permissionMode;
+      if (a.title !== undefined) patch.title = a.title;
+      await this.attempt('Cannot update thread', () => this.threads.update(a.address, patch));
+    });
+    c.register({ id: 'attachment.pick', title: 'Attach files', when: 'never' }, async (args) => {
+      const a = args as { address?: ThreadAddress; connection?: string; workspace?: string } | undefined;
+      const connection = a?.address?.connection ?? a?.connection ?? this.activeTab?.connection ?? this.connection.id;
+      const workspace = a?.address?.workspace ?? a?.workspace ?? this.activeTab?.workspace ?? '';
+      return this.pickAttachments(connection, workspace);
     });
   }
 

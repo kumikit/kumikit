@@ -8,8 +8,8 @@ use ts_rs::TS;
 
 use crate::event::EventNotification;
 use crate::model::{
-    Approval, ApprovalId, Decision, Thread, ThreadId, Timestamp, Turn, TurnId, UserInput,
-    Workspace, WorkspaceId,
+    Approval, ApprovalId, Decision, PermissionMode, Thread, ThreadId, Timestamp, Turn, TurnId,
+    UserInput, Workspace, WorkspaceId,
 };
 
 /// A request method: name, params and result.
@@ -108,6 +108,8 @@ methods! {
         ThreadList = "thread.list" (ThreadListParams) -> ThreadListResult;
         /// `thread.create`: a new thread.
         ThreadCreate = "thread.create" (ThreadCreateParams) -> ThreadCreateResult;
+        /// `thread.update`: updates a thread's model, permission mode, or title.
+        ThreadUpdate = "thread.update" (ThreadUpdateParams) -> ThreadUpdateResult;
         /// `thread.get`: a snapshot folded from the log.
         ThreadGet = "thread.get" (ThreadRef) -> ThreadSnapshot;
         /// `thread.send`: a user message; starts or queues a turn.
@@ -880,6 +882,9 @@ pub struct ThreadCreateParams {
     /// Optional title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// Permission mode for the thread; defaults to `standard`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<PermissionMode>,
 }
 
 /// Result of `thread.create`.
@@ -887,6 +892,32 @@ pub struct ThreadCreateParams {
 #[serde(rename_all = "camelCase")]
 pub struct ThreadCreateResult {
     /// The new thread.
+    pub thread: Thread,
+}
+
+/// Params of `thread.update`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadUpdateParams {
+    /// The thread.
+    pub thread: ThreadId,
+    /// New model id (validated against the thread's provider).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// New permission mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<PermissionMode>,
+    /// New title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// Result of `thread.update`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadUpdateResult {
+    /// The updated thread.
     pub thread: Thread,
 }
 

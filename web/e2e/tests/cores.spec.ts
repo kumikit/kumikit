@@ -72,6 +72,8 @@ async function startThread(page: Page, kk: Kumikit, core: 'This computer' | 'Dev
   }
   await expect(tab(page, core === 'This computer' ? 'local' : 'dev-box')).toBeVisible();
   await expect(page.getByLabel('Agent')).toBeVisible();
+  await page.getByRole('button', { name: /Permissions:/ }).click();
+  await page.getByRole('menuitemradio', { name: /Standard/ }).click();
   await page.getByLabel('Message').fill(message);
   await page.getByLabel('Message').press('Enter');
 }

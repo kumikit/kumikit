@@ -3,8 +3,8 @@
 
 use kumikit_protocol::ThreadEvent;
 use kumikit_protocol::model::{
-    ApprovalId, ApprovalStatus, Thread, ThreadId, ThreadStatus, Timestamp, TurnId, Workspace,
-    WorkspaceId,
+    ApprovalId, ApprovalStatus, PermissionMode, Thread, ThreadId, ThreadStatus, Timestamp, TurnId,
+    Workspace, WorkspaceId,
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::Value;
@@ -136,10 +136,11 @@ pub fn workspace_list(conn: &Connection) -> KernelResult<Vec<Workspace>> {
     Ok(out)
 }
 
-const THREAD_COLUMNS: &str = "id, workspace, title, provider, model, status, archived, created, updated, head, provider_session";
+const THREAD_COLUMNS: &str = "id, workspace, title, provider, model, permission_mode, status, archived, created, updated, head, provider_session";
 
-fn thread_from_row(row: &Row<'_>) -> rusqlite::Result<(ThreadRow, String, i64)> {
+fn thread_from_row(row: &Row<'_>) -> rusqlite::Result<(ThreadRow, String, Option<String>, i64)> {
     let status: String = row.get("status")?;
+    let permission_mode: Option<String> = row.get("permission_mode")?;
     let head: i64 = row.get("head")?;
     Ok((
         ThreadRow {
@@ -149,6 +150,7 @@ fn thread_from_row(row: &Row<'_>) -> rusqlite::Result<(ThreadRow, String, i64)> 
                 title: row.get("title")?,
                 provider: row.get("provider")?,
                 model: row.get("model")?,
+                permission_mode: None,
                 status: ThreadStatus::Idle,
                 created: Timestamp(row.get("created")?),
                 updated: Timestamp(row.get("updated")?),
@@ -158,13 +160,23 @@ fn thread_from_row(row: &Row<'_>) -> rusqlite::Result<(ThreadRow, String, i64)> 
             provider_session: row.get("provider_session")?,
         },
         status,
+        permission_mode,
         head,
     ))
 }
 
-fn finish_thread((mut row, status, head): (ThreadRow, String, i64)) -> KernelResult<ThreadRow> {
+fn finish_thread(
+    (mut row, status, permission_mode, head): (ThreadRow, String, Option<String>, i64),
+) -> KernelResult<ThreadRow> {
     row.thread.status = ThreadStatus::parse(&status)
         .ok_or_else(|| StoreError::Corrupt(format!("unknown thread status {status:?}")))?;
+    row.thread.permission_mode = match permission_mode {
+        None => None,
+        Some(m) => Some(
+            PermissionMode::parse(&m)
+                .ok_or_else(|| StoreError::Corrupt(format!("unknown permission mode {m:?}")))?,
+        ),
+    };
     row.head = to_u64(head)?;
     Ok(row)
 }
@@ -172,20 +184,43 @@ fn finish_thread((mut row, status, head): (ThreadRow, String, i64)) -> KernelRes
 /// Inserts a new thread (status `idle`, head 0).
 pub fn thread_insert(conn: &Connection, t: &Thread) -> KernelResult<()> {
     conn.execute(
-        "INSERT INTO threads (id, workspace, title, provider, model, status, created, updated)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO threads (id, workspace, title, provider, model, permission_mode, status, created, updated)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             t.id.as_str(),
             t.workspace.as_str(),
             t.title,
             t.provider,
             t.model,
+            t.permission_mode.map(PermissionMode::as_str),
             t.status.as_str(),
             t.created.0,
             t.updated.0
         ],
     )?;
     Ok(())
+}
+
+/// Updates a thread's model, permission mode, and/or title, bumping `updated`.
+pub fn thread_update(
+    conn: &Connection,
+    id: &ThreadId,
+    model: &str,
+    permission_mode: Option<PermissionMode>,
+    title: Option<&str>,
+    updated: &Timestamp,
+) -> KernelResult<ThreadRow> {
+    conn.execute(
+        "UPDATE threads SET model = ?2, permission_mode = ?3, title = ?4, updated = ?5 WHERE id = ?1",
+        params![
+            id.as_str(),
+            model,
+            permission_mode.map(PermissionMode::as_str),
+            title,
+            updated.0,
+        ],
+    )?;
+    thread_require(conn, id)
 }
 
 /// The thread with this id, if any.

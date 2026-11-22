@@ -40,7 +40,7 @@ impl Env {
     async fn thread(&self) -> ThreadId {
         let ws = self.workspace().await;
         self.kernel
-            .thread_insert(&ws, "p".into(), "m".into(), None)
+            .thread_insert(&ws, "p".into(), "m".into(), None, None)
             .await
             .unwrap()
             .id
@@ -59,7 +59,7 @@ impl Env {
 fn started(turn: &str) -> ThreadEvent {
     ThreadEvent::TurnStarted(TurnStarted {
         turn: TurnId(turn.into()),
-        input: UserInput { text: "hi".into() },
+        input: UserInput::text("hi"),
         from: None,
     })
 }
@@ -143,7 +143,7 @@ async fn closed_workspace_rejects_new_threads() {
     e.kernel.workspace_close(&ws).await.unwrap();
     let err = e
         .kernel
-        .thread_insert(&ws, "p".into(), "m".into(), None)
+        .thread_insert(&ws, "p".into(), "m".into(), None, None)
         .await
         .unwrap_err();
     assert_eq!(err.code(), kumikit_protocol::ErrorCode::Conflict);

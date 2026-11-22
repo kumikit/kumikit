@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use kumikit_protocol::event::{ApprovalResolved, ThreadChange, TurnEnded};
 use kumikit_protocol::methods::ThreadSnapshot;
 use kumikit_protocol::model::{
-    ApprovalId, Resolution, Thread, ThreadId, ThreadStatus, Timestamp, TurnOutcome, Workspace,
-    WorkspaceId,
+    ApprovalId, PermissionMode, Resolution, Thread, ThreadId, ThreadStatus, Timestamp, TurnOutcome,
+    Workspace, WorkspaceId,
 };
 use kumikit_protocol::{ThreadEvent, WorkspaceEvent};
 use tokio::sync::{broadcast, watch};
@@ -302,14 +302,17 @@ impl Kernel {
         provider: String,
         model: String,
         title: Option<String>,
+        permission_mode: Option<PermissionMode>,
     ) -> KernelResult<Thread> {
         let now = self.now();
+        let permission_mode = permission_mode.filter(|m| *m != PermissionMode::Standard);
         let thread = Thread {
             id: ThreadId(self.new_id()),
             workspace: workspace.clone(),
             title,
             provider,
             model,
+            permission_mode,
             status: ThreadStatus::Idle,
             created: now.clone(),
             updated: now,
@@ -340,6 +343,16 @@ impl Kernel {
             thread: thread.clone(),
         }));
         Ok(thread)
+    }
+
+    /// The thread's effective permission mode (`standard` when unset).
+    pub async fn thread_permission_mode(&self, id: &ThreadId) -> KernelResult<PermissionMode> {
+        Ok(self
+            .thread_row(id)
+            .await?
+            .thread
+            .permission_mode
+            .unwrap_or_default())
     }
 
     /// Threads of a workspace, most recently updated first.
@@ -398,7 +411,9 @@ impl Kernel {
                 } else {
                     fold.status
                 };
-                if let Some(updated) = &fold.updated {
+                if let Some(updated) = &fold.updated
+                    && updated > &thread.updated
+                {
                     thread.updated = updated.clone();
                 }
                 Ok(ThreadSnapshot {
@@ -460,7 +475,7 @@ impl Kernel {
             .await
     }
 
-    fn announce(&self, event: WorkspaceEvent) {
+    pub(crate) fn announce(&self, event: WorkspaceEvent) {
         // No listener is not an error.
         let _ = self.inner.workspace_events.send(event);
     }

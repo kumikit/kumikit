@@ -20,8 +20,45 @@ use kumikit_provider::{
     SpawnRequest, UserInput, events, process, take_line,
 };
 
-use crate::acp::{Action, Options, Session};
+use crate::acp::{Action, Attachment, Options, PermissionMode, Session};
 use crate::config::Config;
+
+/// Parses the `[kumikit-attachments:<guest_manifest>]` trailer appended by the plugin host
+/// when a user turn includes attachments, returning the clean user text and loaded
+/// attachments. Falls back to the raw text if the trailer or manifest cannot be read.
+fn split_attachments(raw: &str) -> (String, Vec<Attachment>) {
+    const MARKER: &str = "[kumikit-attachments:";
+    let Some(idx) = raw.rfind(MARKER) else {
+        return (raw.to_owned(), Vec::new());
+    };
+    let rest = &raw[idx + MARKER.len()..];
+    let Some(end) = rest.find(']') else {
+        return (raw.to_owned(), Vec::new());
+    };
+    let manifest_path = &rest[..end];
+    let Ok(manifest_text) = std::fs::read_to_string(manifest_path) else {
+        return (raw.to_owned(), Vec::new());
+    };
+    let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&manifest_text) else {
+        return (raw.to_owned(), Vec::new());
+    };
+    let Some(items) = manifest["attachments"].as_array() else {
+        return (raw.to_owned(), Vec::new());
+    };
+    let attachments: Vec<Attachment> = items
+        .iter()
+        .filter_map(|item| {
+            Some(Attachment {
+                name: item["name"].as_str()?.to_owned(),
+                mime_type: item["mimeType"].as_str()?.to_owned(),
+                host_path: item["hostPath"].as_str()?.to_owned(),
+                data: item["data"].as_str().map(str::to_owned),
+            })
+        })
+        .collect();
+    let clean = raw[..idx].trim_end_matches('\n').to_owned();
+    (clean, attachments)
+}
 
 struct Acp;
 
@@ -285,12 +322,19 @@ impl Provider for Acp {
         } else {
             Some(cfg.model.clone())
         };
+        let permission_mode = cfg
+            .options
+            .iter()
+            .find(|(k, _)| k == "permission-mode")
+            .map(|(_, v)| PermissionMode::parse(v))
+            .unwrap_or_default();
         let mut state = State {
             session: Session::new(Options {
                 cwd: cfg.workspace_root,
                 resume: cfg.resume,
                 model: acp_model,
                 mode: config.mode.clone(),
+                permission_mode,
                 auth_method: config.auth_method.clone(),
                 mcp: cfg.mcp_server.map(|m| acp::McpStdio {
                     name: m.name,
@@ -318,7 +362,8 @@ impl Provider for Acp {
             let state = guard
                 .as_mut()
                 .ok_or_else(|| err(ErrorCode::Conflict, "no session is open"))?;
-            let prompt = state.session.prompt(&input.text);
+            let (text, attachments) = split_attachments(&input.text);
+            let prompt = state.session.prompt_with_attachments(&text, &attachments);
             state.run(prompt).map(|_| ())
         })
     }

@@ -45,8 +45,16 @@ the local id; the protocol and the stored `Thread.provider` use the qualified on
    host runs delegated `list-models` probes in a short-lived instance with the declaring
    plugin's granted permissions and an isolated probe directory (`KUMIKIT_PROBE_DIR`), and
    caches results per provider until the TTL expires or a plugin changes. The table is
-   checked against the plugin's `acp.schema.json`. `provider-acp` starts the agent in the thread's workspace, with the
-   contributing plugin's permissions, and translates ACP session updates into kernel
+   checked against the plugin's `acp.schema.json`. The plugin host passes the thread's
+   permission mode (`standard`, `accept_edits`, `plan`, `full_access`) in
+   `session-config.options` under `"permission-mode"`, and materializes user-message
+   attachments into `/data/attachments/` alongside a `manifest.json` referenced from
+   `user-input.text`. `provider-acp` maps the permission mode to the agent's advertised
+   ACP mode / permissions config option (auto-approving requests in `full_access`, and
+   edit requests in `accept_edits` when the agent lacks a native accept-edits mode),
+   sends image attachments as ACP `image` blocks when `promptCapabilities.image` is true
+   (or file-path references otherwise), starts the agent in the thread's workspace with
+   the contributing plugin's permissions, and translates ACP session updates into kernel
    events: message chunks to `text.delta`/`text.done`, thought chunks to
    `reasoning.delta`, tool calls to `tool.*` (diffs to `file.changed`), permission
    requests to approvals, plans and unknown updates to `plugin.event` (`acp.<update>`),

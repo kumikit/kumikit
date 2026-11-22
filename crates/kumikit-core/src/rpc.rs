@@ -12,7 +12,7 @@ use kumikit_protocol::jsonrpc::{Notification, Request, RequestId, Response};
 use kumikit_protocol::methods::{
     self as m, CoreInfo, Empty, HelloResult, Method, ModelInfo, NotificationMethod,
     PluginListResult, PluginResult, PluginsChanged, ProviderListResult, ProviderModelsResult,
-    SubscribeResult, ThreadCreateResult, ThreadListResult, WorkspaceListResult,
+    SubscribeResult, ThreadCreateResult, ThreadListResult, ThreadUpdateResult, WorkspaceListResult,
     WorkspaceOpenResult,
 };
 use kumikit_protocol::model::WorkspaceId;
@@ -497,10 +497,24 @@ impl Conn {
             m::ThreadCreate::NAME => {
                 let p = parse::<m::ThreadCreate>(params)?;
                 let thread = k
-                    .thread_create(&p.workspace, p.provider, p.model, p.title)
+                    .thread_create(
+                        &p.workspace,
+                        p.provider,
+                        p.model,
+                        p.title,
+                        p.permission_mode,
+                    )
                     .await
                     .map_err(kernel_err)?;
                 reply::<m::ThreadCreate>(ThreadCreateResult { thread })
+            }
+            m::ThreadUpdate::NAME => {
+                let p = parse::<m::ThreadUpdate>(params)?;
+                let thread = k
+                    .thread_update(&p.thread, p.model, p.permission_mode, p.title)
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::ThreadUpdate>(ThreadUpdateResult { thread })
             }
             m::ThreadGet::NAME => {
                 let p = parse::<m::ThreadGet>(params)?;

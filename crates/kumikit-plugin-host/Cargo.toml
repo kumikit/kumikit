@@ -17,6 +17,7 @@ workspace = true
 test-hooks = []
 
 [dependencies]
+base64 = "0.22"
 jsonschema = { version = "0.61.2", default-features = false }
 kumikit-kernel.workspace = true
 kumikit-package.workspace = true

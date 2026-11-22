@@ -148,4 +148,28 @@ test('sidebars resize and collapse, splits start new threads, and right inspecto
   // Close a split pane.
   await page.locator('[data-pane]').last().getByRole('button', { name: 'Close split pane' }).click();
   await expect(page.locator('[data-pane]')).toHaveCount(2);
+
+  // Composer footer: new threads default to Full access; switch to Standard and back, then attach a file.
+  const firstPane = page.locator('[data-pane]').first();
+  await expect(firstPane.getByRole('button', { name: 'Permissions: Full access' })).toBeVisible();
+  await firstPane.getByRole('button', { name: 'Permissions: Full access' }).click();
+  await firstPane.getByRole('menuitemradio', { name: /Accept edits/ }).click();
+  await expect(firstPane.getByRole('button', { name: 'Permissions: Accept edits' })).toBeVisible();
+
+  const fileInput = firstPane.locator('input[type="file"]');
+  await fileInput.setInputFiles({
+    name: 'sample.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('hello attachment'),
+  });
+  await expect(firstPane.getByText('sample.txt')).toBeVisible();
+  await firstPane.locator('textarea').fill('Inspect attached note');
+  await firstPane.locator('textarea').press('Enter');
+  await expect(firstPane.getByText('Inspect attached note')).toBeVisible();
+  await expect(firstPane.getByText('sample.txt')).toBeVisible();
+  await expect(firstPane.getByRole('button', { name: 'Permissions: Accept edits' })).toBeVisible();
+
+  // Starting a brand-new thread still defaults to Full access (does not inherit the earlier restriction).
+  await page.getByRole('button', { name: 'New thread in proj' }).click();
+  await expect(firstPane.getByRole('button', { name: 'Permissions: Full access' })).toBeVisible();
 });
