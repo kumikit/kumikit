@@ -12,6 +12,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+base64 = "0.22"
 kumikit-protocol.workspace = true
 rusqlite = { version = "0.43.0", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }

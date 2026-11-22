@@ -123,7 +123,7 @@ mod tests {
         let events = [
             ThreadEvent::TurnStarted(TurnStarted {
                 turn: "u".into(),
-                input: UserInput { text: "hi".into() },
+                input: UserInput::text("hi"),
                 from: None,
             }),
             ThreadEvent::TextDelta(TurnText {

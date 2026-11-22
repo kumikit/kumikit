@@ -127,6 +127,52 @@ pub const WEB_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'sel
     font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'self'; \
     frame-ancestors 'none'; object-src 'none'";
 
+/// Adds `crossorigin` to `<link ... rel="stylesheet" ...>` tags in a sandboxed panel's
+/// HTML when served over a native custom URI scheme (`kumikit-plugin://`).
+///
+/// WebKit (WebKitGTK and WKWebView) rejects no-cors subresource stylesheet loads from an
+/// opaque sandboxed origin (`null`) to custom URI schemes, while allowing CORS-mode loads
+/// answered with `Access-Control-Allow-Origin: null`. Adding `crossorigin` at response time
+/// keeps signed panel packages on disk untouched while letting their stylesheets apply.
+pub fn panel_html_crossorigin(html: &[u8]) -> Vec<u8> {
+    let Ok(text) = std::str::from_utf8(html) else {
+        return html.to_vec();
+    };
+    let mut out = String::with_capacity(text.len() + 32);
+    let mut rest = text;
+    while let Some(lt) = rest.find('<') {
+        out.push_str(&rest[..lt]);
+        let after_lt = &rest[lt..];
+        let Some(gt) = after_lt.find('>') else {
+            out.push_str(after_lt);
+            return out.into_bytes();
+        };
+        let tag = &after_lt[..=gt];
+        let lower = tag.to_ascii_lowercase();
+        let is_link = lower.starts_with("<link")
+            && lower
+                .as_bytes()
+                .get(5)
+                .is_some_and(|b| b.is_ascii_whitespace());
+        if is_link && lower.contains("stylesheet") && !lower.contains("crossorigin") {
+            if let Some(prefix) = tag.strip_suffix("/>") {
+                out.push_str(prefix);
+                out.push_str(" crossorigin/>");
+            } else if let Some(prefix) = tag.strip_suffix('>') {
+                out.push_str(prefix);
+                out.push_str(" crossorigin>");
+            } else {
+                out.push_str(tag);
+            }
+        } else {
+            out.push_str(tag);
+        }
+        rest = &after_lt[gt + 1..];
+    }
+    out.push_str(rest);
+    out.into_bytes()
+}
+
 /// A file to answer a request with.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Asset {
@@ -367,5 +413,15 @@ mod tests {
         for bad in ["evil", "*", "script-src *", "localhost", "8080", "UPPER"] {
             assert!(!csp.contains(bad), "{bad} in {csp}");
         }
+    }
+
+    #[test]
+    fn panel_html_adds_crossorigin_only_to_stylesheets() {
+        let input = br#"<!doctype html><head><link rel="stylesheet" href="panel.css"><link rel="stylesheet" href="a.css" crossorigin><link rel="icon" href="i.png"><LINK REL="STYLESHEET" href="b.css"/></head>"#;
+        let out = String::from_utf8(panel_html_crossorigin(input)).unwrap();
+        assert_eq!(
+            out,
+            r#"<!doctype html><head><link rel="stylesheet" href="panel.css" crossorigin><link rel="stylesheet" href="a.css" crossorigin><link rel="icon" href="i.png"><LINK REL="STYLESHEET" href="b.css" crossorigin/></head>"#
+        );
     }
 }

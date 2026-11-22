@@ -263,12 +263,32 @@ fn replay(path: &str, extra: &[String]) -> ExitCode {
             continue;
         }
         if entry["from"] == "client" {
-            let Some(Ok(line)) = lines.next() else {
-                return fail(&format!("entry {i}: the client closed stdin early"));
-            };
-            let got: Value = match serde_json::from_str(&line) {
-                Ok(v) => v,
-                Err(e) => return fail(&format!("entry {i}: not JSON: {e}")),
+            let got: Value = loop {
+                let Some(Ok(line)) = lines.next() else {
+                    return fail(&format!("entry {i}: the client closed stdin early"));
+                };
+                let got: Value = match serde_json::from_str(&line) {
+                    Ok(v) => v,
+                    Err(e) => return fail(&format!("entry {i}: not JSON: {e}")),
+                };
+                if message.get("jsonrpc").is_some()
+                    && got.get("method").and_then(Value::as_str).is_some_and(|m| {
+                        matches!(
+                            m,
+                            "session/set_mode" | "session/set_model" | "session/set_config_option"
+                        )
+                    })
+                    && got.get("method") != message.get("method")
+                {
+                    if let Some(id) = got.get("id") {
+                        let ack = serde_json::json!({"jsonrpc": "2.0", "id": id, "result": {}});
+                        if writeln!(out, "{ack}").and_then(|()| out.flush()).is_err() {
+                            return ExitCode::SUCCESS;
+                        }
+                    }
+                    continue;
+                }
+                break got;
             };
             let same = if message.get("jsonrpc").is_some() {
                 match message.get("method") {

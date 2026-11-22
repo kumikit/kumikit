@@ -172,16 +172,27 @@ and both sides ignore fields they do not know.
 | `auth.devices.list` | — | `devices`: `{ id, name, created, lastSeen?, current? }` (`current` marks the caller's own device) |
 | `auth.devices.revoke` | `device` | `{}`. Deletes the device and closes its connections, including the caller's if it revokes itself. |
 | `core.hello` | `protocol`, `client { name, version }` | `protocol`, `core { version, name, os }`, `plugins`, `capabilities` |
+| `core.config.get` | — | `homeDir`, `defaultHomeDir`. Returns the active and platform-default Kumikit home folder (`~/.kumikit` on Linux/macOS, `%USERPROFILE%\.kumikit` on Windows). |
+| `core.config.set` | `homeDir?` | `homeDir`, `defaultHomeDir`. Updates the Kumikit home folder (expanding leading `~`); omitting or passing an empty string resets to the platform default. |
+| `core.worktrees.list` | — | `root`, `worktrees` (`{ path, repo, name, branch?, sizeBytes, threadCount, inUse }`), `totalBytes`. Lists every managed Git worktree under `<homeDir>/worktrees/` with its disk usage, largest first. |
+| `core.worktrees.delete` | `path` | `{}`. Removes a managed Git worktree under `<homeDir>/worktrees/` via the process supervisor (`git worktree remove --force` + prune) and clears `worktreePath` on linked threads. Fails with `invalid_params` outside `<homeDir>/worktrees/` and `conflict` while a linked thread has a running turn. |
 | `workspace.list` | — | `workspaces` (open ones only) |
 | `workspace.open` | `path` | `workspace`. The path is canonicalized; opening the same root again returns the same workspace, and reopens it if it was closed. |
 | `workspace.close` | `workspace` | `{}`. Hides the workspace from `list`; its threads and events are kept. |
+| `workspace.delete` | `workspace` | `{}`. Permanently removes the workspace and all its threads, turns, approvals, events, and plugin links, cleaning up any managed worktrees under `<homeDir>/worktrees/` exclusively referenced by those threads. Fails with `conflict` if any thread has a running or waiting turn. Does not delete the user's project directory on disk. |
+| `workspace.git.status` | `workspace`, `path?` | `isRepo`, `branch?`, `detached`, `isWorktree`, `repoRoot?`, `defaultBranch?`, `branches` (`{ name, current, worktreePath? }`). Inspects the workspace root or a linked worktree `path` belonging to the same repository; returns `isRepo: false` for non-Git directories. |
+| `workspace.git.checkout` | `workspace`, `branch`, `path?` | `WorkspaceGitInfo`. Switches the workspace (or linked worktree `path`) to an existing local branch through the kernel's process supervisor. |
+| `workspace.git.worktreeCreate` | `workspace`, `branch`, `baseBranch?` | `path`, `git`. Creates a linked Git worktree under `<homeDir>/worktrees/<repo>/<branch-slug>` without creating a separate workspace; threads pinned to `path` stay under `workspace`. |
 | `thread.list` | `workspace`, `includeArchived?` | `threads`, most recently updated first |
-| `thread.create` | `workspace`, `provider?` (qualified id), `model?`, `title?` | `thread`. `provider` defaults to the only provider when exactly one exists (`unsupported` if there is none, `invalid_params` if there are several); `model` defaults to the provider's first model. A closed workspace gives `conflict`. |
+| `thread.create` | `workspace`, `provider?` (qualified id), `model?`, `title?`, `permissionMode?` (`standard`, `accept_edits`, `plan`, `full_access`), `worktreePath?` | `thread`. `provider` defaults to the only provider when exactly one exists (`unsupported` if there is none, `invalid_params` if there are several); `model` defaults to the provider's first model; `permissionMode` defaults to `standard`; optional `worktreePath` runs the thread's agent session and tool gateway inside a linked Git worktree while keeping the thread under `workspace`. A closed workspace gives `conflict`. |
+| `thread.update` | `thread`, `model?`, `permissionMode?`, `title?` | `thread`. Fails with `conflict` while a turn runs or on an archived thread. Changing `model` or `permissionMode` ends any idle provider session so the next turn resumes with the new configuration, and emits `thread.updated`. |
 | `thread.get` | `thread` | `thread`, `turns`, `pendingApprovals`, `seq`: a snapshot folded from the log up to `seq` |
-| `thread.send` | `thread`, `input { text }` | `turn`, `queued`. One turn runs per thread; a message sent during a turn is queued in memory and starts when the turn ends. |
+| `thread.send` | `thread`, `input { text, attachments? }` (`attachments`: `{ name, mimeType, data (base64), width?, height? }`, at most 16 files / 4 MiB total decoded) | `turn`, `queued`. One turn runs per thread; a message sent during a turn is queued in memory and starts when the turn ends. |
 | `thread.cancel` | `thread` | `{}`. Cancels the running turn and drops queued messages; does nothing if no turn runs. |
 | `thread.respondApproval` | `approval`, `decision` | `{}`. The first answer wins; later answers fail with `conflict`. |
 | `thread.archive` | `thread` | `{}`. Sets `status` to `archived`; no thread event is appended (archiving is not thread content). Fails with `conflict` while a turn runs or waits; an archived thread refuses `thread.send`. |
+| `thread.unarchive` | `thread` | `thread`. Restores an archived thread back to active status and emits `thread.updated`. |
+| `thread.delete` | `thread` | `{}`. Permanently removes a thread and its turns, approvals, and events, ending any idle session, deleting its managed Git worktree directory under `<homeDir>/worktrees/` if no other thread still references it, and emitting `thread.deleted`. Fails with `conflict` while a turn runs or waits. |
 | `events.subscribe` | `topic`, `after` | `head` (the topic's last `seq` at subscribe time) |
 | `events.unsubscribe` | `topic` | `{}` |
 | `plugin.list` | — | `plugins`: every installed plugin (`id`, `name`, `version`, `description?`, `repository?`, `state`, `requested`, `granted?`, `contributes`, `signed`, `publisher?`, `source?`, `failure?`, `error?`) |
@@ -297,6 +308,7 @@ show every thread's status without subscribing to each thread:
 | `thread.created` | `thread` |
 | `thread.updated` | `thread` (its status or title changed; text and tool events do not count) |
 | `thread.archived` | `thread` |
+| `thread.deleted` | `thread` |
 
 - The topic has no log: `after` must be 0 (otherwise `invalid_params`), `head` is 0, and
   only changes after the subscription follow. They arrive as `events.event` notifications

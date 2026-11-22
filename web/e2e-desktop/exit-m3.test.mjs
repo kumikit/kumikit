@@ -241,21 +241,23 @@ async function flow(b) {
   await b.click(await button(b, 'main', 'It matches: pair'));
   await b.wait('ul[aria-label="Cores"] li', 'Connected');
   await b.until(async () => (await b.text(await b.wait('ul[aria-label="Cores"] li', 'Dev box'))).includes('Connected'), 'the remote core to connect');
+  await b.click(await b.wait('[data-overlay="cores"] button[aria-label="Close"]'));
 
   step('a thread on the remote core, waiting on an approval');
-  await b.click(await button(b, 'section[aria-label="Dev box"]', 'Open folder'));
+  await b.click(await b.wait('section[aria-label="Dev box"] button[aria-label^="Open folder"]'));
   await b.type(await field(b, 'Path on'), remoteProject);
   await b.click(await button(b, '[role="dialog"]', 'Open'));
   await b.wait(`${TABS} [data-core="dev-box"]`);
-  await palette(b, 'New thread');
-  await b.click(await button(b, '[role="dialog"]', 'Start'));
+  await b.wait('select[aria-label="Agent"] option');
+  await b.click(await b.wait('button[aria-label^="Permissions:"]'));
+  await b.click(await b.wait('[role="menuitemradio"]', 'Standard'));
   await b.type(await b.wait('#kk-chat-input'), 'Add a line to notes.txt');
   await b.keys('Enter');
   await b.wait(APPROVAL, 'Needs your approval');
 
   step('a tab on the local core');
   pick(project);
-  await b.click(await button(b, 'section[aria-label="This computer"]', 'Open folder'));
+  await b.click(await b.wait('section[aria-label="This computer"] button[aria-label^="Open folder"]'));
   await b.wait(`${TABS} [data-core="local"]`);
 
   step('cutting the remote network');
@@ -264,8 +266,9 @@ async function flow(b) {
   assert.ok(!(await tabText(b, 'local')).includes('reconnecting'), 'the local tab is not reconnecting');
 
   step('the local core keeps streaming');
-  await palette(b, 'New thread');
-  await b.click(await button(b, '[role="dialog"]', 'Start'));
+  await b.wait('select[aria-label="Agent"] option');
+  await b.click(await b.wait('button[aria-label^="Permissions:"]'));
+  await b.click(await b.wait('[role="menuitemradio"]', 'Standard'));
   await b.type(await b.wait('#kk-chat-input'), 'Add a line to notes.txt');
   await b.keys('Enter');
   await b.wait(APPROVAL, 'Needs your approval');

@@ -1,7 +1,7 @@
 <!--
-  Cores (06-client, Multiple cores): the cores this window knows, their state, and adding
-  one by address and pairing code (the fingerprint shown for the user to compare before the
-  code is sent) or by SSH destination, and removing one.
+  Cores inside the overlay sheet (06-client, Multiple cores): the cores this window knows,
+  their state, adding one by address and pairing code (the fingerprint shown for the user
+  to compare before the code is sent) or by SSH destination, and removing one.
 -->
 <script lang="ts">
   import { isComposing } from '@kumikit/ui-sdk';
@@ -26,6 +26,12 @@
     ssh: 'Through SSH',
     core: 'The core serving this page',
   };
+
+  function statusTone(status: string): 'ok' | 'warn' | 'err' {
+    if (status === 'ready') return 'ok';
+    if (status === 'connecting' || status === 'reconnecting') return 'warn';
+    return 'err';
+  }
 
   type Mode = 'none' | 'pair' | 'ssh';
   let mode = $state<Mode>('none');
@@ -123,98 +129,128 @@
   }
 
   function onKey(e: KeyboardEvent, close: () => void) {
-    if (!isComposing(e) && e.key === 'Escape') close();
+    if (!isComposing(e) && e.key === 'Escape') {
+      e.stopPropagation();
+      close();
+    }
   }
 </script>
 
 <div class="cores">
-  <h1>Cores</h1>
-  <ul class="list" aria-label="Cores">
-    {#each kernel.connections as c (c.id)}
-      <li class="card" data-core={c.id}>
-        <div class="title">
-          <strong>{c.label}</strong>
-          <span class="kk-muted">{kindText[c.kind] ?? c.kind}{#if c.hello} · {c.hello.core.name}, Kumikit {c.hello.core.version}{/if}</span>
-          <span class="badge" class:ok={c.status === 'ready'}>{statusText[c.status] ?? c.status}</span>
-        </div>
-        {#if c.error && c.status !== 'ready'}<p class="kk-muted">{c.error}</p>{/if}
-        <div class="actions">
-          {#if c.status !== 'ready' && c.status !== 'unauthorized'}
-            <button type="button" class="kk-button" onclick={() => c.reconnectNow()}>Reconnect now</button>
+  <section class="group" aria-labelledby="kk-connected-cores">
+    <div class="head">
+      <div class="head-title">
+        <h2 id="kk-connected-cores">Connected cores</h2>
+        <span class="meta-chip">{kernel.connections.length}</span>
+      </div>
+    </div>
+    <ul class="list" aria-label="Cores">
+      {#each kernel.connections as c (c.id)}
+        {@const tone = statusTone(c.status)}
+        {@const canReconnect = c.status !== 'ready' && c.status !== 'unauthorized'}
+        {@const canRemove = kernel.platform.profiles.editable && c.id !== kernel.platform.home}
+        <li class="card" data-core={c.id}>
+          <div class="card-top">
+            <div class="title-col">
+              <strong>{c.label}</strong>
+              <span class="sub-id">{kindText[c.kind] ?? c.kind}{#if c.hello} · {c.hello.core.name}, Kumikit {c.hello.core.version}{/if}</span>
+            </div>
+            <span class="badge {tone}">
+              <span class="badge-dot {tone}" aria-hidden="true"></span>
+              {statusText[c.status] ?? c.status}
+            </span>
+          </div>
+          {#if c.error && c.status !== 'ready'}<p class="problem">{c.error}</p>{/if}
+          {#if canReconnect || canRemove}
+            <div class="actions">
+              {#if canReconnect}
+                <button type="button" class="kk-button" onclick={() => c.reconnectNow()}>Reconnect now</button>
+              {/if}
+              {#if canRemove}
+                <button type="button" class="kk-button danger" onclick={() => (removing = c)}>Remove…</button>
+              {/if}
+            </div>
           {/if}
-          {#if kernel.platform.profiles.editable && c.id !== kernel.platform.home}
-            <button type="button" class="kk-button danger" onclick={() => (removing = c)}>Remove…</button>
-          {/if}
-        </div>
-      </li>
-    {/each}
-  </ul>
+        </li>
+      {/each}
+    </ul>
+  </section>
 
   {#if kernel.platform.profiles.editable}
-    <section aria-labelledby="kk-add-core">
-      <h2 id="kk-add-core">Add a core</h2>
-      {#if mode === 'none'}
-        <p class="kk-muted">A core on another machine: run <code>kumikit serve --listen &lt;address&gt;</code> there, then <code>kumikit pair</code> for a code. Or reach it through SSH, where <code>kumikit</code> is installed and a core runs.</p>
-        <div class="actions start">
-          <button type="button" class="kk-button primary" onclick={() => reset('pair')}>With a pairing code…</button>
-          <button type="button" class="kk-button" onclick={() => reset('ssh')}>Through SSH…</button>
-        </div>
-      {:else if mode === 'pair'}
-        {#if !fingerprint}
-          <form onsubmit={check} aria-label="Pair with a core" use:focusFirst>
-            <label>Address <span class="kk-muted">(host:port, or the address <code>kumikit pair</code> printed)</span>
-              <input class="kk-input" bind:value={address} required data-autofocus autocomplete="off" spellcheck="false" />
+    <section class="group" aria-labelledby="kk-add-core">
+      <div class="head">
+        <h2 id="kk-add-core">Add a core</h2>
+      </div>
+      <div class="add-card">
+        {#if mode === 'none'}
+          <p class="note kk-muted">A core on another machine: run <code>kumikit serve --listen &lt;address&gt;</code> there, then <code>kumikit pair</code> for a code. Or reach it through SSH, where <code>kumikit</code> is installed and a core runs.</p>
+          <div class="actions start">
+            <button type="button" class="kk-button primary" onclick={() => reset('pair')}>With a pairing code…</button>
+            <button type="button" class="kk-button" onclick={() => reset('ssh')}>Through SSH…</button>
+          </div>
+        {:else if mode === 'pair'}
+          {#if !fingerprint}
+            <form onsubmit={check} aria-label="Pair with a core" use:focusFirst>
+              <label>
+                <span>Address <span class="kk-muted">(host:port, or the address <code>kumikit pair</code> printed)</span></span>
+                <input class="kk-input" bind:value={address} required data-autofocus autocomplete="off" spellcheck="false" />
+              </label>
+              <label>
+                <span>Pairing code</span>
+                <input class="kk-input" bind:value={code} required autocomplete="off" spellcheck="false" />
+              </label>
+              <label>
+                <span>Name <span class="kk-muted">(optional)</span></span>
+                <input class="kk-input" bind:value={label} placeholder={address} />
+              </label>
+              {#if problem}<p class="problem" role="alert">{problem}</p>{/if}
+              <div class="actions">
+                <button type="button" class="kk-button" onclick={() => reset()}>Cancel</button>
+                <button type="submit" class="kk-button primary" disabled={busy}>Check the core</button>
+              </div>
+            </form>
+          {:else}
+            <div class="confirm" role="group" aria-labelledby="kk-fingerprint-title" use:focusFirst>
+              <h3 id="kk-fingerprint-title">Is this the core's fingerprint?</h3>
+              <p class="note kk-muted">Compare it with the fingerprint <code>kumikit pair</code> printed on the core's machine. If they differ, something else answered at this address: cancel.</p>
+              <p class="fingerprint" data-fingerprint>{fingerprint}</p>
+              {#if problem}<p class="problem" role="alert">{problem}</p>{/if}
+              <div class="actions">
+                <button type="button" class="kk-button" onclick={() => reset()}>Cancel</button>
+                <button type="button" class="kk-button primary" disabled={busy} onclick={pair}>It matches: pair</button>
+              </div>
+            </div>
+          {/if}
+        {:else}
+          <form onsubmit={addSsh} aria-label="Add a core through SSH" use:focusFirst>
+            <label>
+              <span>SSH destination <span class="kk-muted">(a host from ~/.ssh/config, or user@host)</span></span>
+              <input class="kk-input" bind:value={destination} required data-autofocus autocomplete="off" spellcheck="false" />
             </label>
-            <label>Pairing code
-              <input class="kk-input" bind:value={code} required autocomplete="off" spellcheck="false" />
+            <label>
+              <span>Remote command <span class="kk-muted">(optional; default <code>kumikit bridge</code>)</span></span>
+              <input class="kk-input" bind:value={command} autocomplete="off" spellcheck="false" />
             </label>
-            <label>Name <span class="kk-muted">(optional)</span>
-              <input class="kk-input" bind:value={label} placeholder={address} />
+            <label>
+              <span>Name <span class="kk-muted">(optional)</span></span>
+              <input class="kk-input" bind:value={label} placeholder={destination} />
             </label>
+            <p class="note kk-muted">The app runs <code>ssh</code> without a terminal, so it cannot ask for a password or a new host key: connect once with <code>ssh</code> in a terminal first.</p>
             {#if problem}<p class="problem" role="alert">{problem}</p>{/if}
             <div class="actions">
               <button type="button" class="kk-button" onclick={() => reset()}>Cancel</button>
-              <button type="submit" class="kk-button primary" disabled={busy}>Check the core</button>
+              <button type="submit" class="kk-button primary" disabled={busy}>Add</button>
             </div>
           </form>
-        {:else}
-          <div class="confirm" role="group" aria-labelledby="kk-fingerprint-title" use:focusFirst>
-            <h3 id="kk-fingerprint-title">Is this the core's fingerprint?</h3>
-            <p>Compare it with the fingerprint <code>kumikit pair</code> printed on the core's machine. If they differ, something else answered at this address: cancel.</p>
-            <p class="fingerprint" data-fingerprint>{fingerprint}</p>
-            {#if problem}<p class="problem" role="alert">{problem}</p>{/if}
-            <div class="actions">
-              <button type="button" class="kk-button" onclick={() => reset()}>Cancel</button>
-              <button type="button" class="kk-button primary" disabled={busy} onclick={pair}>It matches: pair</button>
-            </div>
-          </div>
         {/if}
-      {:else}
-        <form onsubmit={addSsh} aria-label="Add a core through SSH" use:focusFirst>
-          <label>SSH destination <span class="kk-muted">(a host from ~/.ssh/config, or user@host)</span>
-            <input class="kk-input" bind:value={destination} required data-autofocus autocomplete="off" spellcheck="false" />
-          </label>
-          <label>Remote command <span class="kk-muted">(optional; default <code>kumikit bridge</code>)</span>
-            <input class="kk-input" bind:value={command} autocomplete="off" spellcheck="false" />
-          </label>
-          <label>Name <span class="kk-muted">(optional)</span>
-            <input class="kk-input" bind:value={label} placeholder={destination} />
-          </label>
-          <p class="kk-muted">The app runs <code>ssh</code> without a terminal, so it cannot ask for a password or a new host key: connect once with <code>ssh</code> in a terminal first.</p>
-          {#if problem}<p class="problem" role="alert">{problem}</p>{/if}
-          <div class="actions">
-            <button type="button" class="kk-button" onclick={() => reset()}>Cancel</button>
-            <button type="submit" class="kk-button primary" disabled={busy}>Add</button>
-          </div>
-        </form>
-      {/if}
+      </div>
     </section>
   {/if}
 </div>
 
 {#if removing}
   {@const c = removing}
-  <div class="scrim" role="presentation"></div>
+  <div class="scrim" role="presentation" onclick={() => (removing = undefined)}></div>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="kk-remove-core" tabindex="-1" use:trapFocus onkeydown={(e) => onKey(e, () => (removing = undefined))}>
     <h2 id="kk-remove-core">Remove {c.label}?</h2>
     <p>This window forgets the core{#if c.kind === 'tls'} and its token, and this computer is unpaired there if the core can be reached{/if}. Agents on that core keep running; its tabs say the core was removed.</p>
@@ -227,81 +263,185 @@
 
 <style>
   .cores {
-    height: 100%;
+    flex: 1;
+    min-height: 0;
     overflow: auto;
-    padding: 16px 24px;
+    padding: 20px 24px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
   }
-  h1 {
-    margin: 0 0 12px;
-    font-size: var(--kk-font-size-title, x-large);
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .head-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
   h2 {
-    margin: 16px 0 8px;
+    margin: 0;
     font-size: var(--kk-font-size-large, large);
+    color: var(--kk-text-primary, CanvasText);
   }
   h3 {
     margin: 0;
     font-size: var(--kk-font-size-base, medium);
+    color: var(--kk-text-primary, CanvasText);
+  }
+  .meta-chip {
+    padding: 1px 8px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-large, 0);
+    background: var(--kk-surface-card, Canvas);
+    color: var(--kk-text-muted, GrayText);
+    font-size: var(--kk-font-size-small, small);
+  }
+  .note {
+    margin: 0;
+    font-size: var(--kk-font-size-small, small);
+    line-height: var(--kk-line-height-base, normal);
   }
   .list {
     list-style: none;
     margin: 0;
     padding: 0;
     display: grid;
-    gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 10px;
   }
   .card {
-    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
     border: 1px solid var(--kk-border-subtle, CanvasText);
     border-radius: var(--kk-radius-medium, 0);
-    background: var(--kk-surface-raised, Canvas);
+    background: var(--kk-surface-card, Canvas);
   }
-  .title {
+  .card-top {
     display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 8px;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .title-col {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .sub-id {
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-muted, GrayText);
+    overflow-wrap: anywhere;
   }
   .badge {
-    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 1px 8px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-large, 0);
+    font-size: var(--kk-font-size-small, small);
+    background: var(--kk-surface-raised, Canvas);
     color: var(--kk-text-secondary, CanvasText);
+    white-space: nowrap;
+    flex: none;
   }
   .badge.ok {
+    background: var(--kk-state-success-tint, Canvas);
     color: var(--kk-text-primary, CanvasText);
+  }
+  .badge.warn {
+    background: var(--kk-state-warning-tint, Canvas);
+    color: var(--kk-text-primary, CanvasText);
+  }
+  .badge.err {
+    background: var(--kk-state-danger-tint, Canvas);
+    color: var(--kk-text-primary, CanvasText);
+  }
+  .badge-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: var(--kk-radius-large, 0);
+    background: var(--kk-text-muted, GrayText);
+  }
+  .badge-dot.ok {
+    background: var(--kk-state-success, Highlight);
+  }
+  .badge-dot.warn {
+    background: var(--kk-state-warning, Highlight);
+  }
+  .badge-dot.err {
+    background: var(--kk-state-danger, Highlight);
+  }
+  .add-card {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px 18px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-medium, 0);
+    background: var(--kk-surface-card, Canvas);
   }
   form,
   .confirm {
     display: grid;
     gap: 12px;
-    max-width: 520px;
+    max-width: 560px;
   }
   label {
     display: grid;
     gap: 4px;
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-primary, CanvasText);
   }
   .actions {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
   }
+  .card .actions {
+    margin-top: auto;
+    padding-top: 8px;
+    border-top: 1px solid var(--kk-border-subtle, CanvasText);
+  }
   .actions.start {
     justify-content: flex-start;
   }
   .fingerprint {
     margin: 0;
-    padding: 8px;
+    padding: 10px 12px;
     font-family: var(--kk-font-mono, monospace);
+    font-size: var(--kk-font-size-small, small);
+    background: var(--kk-surface-code, Canvas);
     border: 1px solid var(--kk-border-strong, CanvasText);
     border-radius: var(--kk-radius-small, 0);
     word-spacing: 0.4em;
+    overflow-wrap: anywhere;
   }
   .problem {
     margin: 0;
-    color: var(--kk-state-danger, CanvasText);
+    padding: 6px 10px;
+    border-left: 3px solid var(--kk-state-danger, CanvasText);
+    border-radius: var(--kk-radius-small, 0);
+    background: var(--kk-state-danger-tint, Canvas);
+    color: var(--kk-text-primary, CanvasText);
+    font-size: var(--kk-font-size-small, small);
   }
   .scrim {
     position: fixed;
     inset: 0;
+    z-index: 40;
     background: var(--kk-surface-overlay, Canvas);
     opacity: var(--kk-overlay-opacity, 0.6);
   }
@@ -309,14 +449,20 @@
     position: fixed;
     top: 15vh;
     left: 50%;
+    z-index: 41;
     display: grid;
     gap: 12px;
     width: min(440px, 92vw);
     transform: translateX(-50%);
-    padding: 16px;
+    padding: 18px 20px;
     border: 1px solid var(--kk-border-strong, CanvasText);
     border-radius: var(--kk-radius-large, 0);
     background: var(--kk-surface-raised, Canvas);
     box-shadow: var(--kk-shadow-overlay, none);
+  }
+  .dialog p {
+    margin: 0;
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-secondary, CanvasText);
   }
 </style>

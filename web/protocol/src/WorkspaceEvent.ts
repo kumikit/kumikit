@@ -5,4 +5,4 @@ import type { ThreadChange } from "./ThreadChange";
  * An event on a `workspace:<id>` topic: `kind` plus `data`. Not logged; only live
  * changes are delivered.
  */
-export type WorkspaceEvent = { "kind": "thread.created", "data": ThreadChange } | { "kind": "thread.updated", "data": ThreadChange } | { "kind": "thread.archived", "data": ThreadChange };
+export type WorkspaceEvent = { "kind": "thread.created", "data": ThreadChange } | { "kind": "thread.updated", "data": ThreadChange } | { "kind": "thread.archived", "data": ThreadChange } | { "kind": "thread.deleted", "data": ThreadChange };

@@ -14,7 +14,6 @@
   const when = (t: string | undefined) => (t ? new Date(t).toLocaleString() : '—');
   const outcome: Record<string, string> = { ran: 'ran', failed: 'failed', missed: 'missed (the core was not running)', skipped: 'skipped (the last run was still going)' };
 
-  /** The active tab's core (or the home one); absent with no core at all. */
   function core() {
     if (!ctx.connection) throw new Error('no core is connected');
     return ctx.connection;
@@ -48,49 +47,96 @@
 </script>
 
 <div class="kk-schedules">
-  <h2>Schedules</h2>
-  <p class="kk-muted">Plugins that run on a schedule, on this core. They run only while the core runs.</p>
+  <div class="intro">
+    <h2>Schedules</h2>
+    <p class="kk-muted">Plugins that run on a schedule, on this core. They run only while the core runs.</p>
+  </div>
   {#if problem}
-    <p role="alert">Cannot read the schedules: {problem}</p>
+    <p class="error" role="alert">Cannot read the schedules: {problem}</p>
   {:else if schedules.length === 0}
-    <p class="kk-muted">Nothing is scheduled.</p>
+    <div class="empty-card">
+      <p class="kk-muted">Nothing is scheduled.</p>
+    </div>
   {:else}
-    <table>
-      <thead>
-        <tr><th scope="col">What</th><th scope="col">When</th><th scope="col">Next run</th><th scope="col">Last run</th><th scope="col" aria-label="Actions"></th></tr>
-      </thead>
-      <tbody>
-        {#each schedules as s (`${s.plugin}/${s.key}`)}
-          <tr class:paused={!s.enabled}>
-            <td>{s.description}<br /><span class="kk-muted">{s.plugin}</span></td>
-            <td><code>{s.cron}</code> <span class="kk-muted">{s.timeZone ?? 'local time'}</span></td>
-            <td>{s.enabled ? when(s.nextRun) : 'paused'}</td>
-            <td>{when(s.lastRun)}{#if s.lastOutcome}<br /><span class="kk-muted">{outcome[s.lastOutcome] ?? s.lastOutcome}</span>{/if}</td>
-            <td class="actions">
-              <button type="button" class="kk-button" disabled={busy} onclick={() => act(() => core().call('schedule.run', { plugin: s.plugin, key: s.key }), 'Started')}>Run now</button>
-              <button type="button" class="kk-button" disabled={busy} onclick={() => act(() => core().call('schedule.setEnabled', { plugin: s.plugin, key: s.key, enabled: !s.enabled }))}>{s.enabled ? 'Pause' : 'Resume'}</button>
-              {#if s.source === 'plugin'}
-                <button type="button" class="kk-button danger" disabled={busy} onclick={() => act(() => core().call('schedule.delete', { plugin: s.plugin, key: s.key }))}>Remove</button>
-              {/if}
-            </td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th scope="col">What</th><th scope="col">When</th><th scope="col">Next run</th><th scope="col">Last run</th><th scope="col" aria-label="Actions"></th></tr>
+        </thead>
+        <tbody>
+          {#each schedules as s (`${s.plugin}/${s.key}`)}
+            <tr class:paused={!s.enabled}>
+              <td>{s.description}<br /><span class="kk-muted">{s.plugin}</span></td>
+              <td><code>{s.cron}</code> <span class="kk-muted">{s.timeZone ?? 'local time'}</span></td>
+              <td>{s.enabled ? when(s.nextRun) : 'paused'}</td>
+              <td>{when(s.lastRun)}{#if s.lastOutcome}<br /><span class="kk-muted">{outcome[s.lastOutcome] ?? s.lastOutcome}</span>{/if}</td>
+              <td class="actions">
+                <button type="button" class="kk-button" disabled={busy} onclick={() => act(() => core().call('schedule.run', { plugin: s.plugin, key: s.key }), 'Started')}>Run now</button>
+                <button type="button" class="kk-button" disabled={busy} onclick={() => act(() => core().call('schedule.setEnabled', { plugin: s.plugin, key: s.key, enabled: !s.enabled }))}>{s.enabled ? 'Pause' : 'Resume'}</button>
+                {#if s.source === 'plugin'}
+                  <button type="button" class="kk-button danger" disabled={busy} onclick={() => act(() => core().call('schedule.delete', { plugin: s.plugin, key: s.key }))}>Remove</button>
+                {/if}
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
   {/if}
 </div>
 
 <style>
+  .kk-schedules {
+    display: grid;
+    gap: 14px;
+  }
+  .intro {
+    display: grid;
+    gap: 4px;
+  }
+  h2 {
+    margin: 0;
+    font-size: var(--kk-font-size-large, large);
+  }
+  .intro p {
+    margin: 0;
+    font-size: var(--kk-font-size-small, small);
+  }
+  .empty-card {
+    padding: 16px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-medium, 0);
+    background: var(--kk-surface-card, Canvas);
+  }
+  .empty-card p {
+    margin: 0;
+    font-size: var(--kk-font-size-small, small);
+  }
+  .table-wrap {
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-medium, 0);
+    background: var(--kk-surface-card, Canvas);
+    overflow: auto;
+  }
   table {
     border-collapse: collapse;
     width: 100%;
+    font-size: var(--kk-font-size-small, small);
+  }
+  th {
+    color: var(--kk-text-muted, GrayText);
+    font-weight: var(--kk-font-weight-strong, bold);
+    background: var(--kk-surface-frame, Canvas);
   }
   th,
   td {
     text-align: left;
     vertical-align: top;
-    padding: 6px 8px;
+    padding: 8px 10px;
     border-bottom: 1px solid var(--kk-border-subtle, CanvasText);
+  }
+  tbody tr:last-child td {
+    border-bottom: 0;
   }
   .paused {
     color: var(--kk-text-muted, GrayText);
@@ -99,5 +145,10 @@
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
+  }
+  .error {
+    margin: 0;
+    color: var(--kk-state-danger, CanvasText);
+    font-size: var(--kk-font-size-small, small);
   }
 </style>

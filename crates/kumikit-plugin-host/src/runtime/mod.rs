@@ -244,6 +244,8 @@ pub struct InstanceConfig {
     pub session: Arc<SessionShared>,
     /// The plugin's settings schema file, if it has one (`kumikit:host/settings`).
     pub settings_schema: Option<PathBuf>,
+    /// Isolated empty directory for `list-models` probes, exposed as `KUMIKIT_PROBE_DIR`.
+    pub probe_dir: Option<PathBuf>,
 }
 
 enum Bindings {
@@ -338,6 +340,9 @@ impl Instance {
         .socket_addr_check(|_, _| Box::pin(async { false }))
         .preopened_dir(&config.data_dir, GUEST_DATA_DIR, FsPerms::ReadWrite)
         .map_err(|e| failed(format!("cannot open the data directory: {e:#}")))?;
+        if let Some(probe_dir) = &config.probe_dir {
+            wasi.env("KUMIKIT_PROBE_DIR", probe_dir.to_string_lossy());
+        }
         let owner = OwnerId(format!(
             "{plugin}#{}",
             NEXT_OWNER.fetch_add(1, Ordering::Relaxed)

@@ -30,6 +30,7 @@ async function addRemote(page: Page, kk: Kumikit) {
   await page.getByRole('button', { name: 'It matches: pair' }).click();
   const card = page.getByRole('list', { name: 'Cores' }).getByRole('listitem').filter({ hasText: 'Dev box' });
   await expect(card).toContainText('Connected');
+  await page.locator('[data-overlay="cores"]').getByRole('button', { name: 'Close', exact: true }).click();
   return printed;
 }
 
@@ -53,6 +54,7 @@ async function installProvider(page: Page, kk: Kumikit, core: 'This computer' | 
   await expect(region.getByRole('listitem').filter({ hasText: 'test.recorded' }).last()).toContainText('Enabled');
   // The recorded provider runs on provider-acp, which the core seeds after it is ready.
   await expect(region.getByRole('listitem').filter({ hasText: 'kumikit.provider-acp' })).toContainText('Enabled');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
 }
 
 /** Opens a project on a core and starts a thread with its only recorded provider. */
@@ -69,9 +71,9 @@ async function startThread(page: Page, kk: Kumikit, core: 'This computer' | 'Dev
     await dialog.getByRole('button', { name: 'Open' }).click();
   }
   await expect(tab(page, core === 'This computer' ? 'local' : 'dev-box')).toBeVisible();
-  await command(page, 'New thread');
-  const dialog = page.getByRole('dialog', { name: 'New thread' });
-  await dialog.getByRole('button', { name: 'Start' }).click();
+  await expect(page.getByLabel('Agent')).toBeVisible();
+  await page.getByRole('button', { name: /Permissions:/ }).click();
+  await page.getByRole('menuitemradio', { name: /Standard/ }).click();
   await page.getByLabel('Message').fill(message);
   await page.getByLabel('Message').press('Enter');
 }
@@ -109,7 +111,7 @@ test('tabs from two cores; cutting one core’s network leaves the other streami
   if (await now.isVisible()) await now.click();
   await expect(tab(page, 'dev-box')).not.toContainText('reconnecting');
   await expect(page.getByRole('region', { name: 'Approval' })).toContainText('Needs your approval');
-  await expect(page.getByText('Add a line to notes.txt')).toHaveCount(1);
+  await expect(page.getByRole('log', { name: 'Transcript' }).getByText('Add a line to notes.txt')).toHaveCount(1);
   await page.getByRole('region', { name: 'Approval' }).getByRole('button', { name: 'Allow', exact: true }).click();
   await expect(page.getByText(/Changed/).first()).toBeVisible();
   await expect(page.getByText('Idle', { exact: true })).toBeVisible();
@@ -134,6 +136,7 @@ test('a revoked device needs pairing again; a changed certificate is refused', a
   await command(page, 'Cores: add, remove, reconnect');
   await page.getByRole('list', { name: 'Cores' }).getByRole('listitem').filter({ hasText: 'Dev box' }).getByRole('button', { name: 'Remove…' }).click();
   await page.getByRole('dialog', { name: 'Remove Dev box?' }).getByRole('button', { name: 'Remove' }).click();
+  await page.locator('[data-overlay="cores"]').getByRole('button', { name: 'Close', exact: true }).click();
   await expect(tab(page, 'dev-box')).toContainText('removed');
   await addRemote(page, kk);
   await kk.remote.rotate();
@@ -156,6 +159,7 @@ test('a UI plugin that needs a core plugin shows only on that core', async ({ pa
   await command(page, 'Manage plugins');
   await page.getByRole('region', { name: 'On this client' }).getByRole('button', { name: 'Install from file…' }).click();
   await page.getByRole('dialog', { name: 'Trust Needs?' }).getByRole('button', { name: 'Trust and enable' }).click();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
 
   await kk.pick(kk.project);
   await sidebar(page).getByRole('region', { name: 'This computer', exact: true }).getByRole('button', { name: 'Open folder…' }).click();

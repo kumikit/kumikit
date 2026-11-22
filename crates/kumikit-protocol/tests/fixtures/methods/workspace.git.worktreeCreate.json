@@ -1,0 +1,39 @@
+[
+  {
+    "id": 5,
+    "jsonrpc": "2.0",
+    "method": "workspace.git.worktreeCreate",
+    "params": {
+      "baseBranch": "main",
+      "branch": "feat/worktrees",
+      "workspace": "01JCWS00000000000000000001"
+    }
+  },
+  {
+    "id": 5,
+    "jsonrpc": "2.0",
+    "result": {
+      "git": {
+        "branch": "feat/worktrees",
+        "branches": [
+          {
+            "current": true,
+            "name": "feat/worktrees",
+            "worktreePath": "/home/user/.kumikit/worktrees/proj/feat-worktrees"
+          },
+          {
+            "current": false,
+            "name": "main",
+            "worktreePath": "/home/user/proj"
+          }
+        ],
+        "defaultBranch": "main",
+        "detached": false,
+        "isRepo": true,
+        "isWorktree": true,
+        "repoRoot": "/home/user/.kumikit/worktrees/proj/feat-worktrees"
+      },
+      "path": "/home/user/.kumikit/worktrees/proj/feat-worktrees"
+    }
+  }
+]

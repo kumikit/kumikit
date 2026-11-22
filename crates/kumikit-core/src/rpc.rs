@@ -12,7 +12,7 @@ use kumikit_protocol::jsonrpc::{Notification, Request, RequestId, Response};
 use kumikit_protocol::methods::{
     self as m, CoreInfo, Empty, HelloResult, Method, ModelInfo, NotificationMethod,
     PluginListResult, PluginResult, PluginsChanged, ProviderListResult, ProviderModelsResult,
-    SubscribeResult, ThreadCreateResult, ThreadListResult, WorkspaceListResult,
+    SubscribeResult, ThreadCreateResult, ThreadListResult, ThreadUpdateResult, WorkspaceListResult,
     WorkspaceOpenResult,
 };
 use kumikit_protocol::model::WorkspaceId;
@@ -451,6 +451,28 @@ impl Conn {
                 self.stop = true;
                 reply::<m::CoreShutdown>(Empty {})
             }
+            m::CoreConfigGet::NAME => {
+                parse::<m::CoreConfigGet>(params)?;
+                let config = k.core_config().await.map_err(kernel_err)?;
+                reply::<m::CoreConfigGet>(config)
+            }
+            m::CoreConfigSet::NAME => {
+                let p = parse::<m::CoreConfigSet>(params)?;
+                let config = k.set_core_config(p.home_dir).await.map_err(kernel_err)?;
+                reply::<m::CoreConfigSet>(config)
+            }
+            m::CoreWorktreesList::NAME => {
+                parse::<m::CoreWorktreesList>(params)?;
+                let list = k.list_managed_worktrees().await.map_err(kernel_err)?;
+                reply::<m::CoreWorktreesList>(list)
+            }
+            m::CoreWorktreesDelete::NAME => {
+                let p = parse::<m::CoreWorktreesDelete>(params)?;
+                k.delete_managed_worktree(&p.path)
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::CoreWorktreesDelete>(Empty {})
+            }
             m::ProviderList::NAME => {
                 parse::<m::ProviderList>(params)?;
                 reply::<m::ProviderList>(ProviderListResult {
@@ -486,6 +508,39 @@ impl Conn {
                 k.workspace_close(&p.workspace).await.map_err(kernel_err)?;
                 reply::<m::WorkspaceClose>(Empty {})
             }
+            m::WorkspaceDelete::NAME => {
+                let p = parse::<m::WorkspaceDelete>(params)?;
+                k.workspace_delete(&p.workspace).await.map_err(kernel_err)?;
+                reply::<m::WorkspaceDelete>(Empty {})
+            }
+            m::WorkspaceGitStatus::NAME => {
+                let p = parse::<m::WorkspaceGitStatus>(params)?;
+                let info = k
+                    .workspace_git_status(&p.workspace, p.path.as_deref())
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::WorkspaceGitStatus>(info)
+            }
+            m::WorkspaceGitCheckout::NAME => {
+                let p = parse::<m::WorkspaceGitCheckout>(params)?;
+                let info = k
+                    .workspace_git_checkout(&p.workspace, &p.branch, p.path.as_deref())
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::WorkspaceGitCheckout>(info)
+            }
+            m::WorkspaceGitWorktreeCreate::NAME => {
+                let p = parse::<m::WorkspaceGitWorktreeCreate>(params)?;
+                let created = k
+                    .workspace_git_worktree_create(
+                        &p.workspace,
+                        &p.branch,
+                        p.base_branch.as_deref(),
+                    )
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::WorkspaceGitWorktreeCreate>(created)
+            }
             m::ThreadList::NAME => {
                 let p = parse::<m::ThreadList>(params)?;
                 let threads = k
@@ -497,10 +552,25 @@ impl Conn {
             m::ThreadCreate::NAME => {
                 let p = parse::<m::ThreadCreate>(params)?;
                 let thread = k
-                    .thread_create(&p.workspace, p.provider, p.model, p.title)
+                    .thread_create_with_worktree(
+                        &p.workspace,
+                        p.provider,
+                        p.model,
+                        p.title,
+                        p.permission_mode,
+                        p.worktree_path,
+                    )
                     .await
                     .map_err(kernel_err)?;
                 reply::<m::ThreadCreate>(ThreadCreateResult { thread })
+            }
+            m::ThreadUpdate::NAME => {
+                let p = parse::<m::ThreadUpdate>(params)?;
+                let thread = k
+                    .thread_update(&p.thread, p.model, p.permission_mode, p.title)
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::ThreadUpdate>(ThreadUpdateResult { thread })
             }
             m::ThreadGet::NAME => {
                 let p = parse::<m::ThreadGet>(params)?;
@@ -532,6 +602,16 @@ impl Conn {
                 let p = parse::<m::ThreadArchive>(params)?;
                 k.thread_archive(&p.thread).await.map_err(kernel_err)?;
                 reply::<m::ThreadArchive>(Empty {})
+            }
+            m::ThreadUnarchive::NAME => {
+                let p = parse::<m::ThreadUnarchive>(params)?;
+                let thread = k.thread_unarchive(&p.thread).await.map_err(kernel_err)?;
+                reply::<m::ThreadUnarchive>(ThreadUpdateResult { thread })
+            }
+            m::ThreadDelete::NAME => {
+                let p = parse::<m::ThreadDelete>(params)?;
+                k.thread_delete(&p.thread).await.map_err(kernel_err)?;
+                reply::<m::ThreadDelete>(Empty {})
             }
             m::EventsSubscribe::NAME => {
                 let p = parse::<m::EventsSubscribe>(params)?;

@@ -118,18 +118,21 @@ wit/              ←  kumikit-plugin-host, sdk/rust*, plugins/*, test-plugins/*
 
 ## Data directories
 
-| Platform | Core data | Client data |
-|---|---|---|
-| Linux | `$XDG_DATA_HOME/kumikit/core` | `$XDG_DATA_HOME/kumikit/client` |
-| macOS | `~/Library/Application Support/dev.kumikit/core` | `…/dev.kumikit/client` |
-| Windows | `%APPDATA%\kumikit\core` | `%APPDATA%\kumikit\client` |
+| Platform | Core data | Client data | Kumikit home (default) |
+|---|---|---|---|
+| Linux | `$XDG_DATA_HOME/kumikit/core` | `$XDG_DATA_HOME/kumikit/client` | `~/.kumikit` |
+| macOS | `~/Library/Application Support/dev.kumikit/core` | `…/dev.kumikit/client` | `~/.kumikit` |
+| Windows | `%APPDATA%\kumikit\core` | `%APPDATA%\kumikit\client` | `%USERPROFILE%\.kumikit` |
 
 `kumikit serve --data-dir <path>` overrides the core data directory (created with mode
-0700 on Linux and macOS). Logs go to stderr; `KUMIKIT_LOG` sets the level (`info`,
-`kumikit_core=debug`, …, default `warn`), and message bodies are never logged at `info`
-or above.
+0700 on Linux and macOS). `KUMIKIT_HOME` overrides the default Kumikit home directory,
+and users can customize it per core in Settings (`core.config.set`). Logs go to stderr;
+`KUMIKIT_LOG` sets the level (`info`, `kumikit_core=debug`, …, default `warn`), and
+message bodies are never logged at `info` or above.
 
 Core data holds the database, installed core plugins, plugin data and the secret store.
 Client data holds connection profiles, layout, installed UI plugins and themes, and the
-webview's own storage, where the UI kernel keeps client settings. Neither directory is
-shared between the two.
+webview's own storage, where the UI kernel keeps client settings. Kumikit home holds
+user-visible directories created by Kumikit on the core's machine, such as Git worktrees
+under `<home>/worktrees/<repo>/<branch>`. Neither core data nor client data is shared
+between the two.

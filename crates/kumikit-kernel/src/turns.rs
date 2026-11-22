@@ -4,18 +4,57 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use kumikit_protocol::ThreadEvent;
-use kumikit_protocol::event::{ApprovalResolved, TurnEnded, TurnStarted};
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use kumikit_protocol::event::{ApprovalResolved, ThreadChange, TurnEnded, TurnStarted};
 use kumikit_protocol::methods::{ProviderInfo, ThreadSendResult};
 use kumikit_protocol::model::{
-    ApprovalId, Decision, Resolution, Thread, ThreadId, TurnId, TurnOutcome, UserInput, WorkspaceId,
+    ApprovalId, Attachment, Decision, PermissionMode, Resolution, Thread, ThreadId, TurnId,
+    TurnOutcome, UserInput, WorkspaceId,
 };
+use kumikit_protocol::{ThreadEvent, WorkspaceEvent};
 use tokio::sync::oneshot;
 
 use crate::error::{KernelError, KernelResult};
 use crate::kernel::{Kernel, Session};
 use crate::provider::{EventSink, Model, Provider, SessionConfig};
 use crate::repo;
+
+/// Maximum attachments accepted on a single user turn.
+const MAX_ATTACHMENTS: usize = 16;
+/// Maximum total decoded bytes across attachments on a single user turn (4 MiB).
+const MAX_ATTACHMENT_BYTES: usize = 4 * 1024 * 1024;
+
+fn validate_attachments(attachments: &[Attachment]) -> KernelResult<()> {
+    if attachments.len() > MAX_ATTACHMENTS {
+        return Err(KernelError::InvalidParams(format!(
+            "at most {MAX_ATTACHMENTS} attachments per message"
+        )));
+    }
+    let mut total = 0usize;
+    for a in attachments {
+        if a.name.trim().is_empty() || a.name.len() > 255 {
+            return Err(KernelError::InvalidParams(
+                "attachment name must be 1..=255 bytes".into(),
+            ));
+        }
+        if a.mime_type.trim().is_empty() || a.mime_type.len() > 128 {
+            return Err(KernelError::InvalidParams(
+                "attachment mimeType must be 1..=128 bytes".into(),
+            ));
+        }
+        let decoded = BASE64.decode(&a.data).map_err(|_| {
+            KernelError::InvalidParams(format!("attachment {} is not valid base64", a.name))
+        })?;
+        total = total.saturating_add(decoded.len());
+        if total > MAX_ATTACHMENT_BYTES {
+            return Err(KernelError::InvalidParams(
+                "attachments exceed the 4 MiB per-message limit".into(),
+            ));
+        }
+    }
+    Ok(())
+}
 
 /// A message waiting to start a turn: the turn it gets, the input, and the plugin that
 /// sent it, if one did.
@@ -140,13 +179,29 @@ impl Kernel {
     }
 
     /// Creates a thread. `provider` defaults to the only registered provider, `model` to
-    /// the provider's first model.
+    /// the provider's first model, and `permission_mode` to `standard`.
     pub async fn thread_create(
         &self,
         workspace: &WorkspaceId,
         provider: Option<String>,
         model: Option<String>,
         title: Option<String>,
+        permission_mode: Option<PermissionMode>,
+    ) -> KernelResult<Thread> {
+        self.thread_create_with_worktree(workspace, provider, model, title, permission_mode, None)
+            .await
+    }
+
+    /// Creates a thread, optionally running inside a linked Git worktree path while
+    /// keeping the thread attached to `workspace`.
+    pub async fn thread_create_with_worktree(
+        &self,
+        workspace: &WorkspaceId,
+        provider: Option<String>,
+        model: Option<String>,
+        title: Option<String>,
+        permission_mode: Option<PermissionMode>,
+        worktree_path: Option<String>,
     ) -> KernelResult<Thread> {
         let provider = match provider {
             Some(id) => self
@@ -181,8 +236,95 @@ impl Kernel {
                 KernelError::PluginFailed(format!("provider {} has no models", provider.id()))
             })?,
         };
-        self.thread_insert(workspace, provider.id().to_owned(), model, title)
-            .await
+        self.thread_insert_with_worktree(
+            workspace,
+            provider.id().to_owned(),
+            model,
+            title,
+            permission_mode,
+            worktree_path,
+        )
+        .await
+    }
+
+    /// Updates a thread's model, permission mode, and/or title. Fails with `conflict`
+    /// while a turn runs or if the thread is archived. Changing the model or permission
+    /// mode restarts the provider session (with `resume`) on the next turn.
+    pub async fn thread_update(
+        &self,
+        id: &ThreadId,
+        model: Option<String>,
+        permission_mode: Option<PermissionMode>,
+        title: Option<String>,
+    ) -> KernelResult<Thread> {
+        if self.has_run(id) {
+            return Err(KernelError::Conflict(format!(
+                "thread {id} has a running turn"
+            )));
+        }
+        let row = self.thread_row(id).await?;
+        if row.archived {
+            return Err(KernelError::Conflict(format!("thread {id} is archived")));
+        }
+        let next_model = match model {
+            Some(m) if m != row.thread.model => {
+                let provider = self.provider(&row.thread.provider).ok_or_else(|| {
+                    KernelError::PluginFailed(format!(
+                        "provider {} is not available",
+                        row.thread.provider
+                    ))
+                })?;
+                let models = provider
+                    .list_models()
+                    .await
+                    .map_err(|e| KernelError::PluginFailed(e.message))?;
+                if !models.iter().any(|x| x.id == m) {
+                    return Err(KernelError::InvalidParams(format!(
+                        "provider {} has no model {m}",
+                        provider.id()
+                    )));
+                }
+                m
+            }
+            Some(m) => m,
+            None => row.thread.model.clone(),
+        };
+        let next_mode = match permission_mode {
+            Some(PermissionMode::Standard) => None,
+            Some(m) => Some(m),
+            None => row.thread.permission_mode,
+        };
+        let next_title = match title {
+            Some(t) => Some(t),
+            None => row.thread.title.clone(),
+        };
+        let restart_session =
+            next_model != row.thread.model || next_mode != row.thread.permission_mode;
+        let updated = self.now();
+        let tid = id.clone();
+        let m_for_db = next_model.clone();
+        let t_for_db = next_title.clone();
+        let saved = self
+            .inner
+            .store
+            .write(move |c| {
+                repo::thread_update(c, &tid, &m_for_db, next_mode, t_for_db.as_deref(), &updated)
+            })
+            .await?;
+        if restart_session {
+            let old_session = self.lock_sessions().remove(id);
+            self.gateway_revoke(id);
+            if let Some(session) = old_session
+                && let Some(provider) = self.provider(&session.provider)
+            {
+                provider.end_session(session.id).await;
+            }
+        }
+        let public = saved.public();
+        self.announce(WorkspaceEvent::ThreadUpdated(ThreadChange {
+            thread: public.clone(),
+        }));
+        Ok(public)
     }
 
     /// Sends a user message: starts a turn, or queues it behind the running one.
@@ -202,6 +344,7 @@ impl Kernel {
         input: UserInput,
         from: Option<String>,
     ) -> KernelResult<ThreadSendResult> {
+        validate_attachments(&input.attachments)?;
         let row = self.thread_row(thread).await?;
         if row.archived {
             return Err(KernelError::Conflict(format!(
@@ -479,23 +622,32 @@ impl Kernel {
             .await
             .map_err(|e| e.to_string())?;
         let workspace = workspace.ok_or_else(|| format!("no workspace {}", meta.workspace))?;
+        let effective_root = row
+            .thread
+            .worktree_path
+            .clone()
+            .unwrap_or_else(|| workspace.workspace.root.clone());
         let mcp_server = self
             .gateway_for_session(
                 &meta.id,
                 &meta.workspace,
-                &workspace.workspace.root,
+                &effective_root,
                 provider.contributor(),
             )
             .await
             .map_err(|e| e.to_string())?;
+        let permission_mode = row.thread.permission_mode.unwrap_or_default();
         let session = provider
             .start_session(SessionConfig {
                 thread: meta.id.clone(),
-                workspace_root: workspace.workspace.root,
-                model: meta.model.clone(),
+                workspace_root: effective_root,
+                model: row.thread.model,
                 resume: row.provider_session,
                 mcp_server,
-                options: Vec::new(),
+                options: vec![(
+                    "permission-mode".to_owned(),
+                    permission_mode.as_str().to_owned(),
+                )],
             })
             .await
             .map_err(|e| e.message)?;

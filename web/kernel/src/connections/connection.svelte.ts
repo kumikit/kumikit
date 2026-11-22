@@ -173,6 +173,8 @@ export class CoreConnection {
     const stop = this.subscribe(`workspace:${workspace}`, 0, (e) => {
       if (e.kind === 'thread.created' || e.kind === 'thread.updated' || e.kind === 'thread.archived') {
         this.#mergeThread(e.data.thread);
+      } else if (e.kind === 'thread.deleted') {
+        this.removeThread(workspace, e.data.thread.id);
       }
     });
     if (this.ready) void this.#listThreads(workspace);
@@ -187,12 +189,40 @@ export class CoreConnection {
     this.#mergeThread(thread);
   }
 
-  /** Opens a workspace on the core and adds it to the list. */
-  async openWorkspace(path: string): Promise<Workspace> {
-    const { workspace } = await this.call('workspace.open', { path });
+  /** Removes a deleted thread from the workspace's thread list immediately. */
+  removeThread(workspace: string, threadId: string): void {
+    const list = this.threads[workspace];
+    if (!list) return;
+    const next = list.filter((t) => t.id !== threadId);
+    if (next.length !== list.length) {
+      this.threads = { ...this.threads, [workspace]: next };
+    }
+  }
+
+  /** Records a workspace created or opened outside `openWorkspace` (such as a Git worktree). */
+  noteWorkspace(workspace: Workspace): void {
     if (!this.workspaces.some((w) => w.id === workspace.id)) {
       this.workspaces = [...this.workspaces, workspace];
     }
+  }
+
+  /** Removes a deleted workspace and its cached threads immediately. */
+  removeWorkspace(workspaceId: string): void {
+    this.#watched.delete(workspaceId);
+    if (this.workspaces.some((w) => w.id === workspaceId)) {
+      this.workspaces = this.workspaces.filter((w) => w.id !== workspaceId);
+    }
+    if (workspaceId in this.threads) {
+      const next = { ...this.threads };
+      delete next[workspaceId];
+      this.threads = next;
+    }
+  }
+
+  /** Opens a workspace on the core and adds it to the list. */
+  async openWorkspace(path: string): Promise<Workspace> {
+    const { workspace } = await this.call('workspace.open', { path });
+    this.noteWorkspace(workspace);
     return workspace;
   }
 
@@ -330,7 +360,7 @@ export class CoreConnection {
 
   async #listThreads(workspace: string): Promise<void> {
     try {
-      const { threads } = await this.call('thread.list', { workspace });
+      const { threads } = await this.call('thread.list', { workspace, includeArchived: true });
       for (const t of threads) this.#mergeThread(t);
     } catch {
       // Shown again after the next reconnect.

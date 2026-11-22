@@ -3,7 +3,7 @@
  * subscription per open thread, events folded into a `ThreadView` once per frame. Threads
  * are keyed by their whole address, so the same ids on two cores never mix.
  */
-import type { Decision, EventNotification } from '@kumikit/protocol';
+import type { Attachment, Decision, EventNotification, PermissionMode, Thread, UserInput } from '@kumikit/protocol';
 import type { ThreadAddress, ThreadView } from '@kumikit/ui-sdk';
 
 import type { CoreConnection } from '../connections/connection.svelte';
@@ -119,11 +119,31 @@ export class ThreadStore {
     for (const t of this.#open.values()) if (!connection || t.address.connection === connection) t.flush();
   }
 
-  /** Sends a message; one sent during a turn shows as queued until it starts. */
-  async send(address: ThreadAddress, text: string): Promise<void> {
+  /** Sends a message (with optional attachments); one sent during a turn shows as queued
+   * until it starts. */
+  async send(address: ThreadAddress, text: string, attachments?: Attachment[]): Promise<void> {
     const t = this.#get(address);
-    const r = await this.#connection(address).call('thread.send', { thread: address.thread, input: { text } });
-    if (r.queued) t.set({ ...t.view, queued: [...t.view.queued, text] });
+    const input: UserInput = attachments && attachments.length > 0 ? { text, attachments } : { text };
+    const r = await this.#connection(address).call('thread.send', { thread: address.thread, input });
+    if (r.queued) t.set({ ...t.view, queued: [...t.view.queued, text || `[${attachments?.length ?? 0} attachment(s)]`] });
+  }
+
+  /** Updates a thread's model, permission mode, and/or title. */
+  async update(
+    address: ThreadAddress,
+    patch: { model?: string; permissionMode?: PermissionMode; title?: string },
+  ): Promise<Thread> {
+    const conn = this.#connection(address);
+    const params: { thread: string; model?: string; permissionMode?: PermissionMode; title?: string } = {
+      thread: address.thread,
+    };
+    if (patch.model !== undefined) params.model = patch.model;
+    if (patch.permissionMode !== undefined) params.permissionMode = patch.permissionMode;
+    if (patch.title !== undefined) params.title = patch.title;
+    const { thread } = await conn.call('thread.update', params);
+    conn.noteThread(thread);
+    this.refresh(address.connection);
+    return thread;
   }
 
   async cancel(address: ThreadAddress): Promise<void> {

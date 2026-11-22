@@ -174,7 +174,13 @@ impl Env {
     async fn thread(&self, provider: &str, model: &str) -> ThreadId {
         let ws = self.kernel.workspace_open(&self.workspace).await.unwrap();
         self.kernel
-            .thread_create(&ws.id, Some(provider.into()), Some(model.into()), None)
+            .thread_create(
+                &ws.id,
+                Some(provider.into()),
+                Some(model.into()),
+                None,
+                None,
+            )
             .await
             .unwrap()
             .id
@@ -182,7 +188,7 @@ impl Env {
 
     async fn send(&self, thread: &ThreadId, text: &str) {
         self.kernel
-            .thread_send(thread, UserInput { text: text.into() })
+            .thread_send(thread, UserInput::text(text))
             .await
             .unwrap();
     }
@@ -383,7 +389,7 @@ async fn disabling_cancels_running_turns_and_removes_providers() {
     let ws = e.kernel.workspace_open(&e.workspace).await.unwrap();
     assert!(
         e.kernel
-            .thread_create(&ws.id, Some("test.probe/probe".into()), None, None)
+            .thread_create(&ws.id, Some("test.probe/probe".into()), None, None, None)
             .await
             .is_err()
     );
@@ -545,4 +551,39 @@ async fn uninstalling_stops_running_instances_before_deleting_data() {
     e.host.uninstall("test.probe", true).await.unwrap();
     assert_eq!(e.host.instances("test.probe"), (false, 0));
     assert!(!data.exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delegated_list_models_runs_in_ephemeral_probe_and_caches() {
+    let e = env().await;
+    let wasm = std::fs::read(kumikit_test_plugins::PROBE_WASM).unwrap();
+    e.install(
+        "backend",
+        BACKEND,
+        &[
+            ("plugin.wasm", &wasm),
+            ("entry.schema.json", ENTRY_SCHEMA.as_bytes()),
+        ],
+        &[],
+    )
+    .await;
+    e.install("declarative", DECLARATIVE, &[], &["fake-acp-agent"])
+        .await;
+
+    let first = e
+        .kernel
+        .provider_models("test.declarative/delegated")
+        .await
+        .unwrap();
+    assert!(!first.is_empty());
+    // The ephemeral probe instance is dropped as soon as list_models finishes.
+    assert_eq!(e.host.instances("test.backend"), (false, 0));
+    // Subsequent call within TTL is served from cache without leaving instances behind.
+    let second = e
+        .kernel
+        .provider_models("test.declarative/delegated")
+        .await
+        .unwrap();
+    assert_eq!(first, second);
+    assert_eq!(e.host.instances("test.backend"), (false, 0));
 }

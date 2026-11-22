@@ -40,7 +40,7 @@ impl Env {
     async fn thread(&self) -> ThreadId {
         let ws = self.workspace().await;
         self.kernel
-            .thread_insert(&ws, "p".into(), "m".into(), None)
+            .thread_insert(&ws, "p".into(), "m".into(), None, None)
             .await
             .unwrap()
             .id
@@ -59,7 +59,7 @@ impl Env {
 fn started(turn: &str) -> ThreadEvent {
     ThreadEvent::TurnStarted(TurnStarted {
         turn: TurnId(turn.into()),
-        input: UserInput { text: "hi".into() },
+        input: UserInput::text("hi"),
         from: None,
     })
 }
@@ -143,10 +143,54 @@ async fn closed_workspace_rejects_new_threads() {
     e.kernel.workspace_close(&ws).await.unwrap();
     let err = e
         .kernel
-        .thread_insert(&ws, "p".into(), "m".into(), None)
+        .thread_insert(&ws, "p".into(), "m".into(), None, None)
         .await
         .unwrap_err();
     assert_eq!(err.code(), kumikit_protocol::ErrorCode::Conflict);
+}
+
+#[tokio::test]
+async fn workspace_delete_removes_workspace_threads_and_rejects_running() {
+    let e = env().await;
+    let ws = e.workspace().await;
+    let t1 = e
+        .kernel
+        .thread_insert(&ws, "p".into(), "m".into(), Some("active".into()), None)
+        .await
+        .unwrap()
+        .id;
+    let t2 = e
+        .kernel
+        .thread_insert(&ws, "p".into(), "m".into(), Some("archived".into()), None)
+        .await
+        .unwrap()
+        .id;
+    e.kernel.thread_archive(&t2).await.unwrap();
+
+    // A running thread blocks workspace deletion with conflict.
+    e.kernel.append(&t1, started("u1")).await.unwrap();
+    let err = e.kernel.workspace_delete(&ws).await.unwrap_err();
+    assert_eq!(err.code(), kumikit_protocol::ErrorCode::Conflict);
+
+    // Once the turn finishes, deleting the workspace removes the workspace and all threads.
+    e.kernel
+        .append(&t1, ended("u1", TurnOutcome::Done))
+        .await
+        .unwrap();
+    e.kernel.workspace_delete(&ws).await.unwrap();
+    assert!(e.kernel.workspace_list().await.unwrap().is_empty());
+    assert_eq!(
+        e.kernel.thread_get(&t1).await.unwrap_err().code(),
+        kumikit_protocol::ErrorCode::NotFound
+    );
+    assert_eq!(
+        e.kernel.thread_get(&t2).await.unwrap_err().code(),
+        kumikit_protocol::ErrorCode::NotFound
+    );
+    assert_eq!(
+        e.kernel.workspace_delete(&ws).await.unwrap_err().code(),
+        kumikit_protocol::ErrorCode::NotFound
+    );
 }
 
 #[tokio::test]

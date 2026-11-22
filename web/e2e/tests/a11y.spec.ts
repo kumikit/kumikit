@@ -21,10 +21,10 @@ test('the main screens have no axe violations, light and dark', async ({ page, k
   await command(page, 'Manage plugins');
   await page.getByRole('region', { name: /On this core/ }).getByRole('button', { name: 'Install from folder…' }).click();
   await page.getByRole('button', { name: 'Grant and enable' }).click();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
   await kk.pick(kk.project);
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
-  await page.getByRole('button', { name: 'New thread…' }).click();
-  await page.getByRole('dialog', { name: 'New thread' }).getByRole('button', { name: 'Start' }).click();
+  await expect(page.getByLabel('Agent')).toBeVisible();
   await page.getByLabel('Message').fill('Say hello');
   await page.getByLabel('Message').press('Enter');
   await expect(page.getByRole('log', { name: 'Transcript' })).toContainText(' out');
@@ -36,6 +36,7 @@ test('the main screens have no axe violations, light and dark', async ({ page, k
     await axe(page, `${theme}, plugins`);
     await command(page, 'Open settings');
     await axe(page, `${theme}, settings`);
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
     await page.getByRole('navigation', { name: 'Open workspaces' }).getByRole('button', { name: 'proj', exact: true }).click();
   }
 });
@@ -55,20 +56,14 @@ test('the main flow works with the keyboard alone', async ({ page, kk }) => {
   await command(page, 'Open a project folder');
   await expect(page.getByRole('navigation', { name: 'Open workspaces' }).getByRole('button', { name: 'proj', exact: true })).toBeVisible();
   await command(page, 'New thread');
-  await expect(page.getByLabel('Agent')).toBeFocused();
-  // The model list arrives from the core; until then its select is skipped by Tab.
+  await expect(page.getByLabel('Message')).toBeFocused();
+  // The model list arrives from the core; wait until it is enabled before sending.
   await expect(page.getByLabel('Model')).toBeEnabled();
-  // Agent, model, then the title; Enter in a text field submits the form.
-  await page.keyboard.press('Tab');
-  await page.keyboard.press('Tab');
-  await page.keyboard.type('Keyboard only');
-  await page.keyboard.press('Enter');
-  await expect(page.getByLabel('Message')).toBeVisible();
-  await page.getByLabel('Message').focus();
   await page.keyboard.type('Say hello');
   await page.keyboard.press('Enter');
   await expect(page.getByRole('log', { name: 'Transcript' })).toContainText('hello from kumikit');
   // Escape closes the palette and gives focus back.
+  await page.getByLabel('Message').focus();
   await mod(page, 'k');
   await expect(page.getByLabel('Command', { exact: true })).toBeFocused();
   await page.keyboard.press('Escape');

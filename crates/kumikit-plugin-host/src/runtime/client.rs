@@ -84,7 +84,8 @@ impl wasmtime_wasi::p2::Pollable for SubscriptionRes {
                         let thread = match &change {
                             WorkspaceEvent::ThreadCreated(c)
                             | WorkspaceEvent::ThreadUpdated(c)
-                            | WorkspaceEvent::ThreadArchived(c) => &c.thread,
+                            | WorkspaceEvent::ThreadArchived(c)
+                            | WorkspaceEvent::ThreadDeleted(c) => &c.thread,
                         };
                         if &thread.workspace != ws {
                             continue;
@@ -256,7 +257,7 @@ impl client::Host for HostState {
         a.need_workspace("threads.create", &ws).await?;
         let t = a
             .kernel
-            .thread_create(&ws, provider, model, title)
+            .thread_create(&ws, provider, model, title, None)
             .await
             .map_err(kernel_err)?;
         tracing::info!(plugin = %a.actor.as_str(), thread = %t.id, "plugin created a thread");
@@ -272,7 +273,7 @@ impl client::Host for HostState {
             .kernel
             .thread_send_from(
                 &thread,
-                UserInput { text },
+                UserInput::text(text),
                 Some(a.actor.as_str().to_owned()),
             )
             .await

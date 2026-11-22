@@ -5,10 +5,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use kumikit_protocol::event::{ApprovalResolved, ThreadChange, TurnEnded};
-use kumikit_protocol::methods::ThreadSnapshot;
+use kumikit_protocol::local::{Platform, default_home_dir};
+use kumikit_protocol::methods::{CoreConfigResult, ThreadSnapshot};
 use kumikit_protocol::model::{
-    ApprovalId, Resolution, Thread, ThreadId, ThreadStatus, Timestamp, TurnOutcome, Workspace,
-    WorkspaceId,
+    ApprovalId, PermissionMode, Resolution, Thread, ThreadId, ThreadStatus, Timestamp, TurnOutcome,
+    Workspace, WorkspaceId,
 };
 use kumikit_protocol::{ThreadEvent, WorkspaceEvent};
 use tokio::sync::{broadcast, watch};
@@ -45,6 +46,8 @@ pub struct KernelConfig {
     pub secrets: PathBuf,
     /// Process supervisor settings.
     pub supervisor: SupervisorConfig,
+    /// Platform default Kumikit home directory (for example `~/.kumikit`).
+    pub default_home_dir: PathBuf,
 }
 
 impl KernelConfig {
@@ -52,12 +55,22 @@ impl KernelConfig {
     /// it, the supervisor using this process's environment.
     pub fn new(database: impl Into<PathBuf>) -> Self {
         let database = database.into();
+        let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        let default_home_dir = default_home_dir(Platform::current(), &env)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                database
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(|| PathBuf::from("."))
+            });
         KernelConfig {
             secrets: database.with_file_name("secrets.json"),
             database,
             clock: Arc::new(SystemClock),
             ids: Arc::new(UlidGen::default()),
             supervisor: SupervisorConfig::from_process(),
+            default_home_dir,
         }
     }
 }
@@ -90,6 +103,7 @@ pub(crate) struct Inner {
     pub(crate) supervisor: Supervisor,
     pub(crate) schedules: crate::schedule::State,
     pub(crate) gateway: crate::gateway::State,
+    pub(crate) default_home_dir: PathBuf,
 }
 
 /// A started provider session.
@@ -129,6 +143,7 @@ impl Kernel {
                 supervisor: Supervisor::new(config.supervisor),
                 schedules: Default::default(),
                 gateway: Default::default(),
+                default_home_dir: config.default_home_dir,
             }),
         };
         kernel.recover().await?;
@@ -183,6 +198,58 @@ impl Kernel {
     /// The current time from the configured clock.
     pub fn now(&self) -> Timestamp {
         self.inner.clock.now()
+    }
+
+    // ---- core config ----
+
+    /// Reads core-level configuration (active and default Kumikit home directory).
+    pub async fn core_config(&self) -> KernelResult<CoreConfigResult> {
+        let default_home = self.inner.default_home_dir.to_string_lossy().into_owned();
+        let saved = self
+            .inner
+            .store
+            .read(|c| repo::core_setting_get(c, "home_dir"))
+            .await?;
+        let home_dir = saved.unwrap_or_else(|| default_home.clone());
+        Ok(CoreConfigResult {
+            home_dir,
+            default_home_dir: default_home,
+        })
+    }
+
+    /// Updates the Kumikit home directory (`None` or empty resets to the platform default).
+    pub async fn set_core_config(
+        &self,
+        home_dir: Option<String>,
+    ) -> KernelResult<CoreConfigResult> {
+        let cleaned = home_dir.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        match cleaned {
+            None => {
+                self.inner
+                    .store
+                    .write(|c| repo::core_setting_delete(c, "home_dir"))
+                    .await?;
+            }
+            Some(raw) => {
+                if raw.chars().any(|c| c.is_control()) {
+                    return Err(KernelError::InvalidParams(
+                        "home directory contains control characters".into(),
+                    ));
+                }
+                let expanded = expand_tilde(raw);
+                if !Path::new(&expanded).is_absolute() {
+                    return Err(KernelError::InvalidParams(format!(
+                        "home directory must be an absolute path: `{raw}`"
+                    )));
+                }
+                let val = expanded;
+                self.inner
+                    .store
+                    .write(move |c| repo::core_setting_set(c, "home_dir", &val))
+                    .await?;
+            }
+        }
+        self.core_config().await
     }
 
     /// Ends turns left open by a previous run (`docs/spec/03-kernel.md`, turn rules).
@@ -293,23 +360,119 @@ impl Kernel {
             .await
     }
 
+    /// Permanently deletes a workspace and all its threads, turns, approvals, and events,
+    /// removing any managed worktrees under `<homeDir>/worktrees/` exclusively referenced
+    /// by those threads. Fails with `conflict` if any thread has a running or waiting turn.
+    pub async fn workspace_delete(&self, id: &WorkspaceId) -> KernelResult<()> {
+        let threads = self.thread_list(id, true).await?;
+        for t in &threads {
+            if self.has_run(&t.id) {
+                return Err(KernelError::Conflict(format!(
+                    "thread {} in workspace {id} has a running turn",
+                    t.id
+                )));
+            }
+        }
+        let mut sessions = Vec::new();
+        {
+            let mut guard = self.lock_sessions();
+            for t in &threads {
+                if let Some(session) = guard.remove(&t.id) {
+                    sessions.push(session);
+                }
+                self.gateway_revoke(&t.id);
+            }
+        }
+        for session in sessions {
+            let provider = self
+                .lock_providers()
+                .iter()
+                .find(|p| p.id() == session.provider)
+                .cloned();
+            if let Some(provider) = provider {
+                provider.end_session(session.id).await;
+            }
+        }
+        let ws = id.clone();
+        let deleted = self
+            .inner
+            .store
+            .write(move |c| repo::workspace_delete(c, &ws))
+            .await?;
+        {
+            let mut heads = lock(&self.inner.heads);
+            for t in &deleted {
+                heads.remove(&t.id);
+            }
+        }
+        let mut worktrees: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for t in &deleted {
+            if let Some(wt) = &t.worktree_path {
+                worktrees.insert(wt.clone());
+            }
+        }
+        for wt_path in worktrees {
+            let wt_check = wt_path.clone();
+            let remaining = self
+                .inner
+                .store
+                .read(move |c| repo::threads_using_worktree(c, &wt_check))
+                .await
+                .unwrap_or(1);
+            if remaining == 0 {
+                self.remove_worktree_if_managed(&wt_path).await;
+            }
+        }
+        for t in deleted {
+            self.announce(WorkspaceEvent::ThreadDeleted(ThreadChange { thread: t }));
+        }
+        Ok(())
+    }
+
     // ---- threads ----
 
-    /// Creates a thread with a concrete provider and model (see `thread_create`).
+    /// Creates a thread with a concrete provider and model (test helper).
+    #[cfg(test)]
     pub(crate) async fn thread_insert(
         &self,
         workspace: &WorkspaceId,
         provider: String,
         model: String,
         title: Option<String>,
+        permission_mode: Option<PermissionMode>,
+    ) -> KernelResult<Thread> {
+        self.thread_insert_with_worktree(workspace, provider, model, title, permission_mode, None)
+            .await
+    }
+
+    /// Creates a thread, optionally pinned to a linked Git worktree path.
+    pub(crate) async fn thread_insert_with_worktree(
+        &self,
+        workspace: &WorkspaceId,
+        provider: String,
+        model: String,
+        title: Option<String>,
+        permission_mode: Option<PermissionMode>,
+        worktree_path: Option<String>,
     ) -> KernelResult<Thread> {
         let now = self.now();
+        let permission_mode = permission_mode.filter(|m| *m != PermissionMode::Standard);
+        let worktree_path = match worktree_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            Some(p) => Some(canonical_dir(p).await?),
+            None => None,
+        };
         let thread = Thread {
             id: ThreadId(self.new_id()),
             workspace: workspace.clone(),
             title,
             provider,
             model,
+            permission_mode,
+            worktree_path,
             status: ThreadStatus::Idle,
             created: now.clone(),
             updated: now,
@@ -340,6 +503,16 @@ impl Kernel {
             thread: thread.clone(),
         }));
         Ok(thread)
+    }
+
+    /// The thread's effective permission mode (`standard` when unset).
+    pub async fn thread_permission_mode(&self, id: &ThreadId) -> KernelResult<PermissionMode> {
+        Ok(self
+            .thread_row(id)
+            .await?
+            .thread
+            .permission_mode
+            .unwrap_or_default())
     }
 
     /// Threads of a workspace, most recently updated first.
@@ -398,7 +571,9 @@ impl Kernel {
                 } else {
                     fold.status
                 };
-                if let Some(updated) = &fold.updated {
+                if let Some(updated) = &fold.updated
+                    && updated > &thread.updated
+                {
                     thread.updated = updated.clone();
                 }
                 Ok(ThreadSnapshot {
@@ -439,6 +614,66 @@ impl Kernel {
         Ok(())
     }
 
+    /// Restores an archived thread back into its workspace's active threads.
+    pub async fn thread_unarchive(&self, id: &ThreadId) -> KernelResult<Thread> {
+        let thread = id.clone();
+        let updated = self.now();
+        let row = self
+            .inner
+            .store
+            .write(move |c| repo::thread_set_unarchived(c, &thread, &updated))
+            .await?;
+        let public = row.public();
+        self.announce(WorkspaceEvent::ThreadUpdated(ThreadChange {
+            thread: public.clone(),
+        }));
+        Ok(public)
+    }
+
+    /// Permanently deletes a thread and its history. Fails with `conflict` while a turn runs.
+    pub async fn thread_delete(&self, id: &ThreadId) -> KernelResult<()> {
+        if self.has_run(id) {
+            return Err(KernelError::Conflict(format!(
+                "thread {id} has a running turn"
+            )));
+        }
+        let session = self.lock_sessions().remove(id);
+        self.gateway_revoke(id);
+        if let Some(session) = session {
+            let provider = self
+                .lock_providers()
+                .iter()
+                .find(|p| p.id() == session.provider)
+                .cloned();
+            if let Some(provider) = provider {
+                provider.end_session(session.id).await;
+            }
+        }
+        let thread = id.clone();
+        let deleted = self
+            .inner
+            .store
+            .write(move |c| repo::thread_delete(c, &thread))
+            .await?;
+        lock(&self.inner.heads).remove(id);
+        if let Some(wt_path) = deleted.worktree_path.as_deref() {
+            let wt_check = wt_path.to_owned();
+            let remaining = self
+                .inner
+                .store
+                .read(move |c| repo::threads_using_worktree(c, &wt_check))
+                .await
+                .unwrap_or(1);
+            if remaining == 0 {
+                self.remove_worktree_if_managed(wt_path).await;
+            }
+        }
+        self.announce(WorkspaceEvent::ThreadDeleted(ThreadChange {
+            thread: deleted,
+        }));
+        Ok(())
+    }
+
     // ---- workspace events ----
 
     /// Live changes to threads on every workspace: created, status or title changed,
@@ -460,7 +695,7 @@ impl Kernel {
             .await
     }
 
-    fn announce(&self, event: WorkspaceEvent) {
+    pub(crate) fn announce(&self, event: WorkspaceEvent) {
         // No listener is not an error.
         let _ = self.inner.workspace_events.send(event);
     }
@@ -636,6 +871,23 @@ fn strip_verbatim(s: &str) -> &str {
         Some(rest) if rest.as_bytes().get(1) == Some(&b':') => rest,
         _ => s,
     }
+}
+
+fn expand_tilde(path: &str) -> String {
+    let home = std::env::var("HOME")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .or_else(|| std::env::var("USERPROFILE").ok().filter(|v| !v.is_empty()));
+    let Some(home) = home else {
+        return path.to_owned();
+    };
+    if path == "~" {
+        return home;
+    }
+    if let Some(rest) = path.strip_prefix("~/").or_else(|| path.strip_prefix(r"~\")) {
+        return Path::new(&home).join(rest).to_string_lossy().into_owned();
+    }
+    path.to_owned()
 }
 
 #[cfg(test)]

@@ -6,6 +6,7 @@ pub mod devices;
 pub mod error;
 pub mod fold;
 pub mod gateway;
+mod git;
 pub mod grants;
 mod kernel;
 pub mod plugins;

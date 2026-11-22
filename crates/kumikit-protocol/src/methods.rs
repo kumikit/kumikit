@@ -8,8 +8,8 @@ use ts_rs::TS;
 
 use crate::event::EventNotification;
 use crate::model::{
-    Approval, ApprovalId, Decision, Thread, ThreadId, Timestamp, Turn, TurnId, UserInput,
-    Workspace, WorkspaceId,
+    Approval, ApprovalId, Decision, PermissionMode, Thread, ThreadId, Timestamp, Turn, TurnId,
+    UserInput, Workspace, WorkspaceId,
 };
 
 /// A request method: name, params and result.
@@ -92,6 +92,14 @@ methods! {
         AuthDevicesRevoke = "auth.devices.revoke" (DeviceRef) -> Empty;
         /// `core.hello`: the handshake; the first call on a connection.
         CoreHello = "core.hello" (HelloParams) -> HelloResult;
+        /// `core.config.get`: reads core-level configuration (such as the Kumikit home folder).
+        CoreConfigGet = "core.config.get" (Empty) -> CoreConfigResult;
+        /// `core.config.set`: updates core-level configuration (omitting or clearing resets to default).
+        CoreConfigSet = "core.config.set" (CoreConfigSetParams) -> CoreConfigResult;
+        /// `core.worktrees.list`: lists managed Git worktrees under `<homeDir>/worktrees/` with disk usage.
+        CoreWorktreesList = "core.worktrees.list" (Empty) -> WorktreeListResult;
+        /// `core.worktrees.delete`: removes a managed Git worktree directory under `<homeDir>/worktrees/`.
+        CoreWorktreesDelete = "core.worktrees.delete" (WorktreeDeleteParams) -> Empty;
         /// `core.shutdown`: stop the core; running turns end as on any stop.
         CoreShutdown = "core.shutdown" (Empty) -> Empty;
         /// `provider.list`: available providers, from manifests, without activating any.
@@ -104,10 +112,20 @@ methods! {
         WorkspaceOpen = "workspace.open" (WorkspaceOpenParams) -> WorkspaceOpenResult;
         /// `workspace.close`: hide a workspace; its data is kept.
         WorkspaceClose = "workspace.close" (WorkspaceRef) -> Empty;
+        /// `workspace.delete`: permanently delete a workspace and all its threads and history.
+        WorkspaceDelete = "workspace.delete" (WorkspaceRef) -> Empty;
+        /// `workspace.git.status`: inspects a workspace's (or worktree's) Git branch and local branches.
+        WorkspaceGitStatus = "workspace.git.status" (WorkspaceGitStatusParams) -> WorkspaceGitInfo;
+        /// `workspace.git.checkout`: switches the workspace (or worktree) to an existing local Git branch.
+        WorkspaceGitCheckout = "workspace.git.checkout" (WorkspaceGitCheckoutParams) -> WorkspaceGitInfo;
+        /// `workspace.git.worktreeCreate`: creates a Git worktree under `<homeDir>/worktrees/` for a thread in this workspace.
+        WorkspaceGitWorktreeCreate = "workspace.git.worktreeCreate" (WorkspaceWorktreeCreateParams) -> WorkspaceWorktreeCreateResult;
         /// `thread.list`: threads of a workspace.
         ThreadList = "thread.list" (ThreadListParams) -> ThreadListResult;
         /// `thread.create`: a new thread.
         ThreadCreate = "thread.create" (ThreadCreateParams) -> ThreadCreateResult;
+        /// `thread.update`: updates a thread's model, permission mode, or title.
+        ThreadUpdate = "thread.update" (ThreadUpdateParams) -> ThreadUpdateResult;
         /// `thread.get`: a snapshot folded from the log.
         ThreadGet = "thread.get" (ThreadRef) -> ThreadSnapshot;
         /// `thread.send`: a user message; starts or queues a turn.
@@ -118,6 +136,10 @@ methods! {
         ThreadRespondApproval = "thread.respondApproval" (RespondApprovalParams) -> Empty;
         /// `thread.archive`: archive a thread.
         ThreadArchive = "thread.archive" (ThreadRef) -> Empty;
+        /// `thread.unarchive`: restore an archived thread back to its workspace.
+        ThreadUnarchive = "thread.unarchive" (ThreadRef) -> ThreadUpdateResult;
+        /// `thread.delete`: permanently delete a thread and its history.
+        ThreadDelete = "thread.delete" (ThreadRef) -> Empty;
         /// `events.subscribe`: replay a topic after a cursor, then follow it live.
         EventsSubscribe = "events.subscribe" (SubscribeParams) -> SubscribeResult;
         /// `events.unsubscribe`: stop following a topic.
@@ -880,6 +902,12 @@ pub struct ThreadCreateParams {
     /// Optional title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// Permission mode for the thread; defaults to `standard`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<PermissionMode>,
+    /// Optional linked Git worktree path for this thread (keeps the thread under `workspace`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_path: Option<String>,
 }
 
 /// Result of `thread.create`.
@@ -887,6 +915,32 @@ pub struct ThreadCreateParams {
 #[serde(rename_all = "camelCase")]
 pub struct ThreadCreateResult {
     /// The new thread.
+    pub thread: Thread,
+}
+
+/// Params of `thread.update`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadUpdateParams {
+    /// The thread.
+    pub thread: ThreadId,
+    /// New model id (validated against the thread's provider).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// New permission mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<PermissionMode>,
+    /// New title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// Result of `thread.update`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadUpdateResult {
+    /// The updated thread.
     pub thread: Thread,
 }
 
@@ -1207,6 +1261,160 @@ pub struct CommandResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "Record<string, unknown>")]
     pub view: Option<serde_json::Value>,
+}
+
+/// Core-level configuration returned by `core.config.get` and `core.config.set`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreConfigResult {
+    /// Active Kumikit home directory where Kumikit creates folders such as `worktrees/`.
+    pub home_dir: String,
+    /// Platform default Kumikit home directory (for example `~/.kumikit`).
+    pub default_home_dir: String,
+}
+
+/// Params of `core.config.set`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct CoreConfigSetParams {
+    /// Custom Kumikit home directory; omit or set to an empty string to reset to the platform default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home_dir: Option<String>,
+}
+
+/// One managed Git worktree stored under `<homeDir>/worktrees/` (`core.worktrees.list`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct WorktreeEntry {
+    /// Canonical absolute path of the worktree directory.
+    pub path: String,
+    /// Repository directory name under `<homeDir>/worktrees/<repo>/`.
+    pub repo: String,
+    /// Worktree directory name (`<branch-slug>`).
+    pub name: String,
+    /// Active Git branch (or short commit SHA) checked out in this worktree, if readable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// Total disk space occupied by files inside this worktree, in bytes.
+    pub size_bytes: u64,
+    /// Number of threads currently associated with this worktree on this core.
+    pub thread_count: u32,
+    /// True when any linked thread currently has a running turn.
+    #[serde(default)]
+    pub in_use: bool,
+}
+
+/// Result of `core.worktrees.list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeListResult {
+    /// Active `<homeDir>/worktrees` directory that was scanned.
+    pub root: String,
+    /// Worktrees found under `root`, largest first.
+    pub worktrees: Vec<WorktreeEntry>,
+    /// Sum of `size_bytes` across all listed worktrees.
+    pub total_bytes: u64,
+}
+
+/// Params of `core.worktrees.delete`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeDeleteParams {
+    /// Absolute path of the managed worktree directory inside `<homeDir>/worktrees/` to delete.
+    pub path: String,
+}
+
+/// One local Git branch reported by `workspace.git.status`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct GitBranch {
+    /// Short branch name, for example `main` or `m6-ui-design`.
+    pub name: String,
+    /// True if this branch is currently checked out in the queried workspace.
+    pub current: bool,
+    /// Absolute path of the worktree that has this branch checked out, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_path: Option<String>,
+}
+
+/// Git repository and branch state of a workspace (`workspace.git.status` / `workspace.git.checkout`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct WorkspaceGitInfo {
+    /// True when the workspace directory is inside a Git repository.
+    pub is_repo: bool,
+    /// Active branch name, or short commit SHA when `detached` is true.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// True when HEAD is detached.
+    #[serde(default)]
+    pub detached: bool,
+    /// True when this checkout is a linked Git worktree rather than the primary working tree.
+    #[serde(default)]
+    pub is_worktree: bool,
+    /// Canonical root of the repository (or linked worktree) checkout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo_root: Option<String>,
+    /// Repository's default branch (`main`, `master`, or `origin/HEAD`), if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_branch: Option<String>,
+    /// Local branches in the repository.
+    #[serde(default)]
+    pub branches: Vec<GitBranch>,
+}
+
+/// Params of `workspace.git.status`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct WorkspaceGitStatusParams {
+    /// Workspace to inspect.
+    pub workspace: WorkspaceId,
+    /// Optional linked worktree path belonging to this repository; defaults to the workspace root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+/// Params of `workspace.git.checkout`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct WorkspaceGitCheckoutParams {
+    /// Workspace to switch.
+    pub workspace: WorkspaceId,
+    /// Existing local branch name to check out.
+    pub branch: String,
+    /// Optional linked worktree path belonging to this repository; defaults to the workspace root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+/// Params of `workspace.git.worktreeCreate`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct WorkspaceWorktreeCreateParams {
+    /// Source Git workspace.
+    pub workspace: WorkspaceId,
+    /// Branch name for the new worktree (created if it does not already exist).
+    pub branch: String,
+    /// Base branch or ref to branch from when creating a new branch; defaults to HEAD.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_branch: Option<String>,
+}
+
+/// Result of `workspace.git.worktreeCreate`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceWorktreeCreateResult {
+    /// Canonical absolute path of the newly created linked worktree directory.
+    pub path: String,
+    /// Git state of the new worktree checkout.
+    pub git: WorkspaceGitInfo,
 }
 
 #[cfg(test)]

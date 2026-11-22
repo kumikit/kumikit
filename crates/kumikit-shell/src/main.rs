@@ -53,6 +53,15 @@ fn respond(asset: Asset, form: SchemeForm, served: Served) -> Response<Cow<'stat
         Served::Panel(csp) => csp.clone(),
         Served::App | Served::Plugin => assets::csp(form),
     };
+    let body = if matches!(served, Served::Panel(_))
+        && form == SchemeForm::Native
+        && asset.status == 200
+        && asset.content_type.starts_with("text/html")
+    {
+        assets::panel_html_crossorigin(&asset.body)
+    } else {
+        asset.body
+    };
     let mut builder = Response::builder()
         .status(asset.status)
         .header("Content-Type", asset.content_type)
@@ -67,7 +76,7 @@ fn respond(asset: Asset, form: SchemeForm, served: Served) -> Response<Cow<'stat
         Served::Panel(_) => builder = builder.header("Access-Control-Allow-Origin", "null"),
     }
     builder
-        .body(Cow::Owned(asset.body))
+        .body(Cow::Owned(body))
         .unwrap_or_else(|_| Response::new(Cow::Borrowed(&b""[..])))
 }
 
@@ -254,6 +263,128 @@ async fn client_plugins_remove(shell: State<'_, Shell>, id: String) -> Result<()
         .map_err(|e| e.to_string())
 }
 
+/// A file the user explicitly chose in the native attachment picker.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PickedAttachment {
+    name: String,
+    mime_type: String,
+    data: String,
+    size: usize,
+}
+
+#[cfg(not(feature = "test-hooks"))]
+fn mime_for_path(path: &std::path::Path) -> &'static str {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase);
+    match ext.as_deref() {
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        Some("pdf") => "application/pdf",
+        Some("json") => "application/json",
+        Some("md" | "markdown") => "text/markdown",
+        Some("txt" | "log") => "text/plain",
+        Some("csv") => "text/csv",
+        Some("html" | "htm") => "text/html",
+        Some("css") => "text/css",
+        Some("xml") => "application/xml",
+        Some("js" | "mjs" | "cjs") => "text/javascript",
+        Some(
+            "ts" | "tsx" | "jsx" | "rs" | "py" | "go" | "c" | "h" | "cpp" | "java" | "sh" | "toml"
+            | "yaml" | "yml" | "sql" | "svelte",
+        ) => "text/plain",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Opens the native multi-file dialog (defaulting to `default_path` when it is an existing
+/// directory) and reads only the files the user picked in that dialog (up to 16 files / 4 MiB).
+#[cfg(not(feature = "test-hooks"))]
+#[tauri::command]
+async fn pick_attachments(
+    app: tauri::AppHandle,
+    title: String,
+    default_path: Option<String>,
+) -> Result<Vec<PickedAttachment>, CommandError> {
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use tauri_plugin_dialog::DialogExt as _;
+
+    const MAX_FILES: usize = 16;
+    const MAX_BYTES: usize = 4 * 1024 * 1024;
+
+    let mut dialog = app.dialog().file().set_title(&title);
+    if let Some(dir) = default_path.as_deref().map(std::path::Path::new)
+        && dir.is_dir()
+    {
+        dialog = dialog.set_directory(dir);
+    }
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    dialog.pick_files(move |paths| {
+        let _ = tx.send(paths);
+    });
+    let Some(picked) = rx.await.ok().flatten() else {
+        return Ok(Vec::new());
+    };
+    let paths: Vec<PathBuf> = picked
+        .into_iter()
+        .filter_map(|p| p.into_path().ok())
+        .collect();
+    tauri::async_runtime::spawn_blocking(move || {
+        if paths.len() > MAX_FILES {
+            return Err(CommandError {
+                code: "invalid",
+                message: format!("At most {MAX_FILES} attachments per message."),
+            });
+        }
+        let mut total = 0usize;
+        let mut out = Vec::with_capacity(paths.len());
+        for path in paths {
+            let bytes = std::fs::read(&path).map_err(|e| CommandError {
+                code: "io",
+                message: format!("Cannot read {}: {e}", path.display()),
+            })?;
+            total = total.saturating_add(bytes.len());
+            if total > MAX_BYTES {
+                return Err(CommandError {
+                    code: "invalid",
+                    message: "Attachments cannot exceed 4 MB per message.".to_owned(),
+                });
+            }
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "attachment".to_owned());
+            out.push(PickedAttachment {
+                name,
+                mime_type: mime_for_path(&path).to_owned(),
+                size: bytes.len(),
+                data: BASE64.encode(&bytes),
+            });
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| CommandError {
+        code: "internal",
+        message: e.to_string(),
+    })?
+}
+
+#[cfg(feature = "test-hooks")]
+#[tauri::command]
+async fn pick_attachments(
+    _title: String,
+    _default_path: Option<String>,
+) -> Result<Vec<PickedAttachment>, CommandError> {
+    Ok(Vec::new())
+}
+
 // Test builds keep the real plugin as a dependency: its permission set (`dialog:allow-open`)
 // is what the capability grants, and the stand-in answers under the same name.
 #[cfg(feature = "test-hooks")]
@@ -339,6 +470,7 @@ fn main() {
         profile_pair,
         profile_add_ssh,
         profile_remove,
+        pick_attachments,
         test_report
     ]);
     #[cfg(not(feature = "test-hooks"))]
@@ -360,7 +492,8 @@ fn main() {
         profile_probe,
         profile_pair,
         profile_add_ssh,
-        profile_remove
+        profile_remove,
+        pick_attachments
     ]);
     let result = builder
         .register_uri_scheme_protocol(APP_SCHEME, move |ctx, request: Request<Vec<u8>>| {

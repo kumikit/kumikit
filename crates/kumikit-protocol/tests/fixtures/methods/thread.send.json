@@ -17,5 +17,25 @@
       "queued": false,
       "turn": "01JCTU00000000000000000001"
     }
+  },
+  {
+    "id": 11,
+    "jsonrpc": "2.0",
+    "method": "thread.send",
+    "params": {
+      "input": {
+        "attachments": [
+          {
+            "data": "iVBORw0KGgo=",
+            "height": 147,
+            "mimeType": "image/png",
+            "name": "Pasted image.png",
+            "width": 891
+          }
+        ],
+        "text": "describe this screenshot"
+      },
+      "thread": "01JCTH00000000000000000001"
+    }
   }
 ]

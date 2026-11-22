@@ -1,94 +1,175 @@
-<!-- Settings: the pages UI plugins contribute (`settings.page`). -->
+<!-- Settings inside the overlay sheet: client pages (`settings.page`) and core plugin
+     settings (`settings.schema`), arranged in a clean two-column settings layout. -->
 <script lang="ts">
   import type { Kernel } from '../app.svelte';
   import CoreSettings from './CoreSettings.svelte';
+  import GeneralSettings from './GeneralSettings.svelte';
   import SlotHost from './SlotHost.svelte';
+  import WorktreesSettings from './WorktreesSettings.svelte';
 
   let { kernel, page }: { kernel: Kernel; page: string | undefined } = $props();
   const pages = $derived(
     [...kernel.slots.in('settings.page')].sort((a, b) => (a.contribution.order ?? 100) - (b.contribution.order ?? 100)),
   );
+  const showGeneral = $derived(!kernel.platform.safeMode);
   /** Core plugins with settings on the active tab's core; page ids are `core:<plugin id>`. */
   const conn = $derived(kernel.connection);
   const corePages = $derived(
     conn.hello?.capabilities.includes('settings') ? conn.plugins.filter((p) => p.contributes.settings) : [],
   );
+  const generalCurrent = $derived(showGeneral && (page === undefined || page === 'general'));
+  const worktreesCurrent = $derived(showGeneral && page === 'worktrees');
   const coreCurrent = $derived(
-    page?.startsWith('core:') ? corePages.find((p) => `core:${p.id}` === page) : pages.length ? undefined : corePages[0],
+    generalCurrent || worktreesCurrent
+      ? undefined
+      : page?.startsWith('core:')
+        ? corePages.find((p) => `core:${p.id}` === page)
+        : pages.length
+          ? undefined
+          : corePages[0],
   );
-  const current = $derived(coreCurrent ? undefined : (pages.find((p) => p.contribution.id === page) ?? pages[0]));
+  const current = $derived(
+    generalCurrent || worktreesCurrent || coreCurrent
+      ? undefined
+      : (pages.find((p) => p.contribution.id === page) ?? pages[0]),
+  );
 </script>
 
 <div class="settings">
   <nav aria-label="Settings pages">
-    <h1>Settings</h1>
-    {#each pages as p (p)}
-      <button type="button" class:current={p === current} aria-current={p === current ? 'page' : undefined} onclick={() => (kernel.main = { kind: 'settings', page: p.contribution.id })}>
-        {p.contribution.title}
-      </button>
-    {/each}
+    {#if showGeneral || pages.length}
+      <span class="group-label">Client</span>
+      {#if showGeneral}
+        <button
+          type="button"
+          class:current={generalCurrent}
+          aria-current={generalCurrent ? 'page' : undefined}
+          onclick={() => (kernel.main = { kind: 'settings', page: 'general' })}
+        >
+          General
+        </button>
+        <button
+          type="button"
+          class:current={worktreesCurrent}
+          aria-current={worktreesCurrent ? 'page' : undefined}
+          onclick={() => (kernel.main = { kind: 'settings', page: 'worktrees' })}
+        >
+          Worktrees
+        </button>
+      {/if}
+      {#each pages as p (p)}
+        <button
+          type="button"
+          class:current={p === current}
+          aria-current={p === current ? 'page' : undefined}
+          onclick={() => (kernel.main = { kind: 'settings', page: p.contribution.id })}
+        >
+          {p.contribution.title}
+        </button>
+      {/each}
+    {/if}
     {#if corePages.length}
-      <h2>On {conn.label}</h2>
+      <span class="group-label">On {conn.label}</span>
       {#each corePages as p (p.id)}
-        <button type="button" class:current={p === coreCurrent} aria-current={p === coreCurrent ? 'page' : undefined} onclick={() => (kernel.main = { kind: 'settings', page: `core:${p.id}` })}>
+        <button
+          type="button"
+          class:current={p === coreCurrent}
+          aria-current={p === coreCurrent ? 'page' : undefined}
+          onclick={() => (kernel.main = { kind: 'settings', page: `core:${p.id}` })}
+        >
           {p.id}
         </button>
       {/each}
     {/if}
   </nav>
   <div class="page">
-    {#if coreCurrent}
-      {#key coreCurrent.id}
-        <CoreSettings connection={conn} plugin={coreCurrent.id} notify={(m) => kernel.notify(m, 'danger')} />
-      {/key}
-    {:else if current}
-      {#key current}
-        <SlotHost plugin={current.plugin} contribution={current.contribution} props={{}} slots={kernel.slots} label={current.contribution.title} />
-      {/key}
-    {:else}
-      <div class="kk-empty">
-        <p>No settings pages are installed. Themes can still be switched from the command palette.</p>
-      </div>
-    {/if}
+    <div class="page-inner">
+      {#if generalCurrent}
+        <GeneralSettings {kernel} />
+      {:else if worktreesCurrent}
+        <WorktreesSettings {kernel} />
+      {:else if coreCurrent}
+        {#key coreCurrent.id}
+          <h2 class="core-heading">{coreCurrent.id}</h2>
+          <p class="kk-muted core-sub">Plugin settings stored on {conn.label}.</p>
+          <CoreSettings connection={conn} plugin={coreCurrent.id} notify={(m) => kernel.notify(m, 'danger')} />
+        {/key}
+      {:else if current}
+        {#key current}
+          <SlotHost plugin={current.plugin} contribution={current.contribution} props={{}} slots={kernel.slots} label={current.contribution.title} />
+        {/key}
+      {:else}
+        <div class="kk-empty">
+          <p>No settings pages are installed. Themes can still be switched from the command palette.</p>
+        </div>
+      {/if}
+    </div>
   </div>
 </div>
 
 <style>
   .settings {
     display: grid;
-    grid-template-columns: 200px 1fr;
-    height: 100%;
+    grid-template-columns: 210px 1fr;
+    flex: 1;
     min-height: 0;
   }
   nav {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    padding: 12px 8px;
+    padding: 14px 10px;
     border-right: 1px solid var(--kk-border-subtle, CanvasText);
-    background: var(--kk-surface-panel, Canvas);
+    background: var(--kk-surface-frame, Canvas);
+    overflow: auto;
   }
-  h2 {
-    margin: 12px 0 4px 6px;
+  .group-label {
+    margin: 10px 8px 4px;
     font-size: var(--kk-font-size-small, small);
+    font-weight: var(--kk-font-weight-strong, bold);
+    color: var(--kk-text-muted, GrayText);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
-  h1 {
-    margin: 0 0 8px 6px;
-    font-size: var(--kk-font-size-large, large);
+  .group-label:first-child {
+    margin-top: 2px;
   }
   nav button {
-    padding: 6px;
+    padding: 6px 10px;
     border: 0;
     border-radius: var(--kk-radius-small, 0);
-    background: none;
+    background: transparent;
+    color: var(--kk-text-secondary, CanvasText);
+    font-size: var(--kk-font-size-small, small);
     text-align: left;
     cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .current {
+  nav button:hover {
+    background: var(--kk-surface-hover, ButtonFace);
+    color: var(--kk-text-primary, CanvasText);
+  }
+  nav button.current {
     background: var(--kk-surface-selected, Highlight);
+    color: var(--kk-text-primary, CanvasText);
+    font-weight: var(--kk-font-weight-strong, bold);
   }
   .page {
     overflow: auto;
-    padding: 16px 24px;
+    padding: 24px 32px;
+    background: var(--kk-surface-panel, Canvas);
+  }
+  .page-inner {
+    max-width: 680px;
+  }
+  .core-heading {
+    margin: 0 0 4px;
+    font-size: var(--kk-font-size-large, large);
+  }
+  .core-sub {
+    margin: 0 0 16px;
+    font-size: var(--kk-font-size-small, small);
   }
 </style>

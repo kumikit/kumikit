@@ -22,6 +22,7 @@
     "allow-profile-pair",
     "allow-profile-add-ssh",
     "allow-profile-remove",
+    "allow-pick-attachments",
     "dialog:allow-open"
   ]
 }

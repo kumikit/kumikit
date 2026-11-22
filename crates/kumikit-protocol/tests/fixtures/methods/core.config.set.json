@@ -1,0 +1,18 @@
+[
+  {
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "core.config.set",
+    "params": {
+      "homeDir": "/srv/kumikit-home"
+    }
+  },
+  {
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+      "defaultHomeDir": "/home/user/.kumikit",
+      "homeDir": "/srv/kumikit-home"
+    }
+  }
+]

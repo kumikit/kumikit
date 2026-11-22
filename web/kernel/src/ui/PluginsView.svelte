@@ -1,7 +1,7 @@
 <!--
-  Manage plugins (06-client, Plugin manager): core plugins on a chosen core, and UI
-  plugins and themes on this client. Part of the UI kernel, so a plugin that broke the UI can
-  always be removed here.
+  Manage plugins inside the overlay sheet (06-client, Plugin manager): registry discovery,
+  core plugins on a chosen core, and UI plugins & themes on this client. Part of the UI
+  kernel, so a plugin that broke the UI can always be removed here.
 -->
 <script lang="ts">
   import type { InstalledPlugin } from '@kumikit/protocol';
@@ -21,6 +21,7 @@
   let granting = $state.raw<InstalledPlugin | undefined>();
   let removing = $state.raw<InstalledPlugin | undefined>();
   let trusting = $state.raw<ClientPlugin | undefined>();
+  let scroller: HTMLElement | undefined = $state();
 
   const target = $derived(core.target);
 
@@ -32,9 +33,12 @@
     }
   });
 
+  function jumpTo(id: string) {
+    scroller?.querySelector(`#${id}`)?.scrollIntoView({ behavior: 'auto', block: 'start' });
+  }
+
   async function installCore(kind: 'file' | 'folder') {
     if (core.uploads) {
-      // The core is on another machine: send the package's bytes.
       const file = await kernel.platform.pickBytes('.kkp');
       if (!file) return;
       const p = await core.upload(file.bytes);
@@ -64,115 +68,159 @@
   }
 
   function onKey(e: KeyboardEvent, close: () => void) {
-    if (!isComposing(e) && e.key === 'Escape') close();
+    if (!isComposing(e) && e.key === 'Escape') {
+      e.stopPropagation();
+      close();
+    }
   }
 
   const publisher = (id: string) => id.split('.')[0];
   const stateText: Record<string, string> = { installed: 'Not enabled', enabled: 'Enabled', disabled: 'Disabled' };
 </script>
 
-<div class="plugins">
-  <h1>Plugins</h1>
-
-  <RegistryPanel
-    {kernel}
-    {starter}
-    onCoreInstalled={(p) => (granting = p)}
-    onClientInstalled={(p) => {
-      if (p.needsTrust) trusting = p;
-    }}
-  />
-
-  <section aria-labelledby="kk-core-plugins">
-    <div class="head">
-      <h2 id="kk-core-plugins">On this core</h2>
-      {#if kernel.connections.length > 1}
-        <label class="choose">Core
-          <select class="kk-input" value={target.id} onchange={(e) => core.choose(e.currentTarget.value)}>
-            {#each kernel.connections as c (c.id)}<option value={c.id}>{c.label}</option>{/each}
-          </select>
-        </label>
-      {:else}
-        <span class="kk-muted">({target.hello?.core.name ?? target.label})</span>
+<div class="plugins-shell">
+  <div class="subbar">
+    <div class="pills" role="group" aria-label="Jump to section">
+      {#if kernel.registries.coreAvailable || kernel.registries.clientAvailable}
+        <button type="button" class="pill" onclick={() => jumpTo('kk-find-plugins')}>{starter ? 'Starter pack' : 'Discover'}</button>
       {/if}
-      <button type="button" class="kk-button" disabled={!target.ready} onclick={() => installCore('file')}>Install from file…</button>
-      {#if !core.uploads}
-        <button type="button" class="kk-button" disabled={!target.ready} onclick={() => installCore('folder')}>Install from folder…</button>
+      <button type="button" class="pill" onclick={() => jumpTo('kk-core-plugins')}>Core ({core.plugins.length})</button>
+      <button type="button" class="pill" onclick={() => jumpTo('kk-client-plugins')}>Client ({client.plugins.length})</button>
+      {#if !starter && (kernel.registries.coreAvailable || kernel.registries.clientAvailable)}
+        <button type="button" class="pill" onclick={() => jumpTo('kk-updates')}>Updates</button>
+        <button type="button" class="pill" onclick={() => jumpTo('kk-registries')}>Registries</button>
       {/if}
     </div>
-    {#if core.uploads}
-      <p class="kk-muted">{target.label} is on another machine: a package file is sent to it. To install from a folder there, pack it first with <code>kumikit plugin pack</code>.</p>
+    {#if kernel.connections.length > 1}
+      <label class="choose">
+        <span class="kk-muted">Core</span>
+        <select class="kk-input compact-select" value={target.id} onchange={(e) => core.choose(e.currentTarget.value)}>
+          {#each kernel.connections as c (c.id)}<option value={c.id}>{c.label}</option>{/each}
+        </select>
+      </label>
     {/if}
-    {#if core.plugins.length === 0}
-      <p class="kk-muted">{core.loading ? 'Loading…' : 'No core plugins are installed.'}</p>
-    {/if}
-    <ul class="list">
-      {#each core.plugins as p (p.id)}
-        <li class="card">
-          <div class="title">
-            <strong>{p.name}</strong>
-            <span class="kk-muted">{p.id} · {p.version}</span>
-            <span class="badge {p.state}">{stateText[p.state] ?? p.state}</span>
-          </div>
-          {#if p.description}<p>{p.description}</p>{/if}
-          {#if p.failure}<p class="problem" role="alert">Failed: {p.failure.message}{p.failure.retryInSeconds ? ` (retrying in ${p.failure.retryInSeconds} s)` : ''}</p>{/if}
-          {#if p.error}<p class="problem" role="alert">{p.error}</p>{/if}
-          <ul class="perms" aria-label="Permissions">
-            {#each describePermissions(p.granted ?? p.requested) as line (line)}<li>{line}</li>{/each}
-          </ul>
-          {#if p.state === 'enabled' && p.granted?.workspaces === 'linked'}
-            <LinkedWorkspaces connection={core.target} plugin={p.id} notify={(m) => kernel.notify(m, 'danger')} />
+  </div>
+
+  <div class="plugins" bind:this={scroller}>
+    <RegistryPanel
+      {kernel}
+      {starter}
+      onCoreInstalled={(p) => (granting = p)}
+      onClientInstalled={(p) => {
+        if (p.needsTrust) trusting = p;
+      }}
+    />
+
+    <section class="group" aria-labelledby="kk-core-plugins">
+      <div class="head">
+        <div class="head-title">
+          <h2 id="kk-core-plugins">On this core</h2>
+          {#if kernel.connections.length > 1}
+            <label class="choose inline-choose">Core
+              <select class="kk-input compact-select" value={target.id} onchange={(e) => core.choose(e.currentTarget.value)}>
+                {#each kernel.connections as c (c.id)}<option value={c.id}>{c.label}</option>{/each}
+              </select>
+            </label>
+          {:else}
+            <span class="meta-chip">{target.hello?.core.name ?? target.label}</span>
           {/if}
-          <div class="actions">
-            {#if p.state !== 'enabled'}
-              <button type="button" class="kk-button primary" onclick={() => (granting = p)}>Enable…</button>
-            {:else}
-              <button type="button" class="kk-button" onclick={() => core.disable(p.id)}>Disable</button>
-            {/if}
-            <button type="button" class="kk-button danger" onclick={() => (removing = p)}>Remove…</button>
-          </div>
-        </li>
-      {/each}
-    </ul>
-  </section>
-
-  <section aria-labelledby="kk-client-plugins">
-    <div class="head">
-      <h2 id="kk-client-plugins">On this client</h2>
-      {#if kernel.platform.kind !== 'browser'}
-        <button type="button" class="kk-button" onclick={installClient}>Install from file…</button>
+        </div>
+        <div class="head-actions">
+          <button type="button" class="kk-button" disabled={!target.ready} onclick={() => installCore('file')}>Install from file…</button>
+          {#if !core.uploads}
+            <button type="button" class="kk-button" disabled={!target.ready} onclick={() => installCore('folder')}>Install from folder…</button>
+          {/if}
+        </div>
+      </div>
+      {#if core.uploads}
+        <p class="kk-muted note">{target.label} is on another machine: a package file is sent to it. To install from a folder there, pack it first with <code>kumikit plugin pack</code>.</p>
       {/if}
-    </div>
-    <ul class="list">
-      {#each client.plugins as p (p.entry.id)}
-        <li class="card">
-          <div class="title">
-            <strong>{p.manifest.name}</strong>
-            <span class="kk-muted">{p.entry.id} · {p.entry.version} · {p.kind === 'theme' ? 'theme' : 'UI plugin'}{p.entry.source === 'bundled' ? ' · bundled' : ''}</span>
-            <span class="badge {p.enabled ? 'enabled' : 'disabled'}">{p.enabled ? 'Enabled' : p.needsTrust ? 'Not trusted' : 'Disabled'}</span>
-          </div>
-          {#if p.manifest.description}<p>{p.manifest.description}</p>{/if}
-          {#if p.entry.publisher}<p class="kk-muted">Signed with key <span title={p.entry.publisher.key}>{p.entry.publisher.key.slice(0, 20)}…</span>{p.entry.publisher.registry ? ` · from ${p.entry.publisher.registry}` : ''}</p>{/if}
-          {#if p.error}<p class="problem" role="alert">{p.error}</p>{/if}
-          <div class="actions">
-            {#if p.needsTrust}
-              <button type="button" class="kk-button primary" onclick={() => (trusting = p)}>Trust and enable…</button>
-            {:else}
-              <button type="button" class="kk-button" onclick={() => client.setEnabled(p.entry.id, !p.enabled)}>{p.enabled ? 'Disable' : 'Enable'}</button>
+      {#if core.plugins.length === 0}
+        <p class="kk-muted note">{core.loading ? 'Loading…' : 'No core plugins are installed.'}</p>
+      {/if}
+      <ul class="list">
+        {#each core.plugins as p (p.id)}
+          <li class="card">
+            <div class="card-top">
+              <div class="title-col">
+                <strong>{p.name}</strong>
+                <span class="sub-id">{p.id} · v{p.version}</span>
+              </div>
+              <span class="badge {p.state}">
+                <span class="badge-dot {p.state}" aria-hidden="true"></span>
+                {stateText[p.state] ?? p.state}
+              </span>
+            </div>
+            {#if p.description}<p class="desc">{p.description}</p>{/if}
+            {#if p.failure}<p class="problem" role="alert">Failed: {p.failure.message}{p.failure.retryInSeconds ? ` (retrying in ${p.failure.retryInSeconds} s)` : ''}</p>{/if}
+            {#if p.error}<p class="problem" role="alert">{p.error}</p>{/if}
+            <ul class="perms" aria-label="Permissions">
+              {#each describePermissions(p.granted ?? p.requested) as line (line)}<li>{line}</li>{/each}
+            </ul>
+            {#if p.state === 'enabled' && p.granted?.workspaces === 'linked'}
+              <LinkedWorkspaces connection={core.target} plugin={p.id} notify={(m) => kernel.notify(m, 'danger')} />
             {/if}
-            {#if p.entry.source === 'installed'}
-              <button type="button" class="kk-button danger" onclick={() => client.remove(p.entry.id)}>Remove</button>
-            {/if}
-          </div>
-        </li>
-      {:else}
-        <li class="kk-muted">No UI plugins or themes.</li>
-      {/each}
-    </ul>
-    {#if client.plugins.some((p) => p.kind === 'ui')}
-      <p class="kk-muted">A disabled UI plugin stops showing at once; its code is unloaded when the app restarts.</p>
-    {/if}
-  </section>
+            <div class="actions">
+              {#if p.state !== 'enabled'}
+                <button type="button" class="kk-button primary" onclick={() => (granting = p)}>Enable…</button>
+              {:else}
+                <button type="button" class="kk-button" onclick={() => core.disable(p.id)}>Disable</button>
+              {/if}
+              <button type="button" class="kk-button danger" onclick={() => (removing = p)}>Remove…</button>
+            </div>
+          </li>
+        {/each}
+      </ul>
+    </section>
+
+    <section class="group" aria-labelledby="kk-client-plugins">
+      <div class="head">
+        <div class="head-title">
+          <h2 id="kk-client-plugins">On this client</h2>
+          <span class="meta-chip">{client.plugins.length} installed</span>
+        </div>
+        <div class="head-actions">
+          {#if kernel.platform.kind !== 'browser'}
+            <button type="button" class="kk-button" onclick={installClient}>Install from file…</button>
+          {/if}
+        </div>
+      </div>
+      <ul class="list">
+        {#each client.plugins as p (p.entry.id)}
+          <li class="card">
+            <div class="card-top">
+              <div class="title-col">
+                <strong>{p.manifest.name}</strong>
+                <span class="sub-id">{p.entry.id} · v{p.entry.version} · {p.kind === 'theme' ? 'theme' : 'UI plugin'}{p.entry.source === 'bundled' ? ' · bundled' : ''}</span>
+              </div>
+              <span class="badge {p.enabled ? 'enabled' : 'disabled'}">
+                <span class="badge-dot {p.enabled ? 'enabled' : 'disabled'}" aria-hidden="true"></span>
+                {p.enabled ? 'Enabled' : p.needsTrust ? 'Not trusted' : 'Disabled'}
+              </span>
+            </div>
+            {#if p.manifest.description}<p class="desc">{p.manifest.description}</p>{/if}
+            {#if p.entry.publisher}<p class="sig">Signed with key <span title={p.entry.publisher.key}>{p.entry.publisher.key.slice(0, 20)}…</span>{p.entry.publisher.registry ? ` · from ${p.entry.publisher.registry}` : ''}</p>{/if}
+            {#if p.error}<p class="problem" role="alert">{p.error}</p>{/if}
+            <div class="actions">
+              {#if p.needsTrust}
+                <button type="button" class="kk-button primary" onclick={() => (trusting = p)}>Trust and enable…</button>
+              {:else}
+                <button type="button" class="kk-button" onclick={() => client.setEnabled(p.entry.id, !p.enabled)}>{p.enabled ? 'Disable' : 'Enable'}</button>
+              {/if}
+              {#if p.entry.source === 'installed'}
+                <button type="button" class="kk-button danger" onclick={() => client.remove(p.entry.id)}>Remove</button>
+              {/if}
+            </div>
+          </li>
+        {:else}
+          <li class="kk-muted">No UI plugins or themes.</li>
+        {/each}
+      </ul>
+      {#if client.plugins.some((p) => p.kind === 'ui')}
+        <p class="kk-muted note">A disabled UI plugin stops showing at once; its code is unloaded when the app restarts.</p>
+      {/if}
+    </section>
+  </div>
 </div>
 
 {#if granting}
@@ -228,80 +276,193 @@
 {/if}
 
 <style>
-  .plugins {
-    height: 100%;
-    overflow: auto;
-    padding: 16px 24px;
+  .plugins-shell {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
   }
-  h1 {
-    margin: 0 0 12px;
-    font-size: var(--kk-font-size-title, x-large);
+  .subbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 20px;
+    border-bottom: 1px solid var(--kk-border-subtle, CanvasText);
+    background: var(--kk-surface-panel, Canvas);
+    flex: none;
+  }
+  .pills {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .pill {
+    height: 24px;
+    padding: 0 10px;
+    border: 1px solid var(--kk-border-subtle, ButtonBorder);
+    border-radius: var(--kk-radius-large, 0);
+    background: var(--kk-surface-card, ButtonFace);
+    color: var(--kk-text-secondary, CanvasText);
+    font-size: var(--kk-font-size-small, small);
+    cursor: pointer;
+  }
+  .pill:hover {
+    background: var(--kk-surface-hover, ButtonFace);
+    color: var(--kk-text-primary, CanvasText);
+  }
+  .plugins {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 18px 24px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
   h2 {
     margin: 0;
     font-size: var(--kk-font-size-large, large);
+    color: var(--kk-text-primary, CanvasText);
   }
   .choose {
     display: flex;
     align-items: center;
     gap: 6px;
+    font-size: var(--kk-font-size-small, small);
+  }
+  .compact-select {
+    width: auto;
+    padding: 3px 8px;
+    font-size: var(--kk-font-size-small, small);
   }
   .head {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
     gap: 8px;
-    margin: 16px 0 8px;
   }
-  .head h2 {
-    flex: 1;
+  .head-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .head-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .meta-chip {
+    padding: 1px 8px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-large, 0);
+    background: var(--kk-surface-card, Canvas);
+    color: var(--kk-text-muted, GrayText);
+    font-size: var(--kk-font-size-small, small);
+  }
+  .note {
+    margin: 0;
+    font-size: var(--kk-font-size-small, small);
   }
   .list {
     display: grid;
-    gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 10px;
     list-style: none;
     margin: 0;
     padding: 0;
   }
   .card {
-    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
     border: 1px solid var(--kk-border-subtle, CanvasText);
     border-radius: var(--kk-radius-medium, 0);
     background: var(--kk-surface-card, Canvas);
   }
-  .title {
+  .card-top {
     display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
+    align-items: flex-start;
+    justify-content: space-between;
     gap: 8px;
   }
-  .card p {
-    margin: 6px 0;
+  .title-col {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .sub-id {
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-muted, GrayText);
+    overflow-wrap: anywhere;
+  }
+  .desc {
+    margin: 0;
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-secondary, CanvasText);
+  }
+  .sig {
+    margin: 0;
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-muted, GrayText);
   }
   .badge {
-    margin-left: auto;
-    padding: 0 8px;
-    border-radius: var(--kk-radius-small, 0);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 1px 8px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-large, 0);
     font-size: var(--kk-font-size-small, small);
     background: var(--kk-surface-raised, Canvas);
+    color: var(--kk-text-secondary, CanvasText);
+    white-space: nowrap;
+    flex: none;
   }
   .badge.enabled {
     background: var(--kk-state-success-tint, Canvas);
+    color: var(--kk-text-primary, CanvasText);
+  }
+  .badge-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: var(--kk-radius-large, 0);
+    background: var(--kk-text-muted, GrayText);
+  }
+  .badge-dot.enabled {
+    background: var(--kk-state-success, Highlight);
   }
   .perms {
-    margin: 6px 0;
-    padding-left: 20px;
-    color: var(--kk-text-secondary, CanvasText);
+    margin: 0;
+    padding-left: 18px;
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-muted, GrayText);
   }
   .actions {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: 6px;
+    margin-top: auto;
+    padding-top: 8px;
+    border-top: 1px solid var(--kk-border-subtle, CanvasText);
   }
   .problem,
   .warning {
-    padding: 6px 8px;
+    margin: 0;
+    padding: 6px 10px;
     border-left: 3px solid var(--kk-state-warning, CanvasText);
+    border-radius: var(--kk-radius-small, 0);
     background: var(--kk-state-warning-tint, Canvas);
+    font-size: var(--kk-font-size-small, small);
   }
   .problem {
     border-left-color: var(--kk-state-danger, CanvasText);
@@ -310,6 +471,7 @@
   .scrim {
     position: fixed;
     inset: 0;
+    z-index: 40;
     background: var(--kk-surface-overlay, Canvas);
     opacity: var(--kk-overlay-opacity, 0.6);
   }
@@ -317,11 +479,12 @@
     position: fixed;
     top: 12vh;
     left: 50%;
+    z-index: 41;
     display: grid;
-    gap: 8px;
+    gap: 10px;
     width: min(520px, 92vw);
     transform: translateX(-50%);
-    padding: 16px;
+    padding: 18px;
     border: 1px solid var(--kk-border-strong, CanvasText);
     border-radius: var(--kk-radius-large, 0);
     background: var(--kk-surface-raised, Canvas);
@@ -329,6 +492,11 @@
   }
   .dialog p {
     margin: 0;
+    font-size: var(--kk-font-size-small, small);
+  }
+  .dialog .actions {
+    border-top: 0;
+    padding-top: 4px;
   }
   .key {
     overflow-wrap: anywhere;

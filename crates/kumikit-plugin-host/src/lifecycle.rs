@@ -49,6 +49,10 @@ pub struct HostConfig {
     pub cancel_grace: Duration,
     /// Time given to `deactivate` before an instance is dropped.
     pub deactivate_limit: Duration,
+    /// How long a provider's `list-models` result is cached before probing again.
+    pub models_ttl: Duration,
+    /// Maximum time a delegated `list-models` probe may run before it is cancelled.
+    pub models_probe_timeout: Duration,
     /// Monotonic time; tests replace it.
     pub now: Arc<dyn Fn() -> Instant + Send + Sync>,
 }
@@ -62,6 +66,8 @@ impl Default for HostConfig {
             backoff_reset: Duration::from_secs(600),
             cancel_grace: Duration::from_secs(2),
             deactivate_limit: Duration::from_secs(2),
+            models_ttl: Duration::from_secs(300),
+            models_probe_timeout: Duration::from_secs(10),
             now: Arc::new(Instant::now),
         }
     }
@@ -205,11 +211,14 @@ pub struct Failure {
     pub retry_in: Option<Duration>,
 }
 
+type ModelsSlot = Arc<tokio::sync::Mutex<Option<(Instant, Vec<Model>)>>>;
+
 struct Inner {
     manager: Manager,
     config: HostConfig,
     runs: Mutex<HashMap<String, PluginRun>>,
     registered: Mutex<BTreeMap<String, ProviderSpec>>,
+    models_cache: Mutex<HashMap<String, ModelsSlot>>,
     reaper: AtomicBool,
     /// Bumped after the available providers were recomputed.
     changed: tokio::sync::watch::Sender<u64>,
@@ -246,6 +255,7 @@ impl PluginHost {
                 config,
                 runs: Mutex::new(HashMap::new()),
                 registered: Mutex::new(BTreeMap::new()),
+                models_cache: Mutex::new(HashMap::new()),
                 reaper: AtomicBool::new(false),
                 changed: tokio::sync::watch::Sender::new(0),
             }),
@@ -776,12 +786,14 @@ impl PluginHost {
             if wanted.get(id) != Some(spec) {
                 self.kernel().unregister_provider(id);
                 lock(&self.inner.registered).remove(id);
+                lock(&self.inner.models_cache).remove(id);
             }
         }
         for (id, spec) in wanted {
             if current.get(&id) == Some(&spec) {
                 continue;
             }
+            lock(&self.inner.models_cache).remove(&id);
             let provider = WasmProvider {
                 spec: spec.clone(),
                 host: Arc::downgrade(&self.inner),
@@ -797,12 +809,44 @@ impl PluginHost {
 
     // ---- instances ----
 
+    fn models_slot(&self, provider_id: &str) -> ModelsSlot {
+        lock(&self.inner.models_cache)
+            .entry(provider_id.to_owned())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(None)))
+            .clone()
+    }
+
+    fn clear_models_cache_for_plugin(&self, plugin: &str) {
+        let affected: Vec<String> = lock(&self.inner.registered)
+            .iter()
+            .filter(|(_, spec)| spec.backend == plugin || spec.contributor == plugin)
+            .map(|(id, _)| id.clone())
+            .collect();
+        let mut cache = lock(&self.inner.models_cache);
+        for id in affected {
+            cache.remove(&id);
+        }
+    }
+
+    /// Creates and returns an isolated empty directory for `list-models` probes of
+    /// `plugin` (`<plugin_data>/probe`).
+    async fn probe_dir(&self, plugin: &str) -> Result<PathBuf, ProviderError> {
+        let dir = self.inner.manager.dirs().plugin_data(plugin).join("probe");
+        let to_create = dir.clone();
+        tokio::task::spawn_blocking(move || std::fs::create_dir_all(&to_create))
+            .await
+            .map_err(perr)?
+            .map_err(|e| ProviderError::new(format!("cannot create probe directory: {e}")))?;
+        Ok(dir)
+    }
+
     fn instance_config(
         &self,
         backend: &str,
         grants_from: &str,
         workspaces: Vec<PathBuf>,
         session: Arc<SessionShared>,
+        probe_dir: Option<PathBuf>,
     ) -> Result<InstanceConfig, ProviderError> {
         let code = self.inner.manager.get(backend).map_err(perr)?;
         let manifest = code
@@ -834,6 +878,7 @@ impl PluginHost {
                     .package(backend, &code.record.version)
                     .join(f)
             }),
+            probe_dir,
         })
     }
 
@@ -898,11 +943,25 @@ impl PluginHost {
             *used = now;
             return Ok(i.clone());
         }
+        let has_providers = self
+            .inner
+            .manager
+            .get(plugin)
+            .ok()
+            .and_then(|v| v.manifest)
+            .is_some_and(|m| !m.contributes.providers.is_empty());
+        let (workspaces, probe_dir) = if has_providers {
+            let dir = self.probe_dir(plugin).await?;
+            (vec![dir.clone()], Some(dir))
+        } else {
+            (Vec::new(), None)
+        };
         let config = self.instance_config(
             plugin,
             plugin,
-            Vec::new(),
+            workspaces,
             Arc::new(SessionShared::default()),
+            probe_dir,
         )?;
         let instance = self.start_instance(config).await?;
         let mut runs = lock(&self.inner.runs);
@@ -957,6 +1016,7 @@ impl PluginHost {
 
     /// Stops every instance of a plugin (disable, uninstall).
     async fn unload(&self, plugin: &str, why: &str) {
+        self.clear_models_cache_for_plugin(plugin);
         let (control, sessions) = {
             let mut runs = lock(&self.inner.runs);
             let Some(run) = runs.get_mut(plugin) else {
@@ -1134,18 +1194,55 @@ impl Provider for WasmProvider {
     fn list_models(&self) -> BoxFuture<'_, ProviderResult<Vec<Model>>> {
         Box::pin(async move {
             let host = self.host()?;
-            let control = host.control(&self.spec.backend).await?;
-            let models = self
-                .check(&host, control.list_models(self.pref()).await)
-                .await?;
-            Ok(models
+            let slot = host.models_slot(&self.spec.id);
+            let mut cached = slot.lock().await;
+            let now = host.now();
+            if let Some((at, models)) = cached.as_ref()
+                && now.saturating_duration_since(*at) < host.inner.config.models_ttl
+            {
+                return Ok(models.clone());
+            }
+            let models = if self.spec.backend == self.spec.contributor {
+                let control = host.control(&self.spec.backend).await?;
+                self.check(&host, control.list_models(self.pref()).await)
+                    .await?
+            } else {
+                // Delegated provider backend: run in a short-lived probe instance carrying
+                // the declaring plugin's grants and an isolated empty probe directory, so
+                // the backend can query the agent CLI for available models.
+                let probe_dir = host.probe_dir(&self.spec.contributor).await?;
+                let shared = Arc::new(SessionShared::default());
+                let ic = host.instance_config(
+                    &self.spec.backend,
+                    &self.spec.contributor,
+                    vec![probe_dir.clone()],
+                    Arc::clone(&shared),
+                    Some(probe_dir),
+                )?;
+                let instance = host.start_instance(ic).await?;
+                let cancel_shared = Arc::clone(&shared);
+                let limit = host.inner.config.models_probe_timeout;
+                let watchdog = tokio::spawn(async move {
+                    tokio::time::sleep(limit).await;
+                    cancel_shared.cancel();
+                });
+                let res = self
+                    .check(&host, instance.list_models(self.pref()).await)
+                    .await;
+                watchdog.abort();
+                host.drop_instance(&instance).await;
+                res?
+            };
+            let out: Vec<Model> = models
                 .into_iter()
                 .map(|m| Model {
                     id: m.id,
                     label: m.label,
                     capabilities: m.capabilities,
                 })
-                .collect())
+                .collect();
+            *cached = Some((host.now(), out.clone()));
+            Ok(out)
         })
     }
 
@@ -1158,6 +1255,7 @@ impl Provider for WasmProvider {
                 &self.spec.contributor,
                 vec![PathBuf::from(&config.workspace_root)],
                 Arc::clone(&shared),
+                None,
             )?;
             let instance = host.start_instance(ic).await?;
             let thread = config.thread.clone();
@@ -1217,6 +1315,13 @@ impl Provider for WasmProvider {
             let s = host
                 .session(&self.spec.backend, &session)
                 .ok_or_else(|| ProviderError::new("the provider session is no longer running"))?;
+            let text = if input.attachments.is_empty() {
+                input.text
+            } else {
+                let data_dir = host.inner.manager.dirs().plugin_data(&self.spec.backend);
+                let turn_id = sink.turn().as_str().to_owned();
+                materialize_attachments(data_dir, turn_id, input.text, input.attachments).await?
+            };
             *lock(&s.last_used) = host.now();
             s.busy.store(true, Ordering::Release);
             s.shared.begin_turn(sink);
@@ -1226,10 +1331,7 @@ impl Provider for WasmProvider {
                 let s = Arc::clone(&s);
                 let host = host.clone();
                 tokio::spawn(async move {
-                    let r = s
-                        .instance
-                        .send(session, wit::UserInput { text: input.text })
-                        .await;
+                    let r = s.instance.send(session, wit::UserInput { text }).await;
                     s.shared.end_turn();
                     s.busy.store(false, Ordering::Release);
                     *lock(&s.last_used) = host.now();
@@ -1310,6 +1412,110 @@ impl Provider for WasmProvider {
             host.drop_instance(&s.instance).await;
         })
     }
+}
+
+/// Sanitizes an attachment filename into a safe single path component.
+fn sanitize_attachment_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(64)
+        .collect();
+    let trimmed = cleaned.trim_start_matches('.');
+    if trimmed.is_empty() {
+        "attachment".to_owned()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+/// Writes turn attachments into the provider backend's preopened `/data/attachments/<turn>`
+/// directory alongside a `manifest.json`, and appends a parseable marker plus human-readable
+/// fallback file list to `text` so both multimodal-aware and generic `0.2.0` providers work.
+async fn materialize_attachments(
+    data_dir: PathBuf,
+    turn_id: String,
+    text: String,
+    attachments: Vec<kumikit_protocol::model::Attachment>,
+) -> ProviderResult<String> {
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD as BASE64;
+
+    tokio::task::spawn_blocking(move || {
+        let safe_turn = sanitize_attachment_name(&turn_id);
+        let dir = data_dir.join("attachments").join(&safe_turn);
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| ProviderError::new(format!("cannot create attachment directory: {e}")))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+        }
+
+        let mut manifest_entries = Vec::with_capacity(attachments.len());
+        let mut fallback_lines = Vec::with_capacity(attachments.len());
+
+        for (i, a) in attachments.into_iter().enumerate() {
+            let bytes = BASE64
+                .decode(&a.data)
+                .map_err(|e| ProviderError::new(format!("invalid attachment base64: {e}")))?;
+            let filename = format!("{i}-{}", sanitize_attachment_name(&a.name));
+            let host_path = dir.join(&filename);
+            std::fs::write(&host_path, &bytes)
+                .map_err(|e| ProviderError::new(format!("cannot write attachment: {e}")))?;
+            let host_str = host_path.to_string_lossy().into_owned();
+            let guest_path = format!("/data/attachments/{safe_turn}/{filename}");
+            let is_image = a.mime_type.starts_with("image/");
+            let dims = match (a.width, a.height) {
+                (Some(w), Some(h)) => format!(", {w}x{h}"),
+                _ => String::new(),
+            };
+            fallback_lines.push(format!(
+                "- {} ({}{}): {}",
+                a.name, a.mime_type, dims, host_str
+            ));
+            let mut entry = serde_json::json!({
+                "name": a.name,
+                "mimeType": a.mime_type,
+                "hostPath": host_str,
+                "guestPath": guest_path,
+            });
+            if is_image {
+                entry["data"] = serde_json::Value::String(a.data);
+            }
+            if let Some(w) = a.width {
+                entry["width"] = serde_json::Value::from(w);
+            }
+            if let Some(h) = a.height {
+                entry["height"] = serde_json::Value::from(h);
+            }
+            manifest_entries.push(entry);
+        }
+
+        let manifest_host = dir.join("manifest.json");
+        let manifest = serde_json::json!({ "attachments": manifest_entries });
+        std::fs::write(&manifest_host, manifest.to_string())
+            .map_err(|e| ProviderError::new(format!("cannot write attachment manifest: {e}")))?;
+
+        let guest_manifest = format!("/data/attachments/{safe_turn}/manifest.json");
+        let trailer = format!(
+            "[kumikit-attachments:{guest_manifest}]\nAttached files:\n{}",
+            fallback_lines.join("\n")
+        );
+        if text.is_empty() {
+            Ok(trailer)
+        } else {
+            Ok(format!("{text}\n\n{trailer}"))
+        }
+    })
+    .await
+    .map_err(|e| ProviderError::new(format!("attachment task failed: {e}")))?
 }
 
 /// Wakes plugins for the kernel's scheduler (`docs/spec/03-kernel.md#schedules`).

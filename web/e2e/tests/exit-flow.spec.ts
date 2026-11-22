@@ -21,15 +21,15 @@ test('install a provider, approve a tool call across a reopen, switch themes', a
   await expect(grant).toContainText('not signed');
   await grant.getByRole('button', { name: 'Grant and enable' }).click();
   await expect(core.getByRole('listitem').filter({ hasText: 'test.recorded1' })).toContainText('Enabled');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
 
   // Open a project and start a thread with it.
   await kk.pick(kk.project);
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
   await expect(page.getByRole('navigation', { name: 'Open workspaces' }).getByRole('button', { name: 'proj', exact: true })).toBeVisible();
-  await command(page, 'New thread');
-  const dialog = page.getByRole('dialog', { name: 'New thread' });
-  await dialog.getByLabel('Agent').selectOption({ label: 'Recorded agent 1' });
-  await dialog.getByRole('button', { name: 'Start' }).click();
+  await page.getByLabel('Agent').selectOption({ label: 'Recorded agent 1' });
+  await page.getByRole('button', { name: /Permissions:/ }).click();
+  await page.getByRole('menuitemradio', { name: /Standard/ }).click();
 
   await page.getByLabel('Message').fill('Add a line to notes.txt');
   await page.getByLabel('Message').press('Enter');
@@ -41,7 +41,7 @@ test('install a provider, approve a tool call across a reopen, switch themes', a
   await page.reload();
   await expect(page.getByRole('status').filter({ hasText: 'Connected' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Approval' })).toContainText('Needs your approval');
-  await expect(page.getByText('Add a line to notes.txt')).toHaveCount(1);
+  await expect(page.getByRole('log', { name: 'Transcript' }).getByText('Add a line to notes.txt')).toHaveCount(1);
 
   await page.getByRole('region', { name: 'Approval' }).getByRole('button', { name: 'Allow', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Approval' })).toContainText('Allowed');

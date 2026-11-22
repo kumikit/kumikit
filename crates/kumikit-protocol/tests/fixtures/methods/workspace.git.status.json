@@ -1,0 +1,33 @@
+[
+  {
+    "id": 3,
+    "jsonrpc": "2.0",
+    "method": "workspace.git.status",
+    "params": {
+      "workspace": "01JCWS00000000000000000001"
+    }
+  },
+  {
+    "id": 3,
+    "jsonrpc": "2.0",
+    "result": {
+      "branch": "m6-ui-design",
+      "branches": [
+        {
+          "current": true,
+          "name": "m6-ui-design",
+          "worktreePath": "/home/user/proj"
+        },
+        {
+          "current": false,
+          "name": "main"
+        }
+      ],
+      "defaultBranch": "main",
+      "detached": false,
+      "isRepo": true,
+      "isWorktree": false,
+      "repoRoot": "/home/user/proj"
+    }
+  }
+]
