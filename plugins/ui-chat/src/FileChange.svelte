@@ -15,16 +15,22 @@
 <style>
   .kk-file {
     margin: 0;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-medium, 0);
+    background: var(--kk-surface-card, Canvas);
+    overflow: hidden;
   }
   figcaption {
-    margin-bottom: 4px;
+    padding: 5px 10px;
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-secondary, CanvasText);
+    border-bottom: 1px solid var(--kk-border-subtle, CanvasText);
   }
   pre {
     overflow: auto;
     max-height: 360px;
     margin: 0;
-    padding: 6px 8px;
-    border-radius: var(--kk-radius-small, 0);
+    padding: 8px 10px;
     background: var(--kk-code-background, Canvas);
   }
   .add {

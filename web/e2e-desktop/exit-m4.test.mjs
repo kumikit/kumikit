@@ -167,9 +167,7 @@ async function flow(b) {
   pick(project);
   await palette(b, 'Open a project folder');
   await b.wait('nav[aria-label="Open workspaces"] button', 'proj');
-  await palette(b, 'New thread');
-  await b.wait('[role="dialog"] option', 'Acme Probe');
-  await b.click(await b.wait('[role="dialog"] button', 'Start'));
+  await b.wait('select[aria-label="Agent"] option', 'Acme Probe');
   const send = async (text) => {
     await b.type(await b.wait('#kk-chat-input'), text);
     await b.keys('Enter');

@@ -9,11 +9,21 @@
 
 <style>
   .kk-reasoning {
+    padding: 4px 10px;
+    border-left: 2px solid var(--kk-border-subtle, CanvasText);
+    color: var(--kk-text-secondary, CanvasText);
+    font-size: var(--kk-font-size-small, small);
+  }
+  summary {
+    cursor: pointer;
+    color: var(--kk-text-muted, GrayText);
+    user-select: none;
+  }
+  summary:hover {
     color: var(--kk-text-secondary, CanvasText);
   }
   p {
-    margin: 4px 0 0;
+    margin: 6px 0 2px;
     white-space: pre-wrap;
-    font-size: var(--kk-font-size-small, small);
   }
 </style>

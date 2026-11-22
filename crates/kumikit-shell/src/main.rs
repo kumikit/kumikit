@@ -53,6 +53,15 @@ fn respond(asset: Asset, form: SchemeForm, served: Served) -> Response<Cow<'stat
         Served::Panel(csp) => csp.clone(),
         Served::App | Served::Plugin => assets::csp(form),
     };
+    let body = if matches!(served, Served::Panel(_))
+        && form == SchemeForm::Native
+        && asset.status == 200
+        && asset.content_type.starts_with("text/html")
+    {
+        assets::panel_html_crossorigin(&asset.body)
+    } else {
+        asset.body
+    };
     let mut builder = Response::builder()
         .status(asset.status)
         .header("Content-Type", asset.content_type)
@@ -67,7 +76,7 @@ fn respond(asset: Asset, form: SchemeForm, served: Served) -> Response<Cow<'stat
         Served::Panel(_) => builder = builder.header("Access-Control-Allow-Origin", "null"),
     }
     builder
-        .body(Cow::Owned(asset.body))
+        .body(Cow::Owned(body))
         .unwrap_or_else(|_| Response::new(Cow::Borrowed(&b""[..])))
 }
 

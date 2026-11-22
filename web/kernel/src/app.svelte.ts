@@ -1,7 +1,7 @@
 /**
- * The UI kernel's state: the connections (one per core), tabs, threads, commands, slots,
- * theme and settings, and the kernel's own commands. Components read it; nothing here
- * names a plugin.
+ * The UI kernel's state: the connections (one per core), split layout and tabs, threads,
+ * commands, slots, theme and settings, and the kernel's own commands. Components read it;
+ * nothing here names a plugin.
  */
 import type { Thread } from '@kumikit/protocol';
 import type { Connection, Slot, ThreadAddress } from '@kumikit/ui-sdk';
@@ -12,6 +12,27 @@ import { ClientPlugins } from './plugins/client.svelte';
 import { CorePlugins } from './plugins/core.svelte';
 import { Registries } from './plugins/registry.svelte';
 import { CoreConnection, type Timers } from './connections/connection.svelte';
+import {
+  LEFT_MAX,
+  LEFT_MIN,
+  RIGHT_MAX,
+  RIGHT_MIN,
+  allLeaves,
+  clamp,
+  clampTabIndex,
+  closeLeaf,
+  countLeaves,
+  findLeaf,
+  firstLeaf,
+  layoutCss,
+  setSplitRatio,
+  splitLeaf,
+  updateLeaf,
+  type LayoutLeaf,
+  type LayoutNode,
+  type LeftSidebarView,
+  type SplitDirection,
+} from './layout/layout';
 import type { Platform, ProfileInfo } from './platform/index';
 import { meetsRequirements } from './plugins/requires';
 import type { Command } from './commands/registry.svelte';
@@ -41,7 +62,6 @@ export type MainView =
 
 /** A dialog the kernel shows over everything. */
 export type Dialog =
-  | { kind: 'new-thread' }
   | { kind: 'palette' }
   | { kind: 'open-folder'; connection: string }
   | undefined;
@@ -78,16 +98,21 @@ export class Kernel {
   /** Core plugins' commands for the active tab's core. */
   readonly coreCommands: CoreCommands;
   dialog = $state.raw<Dialog>(undefined);
+  /** Bumped whenever the user explicitly starts a draft thread so the inline composer focuses. */
+  draftFocusNonce = $state(0);
   toasts = $state.raw<Toast[]>([]);
   #toastId = 0;
   #systemDark: () => boolean;
   #unwatch = new Map<string, () => void>();
   #timers: Timers | undefined;
+  #doc: Document | undefined;
+  #layoutSheet: CSSStyleSheet | undefined;
 
   constructor(options: KernelOptions) {
     this.platform = options.platform;
     this.mac = options.mac ?? false;
     this.#timers = options.timers;
+    this.#doc = options.document;
     this.connections = [new CoreConnection(options.platform.home, options.platform, this.#options(homeProfile(options.platform)))];
     this.threads = new ThreadStore((id) => this.connectionFor(id));
     this.slots = new SlotRegistry((plugin, reason) => this.onPluginFailed(plugin, reason));
@@ -110,6 +135,7 @@ export class Kernel {
 
   async start(): Promise<void> {
     this.applyTheme();
+    this.applyLayoutStyles();
     // Plugins and every core start side by side; none waits for another.
     const plugins = this.clientPlugins.load();
     const profiles = this.platform.profiles.list().catch((e: unknown) => {
@@ -118,8 +144,23 @@ export class Kernel {
     });
     const home = this.connections[0]!.start();
     for (const p of await profiles) if (!this.connectionFor(p.name)) this.#add(p);
-    for (const tab of this.tabs) this.#watch(tab.connection, tab.workspace);
+    for (const leaf of allLeaves(this.layoutRoot)) {
+      for (const tab of leaf.tabs) this.#watch(tab.connection, tab.workspace);
+    }
     await Promise.all([home, plugins]);
+  }
+
+  /** Updates the constructed stylesheet carrying sidebar widths and split ratios (CSP-safe). */
+  applyLayoutStyles(): void {
+    const doc = this.#doc;
+    if (!doc || !('adoptedStyleSheets' in doc) || typeof CSSStyleSheet !== 'function') return;
+    const s = this.settings.value;
+    const css = layoutCss(s.leftSidebarWidth, s.rightSidebarWidth, s.layout);
+    if (!this.#layoutSheet) {
+      this.#layoutSheet = new CSSStyleSheet();
+      doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, this.#layoutSheet];
+    }
+    this.#layoutSheet.replaceSync(css);
   }
 
   // ---- connections ----
@@ -220,14 +261,146 @@ export class Kernel {
     };
   }
 
-  // ---- tabs ----
+  // ---- layout, sidebars & split panes ----
+
+  get layoutRoot(): LayoutNode {
+    return this.settings.value.layout;
+  }
+
+  get activePaneId(): string {
+    return this.activePane.id;
+  }
+
+  get activePane(): LayoutLeaf {
+    const s = this.settings.value;
+    return findLeaf(s.layout, s.activePaneId) ?? firstLeaf(s.layout);
+  }
+
+  get paneCount(): number {
+    return countLeaves(this.layoutRoot);
+  }
+
+  /** All tabs open across every pane. */
+  get allTabs(): TabSpec[] {
+    return allLeaves(this.layoutRoot).flatMap((l) => l.tabs);
+  }
+
+  get leftSidebarOpen(): boolean {
+    return this.settings.value.leftSidebarOpen;
+  }
+
+  get leftSidebarWidth(): number {
+    return this.settings.value.leftSidebarWidth;
+  }
+
+  get leftSidebarView(): LeftSidebarView {
+    return this.settings.value.leftSidebarView;
+  }
+
+  get rightSidebarOpen(): boolean {
+    return this.settings.value.rightSidebarOpen;
+  }
+
+  get rightSidebarWidth(): number {
+    return this.settings.value.rightSidebarWidth;
+  }
+
+  get activeInspectorTab(): string | undefined {
+    return this.settings.value.activeInspectorTab;
+  }
+
+  get openInspectorTabs(): string[] | undefined {
+    return this.settings.value.openInspectorTabs;
+  }
+
+  toggleLeftSidebar(open?: boolean): void {
+    this.settings.update({ leftSidebarOpen: open ?? !this.leftSidebarOpen });
+  }
+
+  setLeftSidebarWidth(width: number): void {
+    this.settings.update({ leftSidebarWidth: Math.round(clamp(width, LEFT_MIN, LEFT_MAX)) });
+    this.applyLayoutStyles();
+  }
+
+  setLeftSidebarView(view: LeftSidebarView): void {
+    this.settings.update({ leftSidebarView: view });
+  }
+
+  toggleRightSidebar(open?: boolean): void {
+    this.settings.update({ rightSidebarOpen: open ?? !this.rightSidebarOpen });
+  }
+
+  setRightSidebarWidth(width: number): void {
+    this.settings.update({ rightSidebarWidth: Math.round(clamp(width, RIGHT_MIN, RIGHT_MAX)) });
+    this.applyLayoutStyles();
+  }
+
+  /** Opens an inspector plugin tab (adding it to the open tabs if absent, or focusing it
+   * if already open) and ensures the right sidebar is visible. */
+  openInspectorPlugin(key: string): void {
+    const current = this.openInspectorTabs ?? [];
+    const next = current.includes(key) ? current : [...current, key];
+    this.settings.update({ rightSidebarOpen: true, openInspectorTabs: next, activeInspectorTab: key });
+  }
+
+  selectInspectorTab(key: string): void {
+    this.openInspectorPlugin(key);
+  }
+
+  /** Removes a tab from the right sidebar's open tabs. */
+  closeInspectorTab(key: string, currentKeys?: string[]): void {
+    const base = this.openInspectorTabs ?? currentKeys ?? [];
+    const next = base.filter((k) => k !== key);
+    const activeInspectorTab = this.activeInspectorTab === key ? next[next.length - 1] : this.activeInspectorTab;
+    this.settings.update(
+      activeInspectorTab !== undefined
+        ? { openInspectorTabs: next, activeInspectorTab }
+        : { openInspectorTabs: next, activeInspectorTab: '' },
+    );
+  }
+
+  #commitLayout(layout: LayoutNode, activePaneId = this.activePaneId): void {
+    const active = findLeaf(layout, activePaneId) ?? firstLeaf(layout);
+    this.settings.update({
+      layout,
+      activePaneId: active.id,
+      tabs: active.tabs,
+      activeTab: active.activeTab,
+    });
+    this.applyLayoutStyles();
+  }
+
+  focusPane(paneId: string): void {
+    const leaf = findLeaf(this.layoutRoot, paneId);
+    if (!leaf) return;
+    if (this.settings.value.activePaneId === leaf.id && this.main.kind === 'tab') return;
+    this.#commitLayout(this.layoutRoot, leaf.id);
+  }
+
+  splitPane(direction: SplitDirection, paneId: string = this.activePaneId): void {
+    const { root, newPaneId } = splitLeaf(this.layoutRoot, paneId, direction);
+    this.#commitLayout(root, newPaneId);
+    this.main = { kind: 'tab' };
+  }
+
+  closePane(paneId: string): void {
+    if (this.paneCount <= 1) return;
+    const { root, nextActiveId } = closeLeaf(this.layoutRoot, paneId);
+    this.#commitLayout(root, paneId === this.activePaneId ? nextActiveId : this.activePaneId);
+  }
+
+  resizeSplit(splitId: string, ratio: number): void {
+    this.#commitLayout(setSplitRatio(this.layoutRoot, splitId, ratio));
+  }
+
+  // ---- tabs (active pane by default) ----
 
   get tabs(): TabSpec[] {
-    return this.settings.value.tabs;
+    return this.activePane.tabs;
   }
 
   get activeIndex(): number {
-    return Math.min(this.settings.value.activeTab, Math.max(this.tabs.length - 1, 0));
+    return clampTabIndex(this.tabs, this.activePane.activeTab);
   }
 
   get activeTab(): TabSpec | undefined {
@@ -240,9 +413,10 @@ export class Kernel {
     return t?.thread ? { connection: t.connection, workspace: t.workspace, thread: t.thread } : undefined;
   }
 
-  /** Opens (or focuses) the tab of a workspace on a core, optionally on a thread. */
-  openTab(connection: string, workspace: string, thread?: string): void {
-    const tabs = [...this.tabs];
+  /** Opens (or focuses) the tab of a workspace on a core in a specific pane (active pane by default). */
+  openTab(connection: string, workspace: string, thread?: string, paneId: string = this.activePaneId): void {
+    const target = findLeaf(this.layoutRoot, paneId) ?? this.activePane;
+    const tabs = [...target.tabs];
     let i = tabs.findIndex((t) => t.connection === connection && t.workspace === workspace);
     if (i < 0) {
       tabs.push({ connection, workspace });
@@ -250,17 +424,28 @@ export class Kernel {
       this.#watch(connection, workspace);
     }
     if (thread) tabs[i] = { ...tabs[i]!, thread };
-    this.settings.update({ tabs, activeTab: i });
+    const next = updateLeaf(this.layoutRoot, target.id, (leaf) => ({ ...leaf, tabs, activeTab: i }));
+    this.#commitLayout(next, target.id);
     this.main = { kind: 'tab' };
   }
 
-  closeTab(index: number): void {
-    const tabs = this.tabs.filter((_, i) => i !== index);
-    this.settings.update({ tabs, activeTab: Math.max(0, Math.min(this.activeIndex, tabs.length - 1)) });
+  closeTab(index: number, paneId: string = this.activePaneId): void {
+    const target = findLeaf(this.layoutRoot, paneId) ?? this.activePane;
+    const tabs = target.tabs.filter((_, i) => i !== index);
+    if (tabs.length === 0 && this.paneCount > 1) {
+      this.closePane(target.id);
+      return;
+    }
+    const activeTab = clampTabIndex(tabs, target.activeTab);
+    const next = updateLeaf(this.layoutRoot, target.id, (leaf) => ({ ...leaf, tabs, activeTab }));
+    this.#commitLayout(next, this.activePaneId);
   }
 
-  selectTab(index: number): void {
-    this.settings.update({ activeTab: index });
+  selectTab(index: number, paneId: string = this.activePaneId): void {
+    const target = findLeaf(this.layoutRoot, paneId) ?? this.activePane;
+    const activeTab = clampTabIndex(target.tabs, index);
+    const next = updateLeaf(this.layoutRoot, target.id, (leaf) => ({ ...leaf, activeTab }));
+    this.#commitLayout(next, target.id);
     this.main = { kind: 'tab' };
   }
 
@@ -335,8 +520,35 @@ export class Kernel {
     if (ws) this.openTab(connection, ws.id);
   }
 
-  async createThread(provider: string, model: string | undefined, title: string | undefined): Promise<Thread | undefined> {
-    const tab = this.activeTab;
+  /** Starts a fresh draft thread in a workspace tab (clears its open thread so the inline
+   * new-thread composer appears, with no modal dialog). */
+  startDraftThread(target?: { connection: string; workspace: string }, paneId: string = this.activePaneId): void {
+    const dest = target ?? this.activeTab;
+    if (!dest) return;
+    const leaf = findLeaf(this.layoutRoot, paneId) ?? this.activePane;
+    const tabs = [...leaf.tabs];
+    let i = tabs.findIndex((t) => t.connection === dest.connection && t.workspace === dest.workspace);
+    if (i < 0) {
+      tabs.push({ connection: dest.connection, workspace: dest.workspace });
+      i = tabs.length - 1;
+      this.#watch(dest.connection, dest.workspace);
+    } else {
+      tabs[i] = { connection: dest.connection, workspace: dest.workspace };
+    }
+    const next = updateLeaf(this.layoutRoot, leaf.id, (l) => ({ ...l, tabs, activeTab: i }));
+    this.#commitLayout(next, leaf.id);
+    this.main = { kind: 'tab' };
+    this.draftFocusNonce++;
+  }
+
+  async createThread(
+    provider: string,
+    model: string | undefined,
+    title: string | undefined,
+    target?: { connection: string; workspace: string },
+    paneId: string = this.activePaneId,
+  ): Promise<Thread | undefined> {
+    const tab = target ?? this.activeTab;
     if (!tab) return undefined;
     const params: { workspace: string; provider: string; model?: string; title?: string } = { workspace: tab.workspace, provider };
     if (model) params.model = model;
@@ -345,9 +557,27 @@ export class Kernel {
     if (!c) return undefined;
     const r = await this.attempt('Cannot start the thread', () => c.call('thread.create', params));
     if (!r) return undefined;
+    this.settings.update(model ? { lastProvider: provider, lastModel: model } : { lastProvider: provider });
     c.noteThread(r.thread);
-    this.openTab(tab.connection, tab.workspace, r.thread.id);
+    this.openTab(tab.connection, tab.workspace, r.thread.id, paneId);
     return r.thread;
+  }
+
+  /** Creates a new thread in `paneId` and sends the opening message in one seamless step. */
+  async startThreadWithMessage(
+    connection: string,
+    workspace: string,
+    provider: string,
+    model: string | undefined,
+    text: string,
+    paneId: string = this.activePaneId,
+  ): Promise<Thread | undefined> {
+    const firstLine = text.split(/\r?\n/)[0]?.trim() ?? '';
+    const title = firstLine.length > 60 ? `${firstLine.slice(0, 57)}…` : firstLine || undefined;
+    const thread = await this.createThread(provider, model, title, { connection, workspace }, paneId);
+    if (!thread) return undefined;
+    await this.attempt('Cannot send', () => this.threads.send({ connection, workspace, thread: thread.id }, text));
+    return thread;
   }
 
   applyTheme(): void {
@@ -367,12 +597,19 @@ export class Kernel {
     this.applyTheme();
   }
 
+  /** Quick 1-click toggle between light and dark appearances. */
+  toggleAppearance(): void {
+    const next = this.theme.appearance === 'dark' ? 'light' : 'dark';
+    this.selectTheme(undefined, next);
+  }
+
   /** Context for `when` clauses. */
   get when(): WhenContext {
     return {
       'connection.ready': this.connection.ready,
       'tab.open': this.activeTab !== undefined,
       'thread.open': this.activeThread !== undefined,
+      'pane.split': this.paneCount > 1,
       // Restarting is offered for the local core only: stopping a core elsewhere would
       // not start it again.
       'core.mismatch': this.connection.status === 'mismatch' && this.connection.kind === 'local',
@@ -388,8 +625,8 @@ export class Kernel {
     c.register({ id: 'workspace.open', title: 'Open a project folder…', keybinding: 'Mod+O', when: 'connection.ready' }, () =>
       this.openWorkspaceFolder(),
     );
-    c.register({ id: 'thread.new', title: 'New thread…', keybinding: 'Mod+N', when: 'connection.ready && tab.open' }, () => {
-      this.dialog = { kind: 'new-thread' };
+    c.register({ id: 'thread.new', title: 'New thread', keybinding: 'Mod+N', when: 'connection.ready && tab.open' }, () => {
+      this.startDraftThread();
     });
     c.register({ id: 'thread.cancel', title: 'Cancel the running turn', when: 'thread.open' }, async () => {
       const t = this.activeThread;
@@ -399,6 +636,11 @@ export class Kernel {
     c.register({ id: 'tab.next', title: 'Next tab', keybinding: 'Ctrl+Tab', when: 'tab.open' }, () =>
       this.selectTab((this.activeIndex + 1) % Math.max(this.tabs.length, 1)),
     );
+    c.register({ id: 'layout.toggleLeftSidebar', title: 'Toggle left sidebar', keybinding: 'Mod+B' }, () => this.toggleLeftSidebar());
+    c.register({ id: 'layout.toggleRightSidebar', title: 'Toggle right inspector', keybinding: 'Mod+Shift+B' }, () => this.toggleRightSidebar());
+    c.register({ id: 'layout.splitRight', title: 'Split pane right', keybinding: 'Mod+\\' }, () => this.splitPane('horizontal'));
+    c.register({ id: 'layout.splitDown', title: 'Split pane down', keybinding: 'Mod+Shift+\\' }, () => this.splitPane('vertical'));
+    c.register({ id: 'layout.closePane', title: 'Close split pane', when: 'pane.split' }, () => this.closePane(this.activePaneId));
     c.register({ id: 'settings.open', title: 'Open settings', keybinding: 'Mod+,' }, () => {
       this.main = { kind: 'settings' };
     });
@@ -418,6 +660,7 @@ export class Kernel {
       });
     }
     c.register({ id: 'theme.system', title: 'Theme: follow the system' }, () => this.selectTheme(undefined, 'system'));
+    c.register({ id: 'theme.toggle', title: 'Theme: toggle light and dark' }, () => this.toggleAppearance());
     c.register({ id: 'cores.open', title: 'Cores: add, remove, reconnect' }, () => {
       this.main = { kind: 'cores' };
     });

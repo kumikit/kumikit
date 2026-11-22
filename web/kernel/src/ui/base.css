@@ -12,6 +12,7 @@ html,
 body {
   margin: 0;
   height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -37,7 +38,7 @@ textarea {
 
 :focus-visible {
   outline: 2px solid var(--kk-focus, Highlight);
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 
 code,
@@ -45,6 +46,14 @@ pre,
 kbd {
   font-family: var(--kk-font-mono, ui-monospace, monospace);
   font-size: var(--kk-font-size-small, small);
+}
+
+kbd {
+  padding: 0 4px;
+  border: 1px solid var(--kk-border-subtle, ButtonBorder);
+  border-radius: var(--kk-radius-small, 0);
+  background: var(--kk-surface-card, ButtonFace);
+  color: var(--kk-text-secondary, CanvasText);
 }
 
 .kk-sr-only {
@@ -59,6 +68,7 @@ kbd {
 .kk-button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 4px 10px;
   border: 1px solid var(--kk-border-subtle, ButtonBorder);
@@ -88,7 +98,41 @@ kbd {
 }
 
 .kk-button:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
+  cursor: default;
+}
+
+.kk-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: var(--kk-radius-small, 0);
+  background: transparent;
+  color: var(--kk-text-secondary, CanvasText);
+  cursor: pointer;
+  flex: none;
+  transition:
+    background var(--kk-motion-duration-short, 0ms) var(--kk-motion-ease-out, ease-out),
+    color var(--kk-motion-duration-short, 0ms) var(--kk-motion-ease-out, ease-out);
+}
+
+.kk-icon-btn:hover:not(:disabled) {
+  background: var(--kk-surface-hover, ButtonFace);
+  color: var(--kk-text-primary, CanvasText);
+}
+
+.kk-icon-btn.active {
+  background: var(--kk-surface-selected, Highlight);
+  color: var(--kk-text-primary, CanvasText);
+}
+
+.kk-icon-btn:disabled {
+  opacity: 0.45;
   cursor: default;
 }
 
@@ -117,11 +161,15 @@ kbd {
 
 .kk-status {
   display: inline-block;
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: var(--kk-radius-large, 0);
   background: var(--kk-text-muted, GrayText);
   flex: none;
+}
+
+.kk-status.ready {
+  background: var(--kk-state-success, Highlight);
 }
 
 .kk-status.running {
@@ -134,4 +182,18 @@ kbd {
 
 .kk-status.failed {
   background: var(--kk-state-danger, CanvasText);
+}
+
+.kk-panel {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+}
+
+/* Subtle scrollbars on supporting engines */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--kk-border-subtle, GrayText) transparent;
 }

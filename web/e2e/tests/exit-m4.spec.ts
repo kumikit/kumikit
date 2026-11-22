@@ -31,15 +31,13 @@ test('a third-party plugin from the registry installs with its permissions shown
   await expect(grant).toContainText('can start the `fake-acp-agent` program, which runs with your full user access, outside the sandbox');
   await expect(grant).toContainText('It starts programs outside the sandbox');
   await grant.getByRole('button', { name: 'Grant and enable' }).click();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
 
   // Enforced: a thread with it; what was granted works, anything else is refused.
   await kk.pick(kk.project);
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
   await expect(page.getByRole('navigation', { name: 'Open workspaces' }).getByRole('button', { name: 'proj', exact: true })).toBeVisible();
-  await command(page, 'New thread');
-  const dialog = page.getByRole('dialog', { name: 'New thread' });
-  await dialog.getByLabel('Agent').selectOption({ label: 'Acme Probe' });
-  await dialog.getByRole('button', { name: 'Start' }).click();
+  await page.getByLabel('Agent').selectOption({ label: 'Acme Probe' });
 
   // Granted: the probe starts `fake-acp-agent`, which answers with its working directory.
   await page.getByLabel('Message').fill('report fake-acp-agent');

@@ -8,10 +8,10 @@ test('reconnects and resumes the thread without duplicates', async ({ page, kk }
   await command(page, 'Manage plugins');
   await page.getByRole('region', { name: /On this core/ }).getByRole('button', { name: 'Install from folder…' }).click();
   await page.getByRole('button', { name: 'Grant and enable' }).click();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
   await kk.pick(kk.project);
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
-  await page.getByRole('button', { name: 'New thread…' }).click();
-  await page.getByRole('dialog', { name: 'New thread' }).getByRole('button', { name: 'Start' }).click();
+  await expect(page.getByLabel('Agent')).toBeVisible();
   await page.getByLabel('Message').fill('Say hello');
   await page.getByLabel('Message').press('Enter');
   const transcript = page.getByRole('log', { name: 'Transcript' });
@@ -24,7 +24,7 @@ test('reconnects and resumes the thread without duplicates', async ({ page, kk }
   await expect(page.getByText(/Reconnecting/).first()).toBeVisible();
   await expect(page.getByRole('status').filter({ hasText: 'Connected' })).toBeVisible();
   await expect.poll(() => transcript.innerText()).toBe(before);
-  await expect(page.getByText('Say hello')).toHaveCount(1);
+  await expect(transcript.getByText('Say hello')).toHaveCount(1);
 
   // The thread still works after the reconnect.
   await page.getByLabel('Message').fill('Again');

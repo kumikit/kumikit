@@ -1,7 +1,7 @@
 <!--
-  Plugins from registries, in the plugin manager (06-client, Plugin manager): find and
-  install, the starter pack, updates, registries, lockfiles. Registries are contacted only
-  by the buttons here (10-distribution, Fetching).
+  Plugins from registries, in the plugin manager overlay (06-client, Plugin manager): find
+  and install, the starter pack, updates, registries, lockfiles. Registries are contacted
+  only by the buttons here (10-distribution, Fetching).
 -->
 <script lang="ts">
   import type { AvailableUpdate, InstalledPlugin, RegistryResult } from '@kumikit/protocol';
@@ -28,12 +28,9 @@
   const reg = $derived(kernel.registries);
   const target = $derived(kernel.corePlugins.target);
   let query = $state('');
-  /** An update that asks for more, waiting for the user's answer. */
   let widening = $state.raw<{ core?: AvailableUpdate; client?: ClientUpdate } | undefined>();
-  /** A lockfile being shown for export, or a plan being shown for import. */
   let exported = $state.raw<{ title: string; text: string } | undefined>();
   let plan = $state.raw<{ side: 'core' | 'client'; items: ImportItem[] } | undefined>();
-  /** Core plugins installed by an import, waiting for one grant. */
   let importedGrant = $state.raw<InstalledPlugin[] | undefined>();
   let newCoreRegistry = $state('');
   let newClientRegistry = $state('');
@@ -116,7 +113,10 @@
   }
 
   function onKey(e: KeyboardEvent, close: () => void) {
-    if (!isComposing(e) && e.key === 'Escape') close();
+    if (!isComposing(e) && e.key === 'Escape') {
+      e.stopPropagation();
+      close();
+    }
   }
 
   const planText: Record<ImportItem['action'], string> = {
@@ -130,129 +130,162 @@
 </script>
 
 {#if reg.coreAvailable || reg.clientAvailable}
-  <section aria-labelledby="kk-find-plugins">
+  <section class="group" aria-labelledby="kk-find-plugins">
     <div class="head">
       <h2 id="kk-find-plugins">{starter ? 'Starter pack' : 'Find plugins'}</h2>
       {#if !starter}
-        <input class="kk-input" type="search" aria-label="Search the registries" placeholder="Search the registries" bind:value={query} onkeydown={onSearchKey} />
-        <button type="button" class="kk-button" disabled={reg.searching} onclick={() => reg.search(query)}>Search</button>
+        <div class="search-row">
+          <input
+            class="kk-input search-input"
+            type="search"
+            aria-label="Search the registries"
+            placeholder="Search plugins, providers, themes…"
+            bind:value={query}
+            onkeydown={onSearchKey}
+          />
+          <button type="button" class="kk-button primary" disabled={reg.searching} onclick={() => reg.search(query)}>Search</button>
+        </div>
       {:else}
         <button type="button" class="kk-button" onclick={() => (kernel.main = { kind: 'plugins' })}>All plugins</button>
       {/if}
     </div>
     {#if starter}
-      <p class="kk-muted">Common plugins from the registry. Each is installed only if you choose it, and shows what it may do first.</p>
+      <p class="kk-muted note">Common plugins from the registry. Each is installed only if you choose it, and shows what it may do first.</p>
     {/if}
     {#if reg.searching}
-      <p class="kk-muted" role="status">Asking the registries…</p>
+      <p class="kk-muted note" role="status">Asking the registries…</p>
     {:else if searched && coreResults.length === 0 && clientResults.length === 0}
-      <p class="kk-muted" role="status">Nothing found.</p>
+      <p class="kk-muted note" role="status">Nothing found.</p>
     {/if}
-    <ul class="list" aria-label="Registry results">
-      {#each coreResults as r (r.registry + r.id)}
-        <li class="card">
-          <div class="title">
-            <strong>{r.name}</strong>
-            <span class="kk-muted">{r.id} · {r.version} · {kindText(r.kind)} · from {r.registryName}</span>
-          </div>
-          {#if r.description}<p>{r.description}</p>{/if}
-          <p class="kk-muted">Published by <strong>{r.publisher}</strong>, signed with key <span title={r.key}>{shortKey(r.key)}</span>{#if r.repository} · {r.repository}{/if}</p>
-          <ul class="perms" aria-label="Permissions">
-            {#each describePermissions(r.requested) as line (line)}<li>{line}</li>{/each}
-          </ul>
-          <div class="actions">
-            <button type="button" class="kk-button primary" disabled={kernel.corePlugins.plugins.some((p) => p.id === r.id)} onclick={() => installCore(r)}>
-              {kernel.corePlugins.plugins.some((p) => p.id === r.id) ? 'Installed' : `Install on ${target.label}…`}
-            </button>
-          </div>
-        </li>
-      {/each}
-      {#each clientResults as r (r.registry + r.id)}
-        <li class="card">
-          <div class="title">
-            <strong>{r.name}</strong>
-            <span class="kk-muted">{r.id} · {r.version} · {kindText(r.kind)} · from {r.registryName}</span>
-          </div>
-          {#if r.description}<p>{r.description}</p>{/if}
-          <p class="kk-muted">Published by <strong>{r.publisher}</strong>, signed with key <span title={r.key}>{shortKey(r.key)}</span>{#if r.repository} · {r.repository}{/if}</p>
-          <ul class="perms" aria-label="What it needs">
-            {#each describeUiNeeds(r.kind, r.ui) as line (line)}<li>{line}</li>{/each}
-          </ul>
-          <div class="actions">
-            <button type="button" class="kk-button primary" disabled={kernel.clientPlugins.plugins.some((p) => p.entry.id === r.id)} onclick={() => installClient(r)}>
-              {kernel.clientPlugins.plugins.some((p) => p.entry.id === r.id) ? 'Installed' : 'Install in this app'}
-            </button>
-          </div>
-        </li>
-      {/each}
-    </ul>
+    {#if coreResults.length > 0 || clientResults.length > 0}
+      <ul class="list" aria-label="Registry results">
+        {#each coreResults as r (r.registry + r.id)}
+          <li class="card">
+            <div class="card-top">
+              <div class="title-col">
+                <strong>{r.name}</strong>
+                <span class="sub-id">{r.id} · v{r.version} · {kindText(r.kind)} · {r.registryName}</span>
+              </div>
+            </div>
+            {#if r.description}<p class="desc">{r.description}</p>{/if}
+            <p class="sig">Published by <strong>{r.publisher}</strong>, signed with key <span title={r.key}>{shortKey(r.key)}</span>{#if r.repository} · {r.repository}{/if}</p>
+            <ul class="perms" aria-label="Permissions">
+              {#each describePermissions(r.requested) as line (line)}<li>{line}</li>{/each}
+            </ul>
+            <div class="actions">
+              <button type="button" class="kk-button primary" disabled={kernel.corePlugins.plugins.some((p) => p.id === r.id)} onclick={() => installCore(r)}>
+                {kernel.corePlugins.plugins.some((p) => p.id === r.id) ? 'Installed' : `Install on ${target.label}…`}
+              </button>
+            </div>
+          </li>
+        {/each}
+        {#each clientResults as r (r.registry + r.id)}
+          <li class="card">
+            <div class="card-top">
+              <div class="title-col">
+                <strong>{r.name}</strong>
+                <span class="sub-id">{r.id} · v{r.version} · {kindText(r.kind)} · {r.registryName}</span>
+              </div>
+            </div>
+            {#if r.description}<p class="desc">{r.description}</p>{/if}
+            <p class="sig">Published by <strong>{r.publisher}</strong>, signed with key <span title={r.key}>{shortKey(r.key)}</span>{#if r.repository} · {r.repository}{/if}</p>
+            <ul class="perms" aria-label="What it needs">
+              {#each describeUiNeeds(r.kind, r.ui) as line (line)}<li>{line}</li>{/each}
+            </ul>
+            <div class="actions">
+              <button type="button" class="kk-button primary" disabled={kernel.clientPlugins.plugins.some((p) => p.entry.id === r.id)} onclick={() => installClient(r)}>
+                {kernel.clientPlugins.plugins.some((p) => p.entry.id === r.id) ? 'Installed' : 'Install in this app'}
+              </button>
+            </div>
+          </li>
+        {/each}
+      </ul>
+    {/if}
   </section>
 
   {#if !starter}
-    <section aria-labelledby="kk-updates">
+    <section class="group compact-group" aria-labelledby="kk-updates">
       <div class="head">
         <h2 id="kk-updates">Updates</h2>
         <button type="button" class="kk-button" disabled={reg.checking} onclick={() => reg.checkUpdates()}>Check for updates</button>
       </div>
       {#if reg.coreUpdates !== undefined || reg.clientUpdates !== undefined}
         {#if (reg.coreUpdates ?? []).length === 0 && (reg.clientUpdates ?? []).length === 0}
-          <p class="kk-muted" role="status">Everything is up to date.</p>
+          <p class="kk-muted note" role="status">Everything is up to date.</p>
         {/if}
-        <ul class="list" aria-label="Available updates">
-          {#each reg.coreUpdates ?? [] as u (u.plugin)}
-            <li class="card">
-              <div class="title"><strong>{u.plugin}</strong><span class="kk-muted">{u.from} → {u.to} · on {target.label}</span></div>
-              {#if u.widens}<p class="warning">This version asks for more permissions.</p>{/if}
-              <div class="actions"><button type="button" class="kk-button" onclick={() => updateCore(u)}>{u.widens ? 'Review and update…' : 'Update'}</button></div>
-            </li>
-          {/each}
-          {#each reg.clientUpdates ?? [] as u (u.plugin)}
-            <li class="card">
-              <div class="title"><strong>{u.plugin}</strong><span class="kk-muted">{u.from} → {u.to} · in this app</span></div>
-              {#if u.widens}<p class="warning">This version needs more than the installed one.</p>{/if}
-              <div class="actions"><button type="button" class="kk-button" onclick={() => updateClient(u)}>{u.widens ? 'Review and update…' : 'Update'}</button></div>
-            </li>
-          {/each}
-        </ul>
+        {#if (reg.coreUpdates ?? []).length > 0 || (reg.clientUpdates ?? []).length > 0}
+          <ul class="list" aria-label="Available updates">
+            {#each reg.coreUpdates ?? [] as u (u.plugin)}
+              <li class="card">
+                <div class="title-col"><strong>{u.plugin}</strong><span class="sub-id">{u.from} → {u.to} · on {target.label}</span></div>
+                {#if u.widens}<p class="warning">This version asks for more permissions.</p>{/if}
+                <div class="actions"><button type="button" class="kk-button" onclick={() => updateCore(u)}>{u.widens ? 'Review and update…' : 'Update'}</button></div>
+              </li>
+            {/each}
+            {#each reg.clientUpdates ?? [] as u (u.plugin)}
+              <li class="card">
+                <div class="title-col"><strong>{u.plugin}</strong><span class="sub-id">{u.from} → {u.to} · in this app</span></div>
+                {#if u.widens}<p class="warning">This version needs more than the installed one.</p>{/if}
+                <div class="actions"><button type="button" class="kk-button" onclick={() => updateClient(u)}>{u.widens ? 'Review and update…' : 'Update'}</button></div>
+              </li>
+            {/each}
+          </ul>
+        {/if}
       {:else}
-        <p class="kk-muted">Updates are never installed by themselves. Check when you want to.</p>
+        <p class="kk-muted note">Updates are never installed by themselves. Check when you want to.</p>
       {/if}
     </section>
 
-    <section aria-labelledby="kk-registries">
+    <section class="group compact-group" aria-labelledby="kk-registries">
       <div class="head">
         <h2 id="kk-registries">Registries and lockfiles</h2>
-        <button type="button" class="kk-button" aria-expanded={showRegistries} onclick={() => { showRegistries = !showRegistries; if (showRegistries) void reg.loadRegistries(); }}>{showRegistries ? 'Hide' : 'Show'}</button>
+        <button
+          type="button"
+          class="kk-button"
+          aria-expanded={showRegistries}
+          onclick={() => {
+            showRegistries = !showRegistries;
+            if (showRegistries) void reg.loadRegistries();
+          }}
+        >
+          {showRegistries ? 'Hide' : 'Show'}
+        </button>
       </div>
       {#if showRegistries}
-        {#if reg.coreAvailable}
-          <h3>On {target.label}</h3>
-          <ul class="plain">
-            {#each reg.coreRegistries ?? [] as r (r.url)}
-              <li><span>{r.url}{r.name ? ` (${r.name})` : ''}</span> <button type="button" class="kk-button" onclick={() => reg.removeCoreRegistry(r.url)}>Remove</button></li>
-            {/each}
-          </ul>
-          <p class="row">
-            <input class="kk-input" aria-label="Registry URL for {target.label}" placeholder="https://…/index.json" bind:value={newCoreRegistry} />
-            <button type="button" class="kk-button" disabled={!newCoreRegistry} onclick={() => { void reg.addCoreRegistry(newCoreRegistry); newCoreRegistry = ''; }}>Add</button>
-            <button type="button" class="kk-button" onclick={() => exportLock('core')}>Export lockfile</button>
-            <button type="button" class="kk-button" onclick={() => importLock('core')}>Import lockfile…</button>
-          </p>
-        {/if}
-        {#if reg.clientAvailable}
-          <h3>In this app</h3>
-          <ul class="plain">
-            {#each reg.clientRegistries ?? [] as url (url)}
-              <li><span>{url}</span> <button type="button" class="kk-button" onclick={() => reg.setClientRegistries((reg.clientRegistries ?? []).filter((u) => u !== url))}>Remove</button></li>
-            {/each}
-          </ul>
-          <p class="row">
-            <input class="kk-input" aria-label="Registry URL for this app" placeholder="https://…/index.json" bind:value={newClientRegistry} />
-            <button type="button" class="kk-button" disabled={!newClientRegistry} onclick={() => { void reg.setClientRegistries([...(reg.clientRegistries ?? []), newClientRegistry]); newClientRegistry = ''; }}>Add</button>
-            <button type="button" class="kk-button" onclick={() => exportLock('client')}>Export lockfile</button>
-            <button type="button" class="kk-button" onclick={() => importLock('client')}>Import lockfile…</button>
-          </p>
-        {/if}
+        <div class="reg-box">
+          {#if reg.coreAvailable}
+            <div class="reg-block">
+              <h3>On {target.label}</h3>
+              <ul class="plain">
+                {#each reg.coreRegistries ?? [] as r (r.url)}
+                  <li><span>{r.url}{r.name ? ` (${r.name})` : ''}</span> <button type="button" class="kk-button" onclick={() => reg.removeCoreRegistry(r.url)}>Remove</button></li>
+                {/each}
+              </ul>
+              <div class="row">
+                <input class="kk-input url-input" aria-label="Registry URL for {target.label}" placeholder="https://…/index.json" bind:value={newCoreRegistry} />
+                <button type="button" class="kk-button" disabled={!newCoreRegistry} onclick={() => { void reg.addCoreRegistry(newCoreRegistry); newCoreRegistry = ''; }}>Add</button>
+                <button type="button" class="kk-button" onclick={() => exportLock('core')}>Export lockfile</button>
+                <button type="button" class="kk-button" onclick={() => importLock('core')}>Import lockfile…</button>
+              </div>
+            </div>
+          {/if}
+          {#if reg.clientAvailable}
+            <div class="reg-block">
+              <h3>In this app</h3>
+              <ul class="plain">
+                {#each reg.clientRegistries ?? [] as url (url)}
+                  <li><span>{url}</span> <button type="button" class="kk-button" onclick={() => reg.setClientRegistries((reg.clientRegistries ?? []).filter((u) => u !== url))}>Remove</button></li>
+                {/each}
+              </ul>
+              <div class="row">
+                <input class="kk-input url-input" aria-label="Registry URL for this app" placeholder="https://…/index.json" bind:value={newClientRegistry} />
+                <button type="button" class="kk-button" disabled={!newClientRegistry} onclick={() => { void reg.setClientRegistries([...(reg.clientRegistries ?? []), newClientRegistry]); newClientRegistry = ''; }}>Add</button>
+                <button type="button" class="kk-button" onclick={() => exportLock('client')}>Export lockfile</button>
+                <button type="button" class="kk-button" onclick={() => importLock('client')}>Import lockfile…</button>
+              </div>
+            </div>
+          {/if}
+        </div>
       {/if}
     </section>
   {/if}
@@ -325,68 +358,138 @@
 {/if}
 
 <style>
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .compact-group {
+    padding: 12px 14px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-medium, 0);
+    background: var(--kk-surface-card, Canvas);
+  }
   h2 {
     margin: 0;
     font-size: var(--kk-font-size-large, large);
   }
   h3 {
-    margin: 12px 0 4px;
+    margin: 0 0 6px;
     font-size: var(--kk-font-size-base, medium);
   }
   .head {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin: 16px 0 8px;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
   }
-  .head h2 {
+  .search-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     flex: 1;
+    max-width: 460px;
+  }
+  .search-input {
+    flex: 1;
+    padding: 5px 10px;
+  }
+  .note {
+    margin: 0;
+    font-size: var(--kk-font-size-small, small);
   }
   .list {
     display: grid;
-    gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 10px;
     list-style: none;
     margin: 0;
     padding: 0;
   }
+  .reg-box {
+    display: grid;
+    gap: 14px;
+    padding-top: 6px;
+    border-top: 1px solid var(--kk-border-subtle, CanvasText);
+  }
+  .reg-block {
+    display: grid;
+    gap: 8px;
+  }
   .plain {
-    margin: 4px 0;
-    padding-left: 20px;
+    margin: 0;
+    padding-left: 18px;
+    font-size: var(--kk-font-size-small, small);
   }
   .row {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    align-items: center;
+    gap: 6px;
+  }
+  .url-input {
+    flex: 1;
+    min-width: 220px;
   }
   .card {
-    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
     border: 1px solid var(--kk-border-subtle, CanvasText);
     border-radius: var(--kk-radius-medium, 0);
     background: var(--kk-surface-card, Canvas);
   }
-  .title {
+  .card-top {
     display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
+    align-items: flex-start;
+    justify-content: space-between;
     gap: 8px;
   }
-  .card p {
-    margin: 6px 0;
+  .title-col {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .sub-id {
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-muted, GrayText);
+    overflow-wrap: anywhere;
+  }
+  .desc {
+    margin: 0;
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-secondary, CanvasText);
+  }
+  .sig {
+    margin: 0;
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-muted, GrayText);
+    overflow-wrap: anywhere;
   }
   .perms {
-    margin: 6px 0;
-    padding-left: 20px;
-    color: var(--kk-text-secondary, CanvasText);
+    margin: 0;
+    padding-left: 18px;
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-muted, GrayText);
   }
   .actions {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: 6px;
+    margin-top: auto;
+    padding-top: 8px;
+    border-top: 1px solid var(--kk-border-subtle, CanvasText);
   }
   .warning {
-    padding: 6px 8px;
+    margin: 0;
+    padding: 6px 10px;
     border-left: 3px solid var(--kk-state-warning, CanvasText);
+    border-radius: var(--kk-radius-small, 0);
     background: var(--kk-state-warning-tint, Canvas);
+    font-size: var(--kk-font-size-small, small);
   }
   .lock {
     min-height: 240px;
@@ -395,6 +498,7 @@
   .scrim {
     position: fixed;
     inset: 0;
+    z-index: 40;
     background: var(--kk-surface-overlay, Canvas);
     opacity: var(--kk-overlay-opacity, 0.6);
   }
@@ -402,13 +506,14 @@
     position: fixed;
     top: 10vh;
     left: 50%;
+    z-index: 41;
     display: grid;
-    gap: 8px;
+    gap: 10px;
     width: min(560px, 92vw);
     max-height: 80vh;
     overflow: auto;
     transform: translateX(-50%);
-    padding: 16px;
+    padding: 18px;
     border: 1px solid var(--kk-border-strong, CanvasText);
     border-radius: var(--kk-radius-large, 0);
     background: var(--kk-surface-raised, Canvas);
@@ -416,5 +521,10 @@
   }
   .dialog p {
     margin: 0;
+    font-size: var(--kk-font-size-small, small);
+  }
+  .dialog .actions {
+    border-top: 0;
+    padding-top: 4px;
   }
 </style>

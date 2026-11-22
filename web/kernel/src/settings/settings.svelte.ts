@@ -2,6 +2,21 @@
  * Client settings (06-client, Client settings): kept in the webview's storage, inside
  * the client data directory. Nothing secret is stored here.
  */
+import {
+  LEFT_DEFAULT,
+  LEFT_MAX,
+  LEFT_MIN,
+  RIGHT_DEFAULT,
+  RIGHT_MAX,
+  RIGHT_MIN,
+  clamp,
+  defaultLayout,
+  findLeaf,
+  firstLeaf,
+  parseLayout,
+  type LayoutNode,
+  type LeftSidebarView,
+} from '../layout/layout';
 
 export interface TabSpec {
   connection: string;
@@ -15,8 +30,26 @@ export interface Settings {
   themeVariant?: string;
   appearance: 'system' | 'light' | 'dark';
   reduceMotion: boolean;
+  /** Mirror of the active pane's tabs (kept for compatibility with legacy storage). */
   tabs: TabSpec[];
   activeTab: number;
+  /** Split tree of workspace panes. */
+  layout: LayoutNode;
+  /** Currently focused leaf pane id. */
+  activePaneId: string;
+  /** Left sidebar state and width in pixels. */
+  leftSidebarOpen: boolean;
+  leftSidebarWidth: number;
+  leftSidebarView: LeftSidebarView;
+  /** Right inspector dock state, width in pixels, open tabs, and selected tab key. */
+  rightSidebarOpen: boolean;
+  rightSidebarWidth: number;
+  /** Open inspector panel keys (`<plugin>/<slotId>`). Absent until the user opens or closes tabs. */
+  openInspectorTabs?: string[];
+  activeInspectorTab?: string;
+  /** Last-used agent provider and model for inline new-thread creation. */
+  lastProvider?: string;
+  lastModel?: string;
   /** UI plugins the user disabled (bundled ones are enabled unless listed). */
   disabledPlugins: string[];
   /** Installed inline UI plugins the user trusts. */
@@ -32,6 +65,13 @@ export const DEFAULTS: Settings = {
   reduceMotion: false,
   tabs: [],
   activeTab: 0,
+  layout: defaultLayout(),
+  activePaneId: 'pane-1',
+  leftSidebarOpen: true,
+  leftSidebarWidth: LEFT_DEFAULT,
+  leftSidebarView: 'workspaces',
+  rightSidebarOpen: false,
+  rightSidebarWidth: RIGHT_DEFAULT,
   disabledPlugins: [],
   trustedPlugins: [],
   pluginStorage: {},
@@ -56,17 +96,30 @@ export function parseSettings(text: string | null): Settings {
   }
   const r = (typeof raw === 'object' && raw !== null ? raw : {}) as Partial<Record<keyof Settings, unknown>>;
   const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+  const legacyTabs = Array.isArray(r.tabs)
+    ? (r.tabs as unknown[]).filter(
+        (t): t is TabSpec =>
+          typeof t === 'object' && t !== null && typeof (t as TabSpec).connection === 'string' && typeof (t as TabSpec).workspace === 'string',
+      )
+    : [];
+  const legacyActiveTab = typeof r.activeTab === 'number' ? r.activeTab : 0;
+  const layout = parseLayout(r.layout, legacyTabs, legacyActiveTab);
+  const candidatePane = typeof r.activePaneId === 'string' ? findLeaf(layout, r.activePaneId) : undefined;
+  const activePane = candidatePane ?? firstLeaf(layout);
+
   const s: Settings = {
     ...DEFAULTS,
     appearance: r.appearance === 'light' || r.appearance === 'dark' ? r.appearance : 'system',
     reduceMotion: r.reduceMotion === true,
-    tabs: Array.isArray(r.tabs)
-      ? (r.tabs as unknown[]).filter(
-          (t): t is TabSpec =>
-            typeof t === 'object' && t !== null && typeof (t as TabSpec).connection === 'string' && typeof (t as TabSpec).workspace === 'string',
-        )
-      : [],
-    activeTab: typeof r.activeTab === 'number' ? r.activeTab : 0,
+    tabs: activePane.tabs,
+    activeTab: activePane.activeTab,
+    layout,
+    activePaneId: activePane.id,
+    leftSidebarOpen: r.leftSidebarOpen === undefined ? DEFAULTS.leftSidebarOpen : r.leftSidebarOpen === true,
+    leftSidebarWidth: typeof r.leftSidebarWidth === 'number' ? clamp(r.leftSidebarWidth, LEFT_MIN, LEFT_MAX) : DEFAULTS.leftSidebarWidth,
+    leftSidebarView: r.leftSidebarView === 'threads' ? 'threads' : 'workspaces',
+    rightSidebarOpen: r.rightSidebarOpen === true,
+    rightSidebarWidth: typeof r.rightSidebarWidth === 'number' ? clamp(r.rightSidebarWidth, RIGHT_MIN, RIGHT_MAX) : DEFAULTS.rightSidebarWidth,
     disabledPlugins: strings(r.disabledPlugins),
     trustedPlugins: strings(r.trustedPlugins),
     pluginStorage:
@@ -74,6 +127,10 @@ export function parseSettings(text: string | null): Settings {
     welcomeDone: r.welcomeDone === true,
   };
   if (typeof r.themeVariant === 'string') s.themeVariant = r.themeVariant;
+  if (Array.isArray(r.openInspectorTabs)) s.openInspectorTabs = strings(r.openInspectorTabs);
+  if (typeof r.activeInspectorTab === 'string') s.activeInspectorTab = r.activeInspectorTab;
+  if (typeof r.lastProvider === 'string') s.lastProvider = r.lastProvider;
+  if (typeof r.lastModel === 'string') s.lastModel = r.lastModel;
   return s;
 }
 

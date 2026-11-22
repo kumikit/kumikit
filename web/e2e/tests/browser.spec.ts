@@ -137,6 +137,7 @@ test('pair a browser, then the M2 flow through the core it came from', async ({ 
   await expect(region.getByRole('listitem').filter({ hasText: 'test.recorded' })).toContainText('Enabled');
   // The recorded provider runs on provider-acp, which the core seeds after it is ready.
   await expect(region.getByRole('listitem').filter({ hasText: 'kumikit.provider-acp' })).toContainText('Enabled');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
 
   // A folder on the core's machine is typed.
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
@@ -146,10 +147,7 @@ test('pair a browser, then the M2 flow through the core it came from', async ({ 
   // "New thread" needs an open tab; pressing it from the palette before the tab exists
   // matches nothing (this raced on the macOS runner).
   await expect(page.getByRole('navigation', { name: 'Open workspaces' }).getByRole('button', { name: 'proj', exact: true })).toBeVisible();
-  await command(page, 'New thread');
-  const dialog = page.getByRole('dialog', { name: 'New thread' });
-  await dialog.getByLabel('Agent').selectOption({ label: 'Recorded Claude Code' });
-  await dialog.getByRole('button', { name: 'Start' }).click();
+  await page.getByLabel('Agent').selectOption({ label: 'Recorded Claude Code' });
   await page.getByLabel('Message').fill('Add a line to notes.txt');
   await page.getByLabel('Message').press('Enter');
   await expect(page.getByRole('region', { name: 'Approval' })).toContainText('Needs your approval');

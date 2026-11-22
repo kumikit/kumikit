@@ -143,6 +143,43 @@ is 33.7–33.9 MiB (allowed past its 32 MiB budget during M5; reported by
 [M5 — Plugins](../plans/2026-11-19-m5-plugins.md); interface freeze review:
 [freeze review](../plans/2026-11-20-freeze-review.md).
 
+## M6 — UI design and usability
+
+A refined, minimal workspace shell and everyday usability polish, built as an amalgamation of
+Zed's thin, keyboard- and icon-first chrome with Claude web's calm, distraction-free chat
+experience, plus Orca-inspired workspace and session organization:
+
+- **Thin toolbar and status bar**: compact top toolbar and bottom status bar with single-click
+  icon controls and descriptive tooltips (with keybindings), replacing bulky text buttons.
+- **Adjustable sidebars and plugin docks**: resizable, collapsible left and right sidebars
+  persisted per client.
+  - Left sidebar: Orca-inspired project/workspace and thread organization (tree and active
+    threads views, quick single-click `+` thread creation per workspace, clear live status
+    dots, and docked `sidebar.section` UI plugins).
+  - Right sidebar (inspector dock): hosts `inspector.tab` UI plugins (such as `kumikit.ui-git`)
+    with a thin tab switcher and one-click dock toggle from the toolbar and status bar.
+- **Main panel splits**: recursive horizontal and vertical resizable splits in the main area,
+  each pane with its own tab strip, active focus indicator, draggable split divider, and
+  keyboard/toolbar controls so multiple threads or views run side by side.
+- **Calm conversation UI**: centered readable transcript column, subtle user bubbles, clean
+  markdown/code/diff presentation, compact collapsible tool calls and reasoning, and a focused
+  composer with icon send/stop controls.
+- **Iterative usability fixes**: interactive design passes to tighten workflows (quick thread
+  creation, remembered provider/model, thread management, settings/plugins/cores visual
+  consistency, keyboard navigation across splits).
+
+**Status:** in progress (`m6-ui-design`). Plan: [M6 — UI design and usability](../plans/2026-11-22-m6-ui-design.md).
+
+**Exit:**
+1. Left and right sidebars resize smoothly, collapse/expand via toolbar icons, status bar dock
+   toggles and keyboard shortcuts, and persist their dimensions and state.
+2. `inspector.tab` UI plugins (e.g., `kumikit.ui-git`) mount, switch and follow the active
+   workspace in the right sidebar without special cases in the UI kernel.
+3. The main workspace supports horizontal and vertical resizable splits with independent tabs
+   and threads, persisted across reloads.
+4. All existing accessibility (WCAG AA axe checks in light and dark themes), UI rule checks,
+   bundle size budget (≤ 150 KB gzipped), unit tests and desktop/browser exit tests pass.
+
 ## Open questions
 
 | Question | Decide by |

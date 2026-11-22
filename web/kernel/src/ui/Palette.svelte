@@ -68,6 +68,7 @@
   .scrim {
     position: fixed;
     inset: 0;
+    z-index: 40;
     background: var(--kk-surface-overlay, Canvas);
     opacity: var(--kk-overlay-opacity, 0.6);
   }
@@ -75,6 +76,7 @@
     position: fixed;
     top: 12vh;
     left: 50%;
+    z-index: 41;
     width: min(560px, 92vw);
     transform: translateX(-50%);
     padding: 8px;

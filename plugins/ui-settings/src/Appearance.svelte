@@ -25,44 +25,94 @@
 </script>
 
 <div class="kk-appearance">
-  <h2>Appearance</h2>
+  <div class="intro">
+    <h2>Appearance</h2>
+    <p class="muted">Choose a color theme and motion preference for this window.</p>
+  </div>
   <fieldset>
     <legend>Theme</legend>
-    {#each modes as m (m.value)}
-      <label><input type="radio" name="kk-theme" value={m.value} checked={current === m.value} onchange={() => pick(m.value)} /> {m.label}</label>
-    {/each}
-    {#each variants as v (v.key)}
-      <label><input type="radio" name="kk-theme" value={v.key} checked={current === v.key} onchange={() => pick(v.key)} /> {v.name} <span class="muted">({v.appearance})</span></label>
-    {/each}
+    <div class="options">
+      {#each modes as m (m.value)}
+        <label class="option" class:selected={current === m.value}>
+          <input type="radio" name="kk-theme" value={m.value} checked={current === m.value} onchange={() => pick(m.value)} />
+          <span>{m.label}</span>
+        </label>
+      {/each}
+      {#each variants as v (v.key)}
+        <label class="option" class:selected={current === v.key}>
+          <input type="radio" name="kk-theme" value={v.key} checked={current === v.key} onchange={() => pick(v.key)} />
+          <span>{v.name}</span>
+          <span class="chip">{v.appearance}</span>
+        </label>
+      {/each}
+    </div>
   </fieldset>
-  <label class="check">
+  <label class="option check">
     <input type="checkbox" checked={choice.reduceMotion} onchange={(e) => ctx.theme.select({ reduceMotion: e.currentTarget.checked })} />
-    Reduce motion, even if the system does not ask for it
+    <span>Reduce motion, even if the system does not ask for it</span>
   </label>
 </div>
 
 <style>
   .kk-appearance {
     display: grid;
-    gap: 16px;
-    max-width: 560px;
+    gap: 18px;
+    max-width: 580px;
+  }
+  .intro {
+    display: grid;
+    gap: 4px;
   }
   h2 {
     margin: 0;
     font-size: var(--kk-font-size-large, large);
   }
+  .intro p {
+    margin: 0;
+    font-size: var(--kk-font-size-small, small);
+  }
   fieldset {
+    border: 0;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+  }
+  legend {
+    padding: 0;
+    margin-bottom: 4px;
+    font-size: var(--kk-font-size-small, small);
+    font-weight: var(--kk-font-weight-strong, bold);
+    color: var(--kk-text-secondary, CanvasText);
+  }
+  .options {
     display: grid;
     gap: 6px;
-    margin: 0;
-    padding: 8px 12px;
-    border: 1px solid var(--kk-border-subtle, CanvasText);
-    border-radius: var(--kk-radius-medium, 0);
   }
-  label {
+  .option {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
+    padding: 9px 12px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-medium, 0);
+    background: var(--kk-surface-card, Canvas);
+    cursor: pointer;
+    font-size: var(--kk-font-size-small, small);
+  }
+  .option:hover {
+    background: var(--kk-surface-hover, ButtonFace);
+  }
+  .option.selected {
+    border-color: var(--kk-accent, Highlight);
+    background: var(--kk-surface-selected, Highlight);
+  }
+  .chip {
+    margin-left: auto;
+    padding: 1px 7px;
+    border-radius: var(--kk-radius-large, 0);
+    background: var(--kk-surface-raised, Canvas);
+    color: var(--kk-text-muted, GrayText);
   }
   .muted {
     color: var(--kk-text-muted, GrayText);

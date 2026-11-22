@@ -151,8 +151,7 @@ async function exitFlow(b) {
   pick(project);
   await palette(b, 'Open a project folder');
   await b.wait('nav[aria-label="Open workspaces"] button', 'proj');
-  await palette(b, 'New thread');
-  await b.click(await button(b, '[role="dialog"]', 'Start'));
+  await b.wait('select[aria-label="Agent"] option', 'Recorded Claude Code');
   const box = await b.wait('#kk-chat-input');
   await b.type(box, 'Add a line to notes.txt');
   await b.keys('Enter');

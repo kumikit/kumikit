@@ -208,9 +208,7 @@ async function flow(b) {
   pick(project);
   await palette(b, 'Open a project folder');
   await b.wait('nav[aria-label="Open workspaces"] button', 'proj');
-  await palette(b, 'New thread');
-  await b.wait('[role="dialog"] option', 'Acme Agent');
-  await b.click(await b.wait('[role="dialog"] button', 'Start'));
+  await b.wait('select[aria-label="Agent"] option', 'Acme Agent');
   await b.type(await b.wait('#kk-chat-input'), 'use the tool');
   await b.keys('Enter');
   await b.wait('main', 'gateway-m5-ok');

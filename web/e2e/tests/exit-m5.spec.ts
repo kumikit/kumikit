@@ -74,16 +74,13 @@ test('registry tool plugin, gateway MCP turn and sandboxed panel work together',
   const panelItem = starter.getByRole('listitem').filter({ hasText: 'acme.panel' });
   await panelItem.getByRole('button', { name: 'Install in this app' }).click();
   await expect(page.getByRole('region', { name: 'On this client' }).getByRole('listitem').filter({ hasText: 'acme.panel' })).toContainText('Enabled');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
 
   // Open workspace and run an agent turn that calls `acme_tool__echo` through the gateway.
   await kk.pick(kk.project);
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
   await expect(page.getByRole('navigation', { name: 'Open workspaces' }).getByRole('button', { name: 'proj', exact: true })).toBeVisible();
-
-  await command(page, 'New thread');
-  const dialog = page.getByRole('dialog', { name: 'New thread' });
-  await dialog.getByLabel('Agent').selectOption({ label: 'Acme Agent' });
-  await dialog.getByRole('button', { name: 'Start' }).click();
+  await page.getByLabel('Agent').selectOption({ label: 'Acme Agent' });
 
   await page.getByLabel('Message').fill('use the tool');
   await page.getByLabel('Message').press('Enter');

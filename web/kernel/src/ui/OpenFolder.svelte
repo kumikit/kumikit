@@ -46,6 +46,7 @@ computer's files, so the path on that machine is typed. -->
   .scrim {
     position: fixed;
     inset: 0;
+    z-index: 40;
     background: var(--kk-surface-overlay, Canvas);
     opacity: var(--kk-overlay-opacity, 0.6);
   }
@@ -53,6 +54,7 @@ computer's files, so the path on that machine is typed. -->
     position: fixed;
     top: 15vh;
     left: 50%;
+    z-index: 41;
     width: min(480px, 92vw);
     transform: translateX(-50%);
     padding: 16px;

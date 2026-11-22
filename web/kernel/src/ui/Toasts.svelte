@@ -17,6 +17,7 @@
     position: fixed;
     right: 16px;
     bottom: 32px;
+    z-index: 60;
     display: grid;
     gap: 8px;
     max-width: min(420px, 90vw);
