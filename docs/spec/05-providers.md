@@ -32,13 +32,19 @@ the local id; the protocol and the stored `Thread.provider` use the qualified on
    ```
 
    The `acp` table has `command`, `args`, optional `env` (plain variables), `secret-env`
-   (variable name → secret name, checked against `permissions.secrets`), `models` (a
-   list of `{ id, label, capabilities }`; default: one model, `default`), `model-arg` (a
-   flag that passes the chosen model on the agent's command line, for example
-   `--model`; ACP itself has no model selection), `mode` (a session mode to set after
-   opening, for agents whose default mode never asks for approval) and `auth-method` (an
-   ACP authentication method id to call with `authenticate` after `initialize`, for
-   agents that require it before opening a session). The table is
+   (variable name → secret name, checked against `permissions.secrets`), `models` (an
+   optional static list of `{ id, label, capabilities }`; when omitted, `provider-acp`
+   probes the agent's `session/new` response for `configOptions` with `category = "model"`
+   or `models.availableModels`, falling back to `default` if the agent reports none or
+   cannot be reached), `model-arg` (a flag that passes the chosen model on the agent's
+   command line, for example `--model`; when omitted, `provider-acp` selects a non-default
+   model through ACP `session/set_config_option` or `session/set_model`), `mode` (a
+   session mode to set after opening, for agents whose default mode never asks for
+   approval) and `auth-method` (an ACP authentication method id to call with `authenticate`
+   after `initialize`, for agents that require it before opening a session). The plugin
+   host runs delegated `list-models` probes in a short-lived instance with the declaring
+   plugin's granted permissions and an isolated probe directory (`KUMIKIT_PROBE_DIR`), and
+   caches results per provider until the TTL expires or a plugin changes. The table is
    checked against the plugin's `acp.schema.json`. `provider-acp` starts the agent in the thread's workspace, with the
    contributing plugin's permissions, and translates ACP session updates into kernel
    events: message chunks to `text.delta`/`text.done`, thought chunks to

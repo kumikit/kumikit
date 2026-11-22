@@ -127,12 +127,22 @@ pub enum Action {
     Failed(String),
 }
 
+/// A model reported by an ACP agent in `session/new` (`configOptions` or `models`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveredModel {
+    /// Model id (`value` in `configOptions`, or `modelId` in `models.availableModels`).
+    pub id: String,
+    /// Human-readable display label.
+    pub label: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Idle,
     Initializing,
     Authenticating,
     Opening,
+    SettingModel,
     SettingMode,
     Ready,
     Prompting,
@@ -157,6 +167,9 @@ pub struct Options {
     pub cwd: String,
     /// The agent's session id to resume, if any.
     pub resume: Option<String>,
+    /// Model id to select via ACP (`session/set_config_option` or `session/set_model`)
+    /// after opening, when not `"default"` and different from the agent's current model.
+    pub model: Option<String>,
     /// Session mode to set after opening (`session/set_mode`).
     pub mode: Option<String>,
     /// ACP authentication method id to call with `authenticate` after `initialize`.
@@ -164,6 +177,9 @@ pub struct Options {
     /// The tool gateway, passed to the agent as a stdio MCP server
     /// (`docs/spec/03-kernel.md#tool-gateway`).
     pub mcp: Option<McpStdio>,
+    /// Stop as soon as `session/new` answers (used by `list-models` probing; skips
+    /// `session/set_model` and `session/set_mode`).
+    pub probe_only: bool,
 }
 
 /// A stdio MCP server for the agent to start (ACP `McpServer` stdio form).
@@ -201,10 +217,113 @@ pub struct Session {
     pending: HashMap<u64, &'static str>,
     session: Option<String>,
     load_supported: bool,
+    /// Models reported by the agent in `session/new` (first is the default).
+    discovered_models: Vec<DiscoveredModel>,
+    /// Config option id for model selection (`session/set_config_option`), if advertised.
+    model_config_id: Option<String>,
+    /// Current model reported by the agent in `session/new`.
+    current_model: Option<String>,
+    /// Whether `session/new` advertised `models.availableModels` (`session/set_model`).
+    has_models_api: bool,
     text: String,
     tools: HashMap<String, Tool>,
     tool_order: Vec<String>,
     cost: Option<f64>,
+}
+
+/// Extracts available models from an ACP `session/new` result.
+///
+/// Prefers `configOptions` with `category == "model"` (or `id == "model"`), falling back
+/// to `models.availableModels`. Reorders the list so `"default"` (if present) or the
+/// agent's `currentValue`/`currentModelId` comes first.
+pub fn extract_models(result: &Value) -> Vec<DiscoveredModel> {
+    parse_models_meta(result).0
+}
+
+/// Returns `(models, config_option_id, current_model, has_models_api)`.
+fn parse_models_meta(
+    result: &Value,
+) -> (Vec<DiscoveredModel>, Option<String>, Option<String>, bool) {
+    let has_models_api = result["models"]["availableModels"].is_array();
+    let mut models = Vec::new();
+    let mut config_id = None;
+    let mut current = None;
+
+    if let Some(opts) = result["configOptions"].as_array()
+        && let Some(entry) = opts
+            .iter()
+            .find(|o| o["category"] == "model" || o["id"] == "model")
+    {
+        config_id = entry["id"].as_str().map(str::to_owned);
+        current = entry["currentValue"].as_str().map(str::to_owned);
+        if let Some(items) = entry["options"].as_array() {
+            collect_config_options(items, &mut models);
+        }
+    }
+
+    if models.is_empty()
+        && let Some(avail) = result["models"]["availableModels"].as_array()
+    {
+        current = result["models"]["currentModelId"]
+            .as_str()
+            .map(str::to_owned);
+        for item in avail {
+            let Some(id) = item["modelId"].as_str().filter(|s| !s.is_empty()) else {
+                continue;
+            };
+            let label = item["name"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .unwrap_or(id)
+                .to_owned();
+            if !models.iter().any(|m| m.id == id) {
+                models.push(DiscoveredModel {
+                    id: id.to_owned(),
+                    label,
+                });
+            }
+        }
+    }
+
+    // Put "default" first if present; otherwise put the agent's current model first so
+    // `models[0]` always represents the agent's default choice.
+    if let Some(pos) = models.iter().position(|m| m.id == "default") {
+        if pos > 0 {
+            let item = models.remove(pos);
+            models.insert(0, item);
+        }
+    } else if let Some(cur) = current.as_deref()
+        && let Some(pos) = models.iter().position(|m| m.id == cur)
+        && pos > 0
+    {
+        let item = models.remove(pos);
+        models.insert(0, item);
+    }
+
+    (models, config_id, current, has_models_api)
+}
+
+fn collect_config_options(items: &[Value], out: &mut Vec<DiscoveredModel>) {
+    for item in items {
+        if let Some(group_items) = item["options"].as_array() {
+            collect_config_options(group_items, out);
+            continue;
+        }
+        let Some(id) = item["value"].as_str().filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        let label = item["name"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(id)
+            .to_owned();
+        if !out.iter().any(|m| m.id == id) {
+            out.push(DiscoveredModel {
+                id: id.to_owned(),
+                label,
+            });
+        }
+    }
 }
 
 fn update_text(update: &Value) -> Option<String> {
@@ -260,6 +379,10 @@ impl Session {
             pending: HashMap::new(),
             session: None,
             load_supported: false,
+            discovered_models: Vec::new(),
+            model_config_id: None,
+            current_model: None,
+            has_models_api: false,
             text: String::new(),
             tools: HashMap::new(),
             tool_order: Vec::new(),
@@ -270,6 +393,11 @@ impl Session {
     /// The agent's session id, once open.
     pub fn id(&self) -> Option<&str> {
         self.session.as_deref()
+    }
+
+    /// Models reported by the agent during `session/new`, if any.
+    pub fn discovered_models(&self) -> &[DiscoveredModel] {
+        &self.discovered_models
     }
 
     fn request(&mut self, method: &'static str, params: Value) -> Action {
@@ -455,19 +583,23 @@ impl Session {
                 let Some(session) = self.session.clone() else {
                     return vec![Action::Failed("the agent returned no session id".into())];
                 };
-                match self.options.mode.clone() {
-                    Some(mode) => {
-                        self.phase = Phase::SettingMode;
-                        vec![self.request(
-                            "session/set_mode",
-                            json!({"sessionId": session, "modeId": mode}),
-                        )]
-                    }
-                    None => {
-                        self.phase = Phase::Ready;
-                        vec![Action::Ready { session }]
-                    }
+                let (models, config_id, current, has_models_api) = parse_models_meta(result);
+                if !models.is_empty() {
+                    self.discovered_models = models;
                 }
+                self.model_config_id = config_id;
+                self.current_model = current;
+                self.has_models_api = has_models_api;
+
+                if self.options.probe_only {
+                    self.phase = Phase::Ready;
+                    return vec![Action::Ready { session }];
+                }
+                self.maybe_set_model_or_mode(session)
+            }
+            "session/set_config_option" | "session/set_model" => {
+                let session = self.session.clone().unwrap_or_default();
+                self.maybe_set_mode(session)
             }
             "session/set_mode" => {
                 self.phase = Phase::Ready;
@@ -477,6 +609,46 @@ impl Session {
             }
             "session/prompt" => self.turn_done(result),
             _ => Vec::new(),
+        }
+    }
+
+    fn maybe_set_model_or_mode(&mut self, session: String) -> Vec<Action> {
+        if let Some(model) = self.options.model.clone()
+            && !model.is_empty()
+            && model != "default"
+            && self.current_model.as_deref() != Some(model.as_str())
+        {
+            if let Some(config_id) = self.model_config_id.clone() {
+                self.phase = Phase::SettingModel;
+                return vec![self.request(
+                    "session/set_config_option",
+                    json!({"sessionId": session, "configId": config_id, "value": model}),
+                )];
+            }
+            if self.has_models_api {
+                self.phase = Phase::SettingModel;
+                return vec![self.request(
+                    "session/set_model",
+                    json!({"sessionId": session, "modelId": model}),
+                )];
+            }
+        }
+        self.maybe_set_mode(session)
+    }
+
+    fn maybe_set_mode(&mut self, session: String) -> Vec<Action> {
+        match self.options.mode.clone() {
+            Some(mode) => {
+                self.phase = Phase::SettingMode;
+                vec![self.request(
+                    "session/set_mode",
+                    json!({"sessionId": session, "modeId": mode}),
+                )]
+            }
+            None => {
+                self.phase = Phase::Ready;
+                vec![Action::Ready { session }]
+            }
         }
     }
 
@@ -773,5 +945,185 @@ mod tests {
                 session: "s1".into()
             }]
         );
+    }
+
+    #[test]
+    fn extracts_models_from_config_options_and_puts_current_or_default_first() {
+        // When `currentValue` is non-default and "default" is not in the list, `currentValue`
+        // moves to index 0.
+        let r = json!({
+            "sessionId": "s1",
+            "configOptions": [
+                {"id": "mode", "category": "mode", "options": [{"value": "build", "name": "Build"}]},
+                {
+                    "id": "model",
+                    "category": "model",
+                    "currentValue": "opencode/tidepool",
+                    "options": [
+                        {"value": "deepseek/v4", "name": "DeepSeek V4"},
+                        {"value": "opencode/tidepool", "name": "Tidepool"}
+                    ]
+                }
+            ]
+        });
+        let models = extract_models(&r);
+        assert_eq!(
+            models,
+            vec![
+                DiscoveredModel {
+                    id: "opencode/tidepool".into(),
+                    label: "Tidepool".into()
+                },
+                DiscoveredModel {
+                    id: "deepseek/v4".into(),
+                    label: "DeepSeek V4".into()
+                },
+            ]
+        );
+
+        // When "default" is present, it comes first even if currentValue is something else.
+        let r2 = json!({
+            "sessionId": "s1",
+            "configOptions": [{
+                "id": "model",
+                "category": "model",
+                "currentValue": "haiku",
+                "options": [
+                    {"value": "opus", "name": "Opus 5.5"},
+                    {"value": "default", "name": "Default (recommended)"},
+                    {"value": "haiku", "name": "Haiku 5.5"}
+                ]
+            }]
+        });
+        assert_eq!(extract_models(&r2)[0].id, "default");
+
+        // Falls back to `models.availableModels` when `configOptions` has no model entry.
+        let r3 = json!({
+            "sessionId": "s1",
+            "models": {
+                "currentModelId": "m2",
+                "availableModels": [
+                    {"modelId": "m1", "name": "Model One"},
+                    {"modelId": "m2", "name": "Model Two"}
+                ]
+            }
+        });
+        assert_eq!(
+            extract_models(&r3),
+            vec![
+                DiscoveredModel {
+                    id: "m2".into(),
+                    label: "Model Two".into()
+                },
+                DiscoveredModel {
+                    id: "m1".into(),
+                    label: "Model One".into()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn sets_selected_model_via_config_option_or_set_model_and_skips_when_already_active() {
+        // Different model with configOptions -> sends session/set_config_option then session/set_mode.
+        let mut s = Session::new(Options {
+            cwd: "/w".into(),
+            model: Some("claude-opus-5-5".into()),
+            mode: Some("default".into()),
+            ..Options::default()
+        });
+        s.start();
+        s.on_line(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}"#);
+        let out = s.on_line(
+            r#"{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s1","configOptions":[{"id":"model","category":"model","currentValue":"gemini-4","options":[{"value":"gemini-4","name":"Gemini 4"},{"value":"claude-opus-5-5","name":"Claude Opus 5.5"}]}]}}"#,
+        );
+        let [Action::Write(line)] = out.as_slice() else {
+            panic!("{out:?}");
+        };
+        let v: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(v["method"], "session/set_config_option");
+        assert_eq!(
+            v["params"],
+            json!({"sessionId": "s1", "configId": "model", "value": "claude-opus-5-5"})
+        );
+        let out = s.on_line(r#"{"jsonrpc":"2.0","id":3,"result":{}}"#);
+        let [Action::Write(line)] = out.as_slice() else {
+            panic!("{out:?}");
+        };
+        let v: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(v["method"], "session/set_mode");
+        let out = s.on_line(r#"{"jsonrpc":"2.0","id":4,"result":{}}"#);
+        assert_eq!(
+            out,
+            [Action::Ready {
+                session: "s1".into()
+            }]
+        );
+
+        // Same model as currentValue -> skips set_config_option and goes straight to Ready.
+        let mut s2 = Session::new(Options {
+            cwd: "/w".into(),
+            model: Some("gemini-4".into()),
+            ..Options::default()
+        });
+        s2.start();
+        s2.on_line(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}"#);
+        let out = s2.on_line(
+            r#"{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s1","configOptions":[{"id":"model","category":"model","currentValue":"gemini-4","options":[{"value":"gemini-4","name":"Gemini 4"}]}]}}"#,
+        );
+        assert_eq!(
+            out,
+            [Action::Ready {
+                session: "s1".into()
+            }]
+        );
+
+        // Agent with only `models.availableModels` -> uses `session/set_model`.
+        let mut s3 = Session::new(Options {
+            cwd: "/w".into(),
+            model: Some("m2".into()),
+            ..Options::default()
+        });
+        s3.start();
+        s3.on_line(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}"#);
+        let out = s3.on_line(
+            r#"{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s1","models":{"currentModelId":"m1","availableModels":[{"modelId":"m1","name":"One"},{"modelId":"m2","name":"Two"}]}}}"#,
+        );
+        let [Action::Write(line)] = out.as_slice() else {
+            panic!("{out:?}");
+        };
+        let v: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(v["method"], "session/set_model");
+        assert_eq!(v["params"], json!({"sessionId": "s1", "modelId": "m2"}));
+        let out = s3.on_line(r#"{"jsonrpc":"2.0","id":3,"result":{}}"#);
+        assert_eq!(
+            out,
+            [Action::Ready {
+                session: "s1".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn probe_only_stops_at_session_new_and_records_discovered_models() {
+        let mut s = Session::new(Options {
+            cwd: "/probe".into(),
+            mode: Some("default".into()),
+            probe_only: true,
+            ..Options::default()
+        });
+        s.start();
+        s.on_line(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}"#);
+        let out = s.on_line(
+            r#"{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s1","configOptions":[{"id":"model","category":"model","currentValue":"m1","options":[{"value":"m1","name":"Model 1"}]}]}}"#,
+        );
+        assert_eq!(
+            out,
+            [Action::Ready {
+                session: "s1".into()
+            }]
+        );
+        assert_eq!(s.discovered_models().len(), 1);
+        assert_eq!(s.discovered_models()[0].id, "m1");
     }
 }

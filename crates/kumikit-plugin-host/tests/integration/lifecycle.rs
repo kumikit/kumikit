@@ -546,3 +546,38 @@ async fn uninstalling_stops_running_instances_before_deleting_data() {
     assert_eq!(e.host.instances("test.probe"), (false, 0));
     assert!(!data.exists());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delegated_list_models_runs_in_ephemeral_probe_and_caches() {
+    let e = env().await;
+    let wasm = std::fs::read(kumikit_test_plugins::PROBE_WASM).unwrap();
+    e.install(
+        "backend",
+        BACKEND,
+        &[
+            ("plugin.wasm", &wasm),
+            ("entry.schema.json", ENTRY_SCHEMA.as_bytes()),
+        ],
+        &[],
+    )
+    .await;
+    e.install("declarative", DECLARATIVE, &[], &["fake-acp-agent"])
+        .await;
+
+    let first = e
+        .kernel
+        .provider_models("test.declarative/delegated")
+        .await
+        .unwrap();
+    assert!(!first.is_empty());
+    // The ephemeral probe instance is dropped as soon as list_models finishes.
+    assert_eq!(e.host.instances("test.backend"), (false, 0));
+    // Subsequent call within TTL is served from cache without leaving instances behind.
+    let second = e
+        .kernel
+        .provider_models("test.declarative/delegated")
+        .await
+        .unwrap();
+    assert_eq!(first, second);
+    assert_eq!(e.host.instances("test.backend"), (false, 0));
+}

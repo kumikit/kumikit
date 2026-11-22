@@ -197,9 +197,70 @@ impl Plugin for Acp {
     }
 }
 
+/// Probes an ACP agent with `initialize` (+ optional `authenticate`) + `session/new` to
+/// discover the models it reports. Returns `None` on any spawn, protocol, or empty-list
+/// failure so `list_models` can fall back cleanly to the static manifest default.
+fn probe_models(config: &Config) -> Option<Vec<Model>> {
+    let child = process::spawn(&SpawnRequest {
+        program: config.command.clone(),
+        args: config.args.clone(),
+        cwd: None,
+        env: config.env.clone().into_iter().collect(),
+        secret_env: config.secret_env.clone().into_iter().collect(),
+    })
+    .ok()?;
+    let cwd = std::env::var("KUMIKIT_PROBE_DIR").unwrap_or_else(|_| "/".to_owned());
+    let mut state = State {
+        session: Session::new(Options {
+            cwd,
+            auth_method: config.auth_method.clone(),
+            probe_only: true,
+            ..Options::default()
+        }),
+        child,
+        buf: Vec::new(),
+    };
+    let start = state.session.start();
+    let res = state.run(start);
+    state.child.close_stdin();
+    state.child.kill();
+    let Ok(Stop::Ready(_)) = res else {
+        return None;
+    };
+    let discovered = state.session.discovered_models();
+    if discovered.is_empty() {
+        return None;
+    }
+    Some(
+        discovered
+            .iter()
+            .map(|m| Model {
+                id: m.id.clone(),
+                label: m.label.clone(),
+                capabilities: Vec::new(),
+            })
+            .collect(),
+    )
+}
+
 impl Provider for Acp {
     fn list_models(provider: ProviderRef) -> Result<Vec<Model>, Error> {
-        Ok(config(&provider)?
+        let cfg = config(&provider)?;
+        if !cfg.models.is_empty() {
+            return Ok(cfg
+                .models()
+                .into_iter()
+                .map(|m| Model {
+                    id: m.id,
+                    label: m.label,
+                    capabilities: m.capabilities,
+                })
+                .collect());
+        }
+        if let Some(models) = probe_models(&cfg) {
+            return Ok(models);
+        }
+        Ok(cfg
             .models()
             .into_iter()
             .map(|m| Model {
@@ -219,10 +280,16 @@ impl Provider for Acp {
             env: config.env.clone().into_iter().collect(),
             secret_env: config.secret_env.clone().into_iter().collect(),
         })?;
+        let acp_model = if config.model_arg.is_some() {
+            None
+        } else {
+            Some(cfg.model.clone())
+        };
         let mut state = State {
             session: Session::new(Options {
                 cwd: cfg.workspace_root,
                 resume: cfg.resume,
+                model: acp_model,
                 mode: config.mode.clone(),
                 auth_method: config.auth_method.clone(),
                 mcp: cfg.mcp_server.map(|m| acp::McpStdio {
@@ -231,6 +298,7 @@ impl Provider for Acp {
                     args: m.args,
                     env: m.env,
                 }),
+                probe_only: false,
             }),
             child,
             buf: Vec::new(),

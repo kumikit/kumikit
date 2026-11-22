@@ -26,6 +26,7 @@
   let provider = $state(untrack(() => kernel.settings.value.lastProvider ?? ''));
   let model = $state(untrack(() => kernel.settings.value.lastModel ?? ''));
   let models = $state.raw<ModelInfo[]>([]);
+  let loadingModels = $state(false);
   let text = $state('');
   let busy = $state(false);
   let textarea: HTMLTextAreaElement | undefined = $state();
@@ -52,17 +53,23 @@
     const p = provider;
     models = [];
     if (!p) {
+      loadingModels = false;
       model = '';
       return;
     }
+    loadingModels = true;
     connection.models(p).then(
       (m) => {
         if (provider !== p) return;
+        loadingModels = false;
         models = m;
         const remembered = kernel.settings.value.lastModel;
         model = (remembered && m.some((x) => x.id === remembered) ? remembered : m[0]?.id) ?? '';
       },
-      () => {},
+      () => {
+        if (provider !== p) return;
+        loadingModels = false;
+      },
     );
   });
 
@@ -143,15 +150,20 @@
               {/each}
             </select>
             <select
-              class="picker"
+              class="picker model-picker"
               aria-label="Model"
-              title="Model"
+              aria-busy={loadingModels}
+              title={loadingModels ? 'Loading available models…' : 'Model'}
               bind:value={model}
-              disabled={models.length === 0 || busy}
+              disabled={loadingModels || models.length === 0 || busy}
             >
-              {#each models as m (m.id)}
-                <option value={m.id}>{m.label}</option>
-              {/each}
+              {#if loadingModels && models.length === 0}
+                <option value="">Loading models…</option>
+              {:else}
+                {#each models as m (m.id)}
+                  <option value={m.id}>{m.label}</option>
+                {/each}
+              {/if}
             </select>
           </div>
           <button
@@ -268,6 +280,9 @@
     color: var(--kk-text-primary, FieldText);
     font-size: var(--kk-font-size-small, small);
     cursor: pointer;
+  }
+  .model-picker {
+    max-width: 280px;
   }
   .picker:hover:not(:disabled) {
     background: var(--kk-surface-hover, ButtonFace);

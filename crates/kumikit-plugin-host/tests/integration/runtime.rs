@@ -77,6 +77,7 @@ impl Env {
             memory: DEFAULT_MEMORY,
             call_timeout: timeout,
             settings_schema: None,
+            probe_dir: None,
             session: Arc::new(SessionShared::default()),
         };
         let instance = Instance::start(&self.runtime, &prepared, config, self.kernel.clone())
@@ -324,6 +325,7 @@ async fn cancel_unblocks_a_waiting_import() {
             memory: DEFAULT_MEMORY,
             call_timeout: Duration::from_secs(10),
             settings_schema: None,
+            probe_dir: None,
             session: Arc::clone(&session),
         },
         e.kernel.clone(),
