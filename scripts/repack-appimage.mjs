@@ -1,5 +1,4 @@
-// Fixes two things in the AppImage Tauri builds (the approach follows PandaCode's
-// release tooling):
+// Fixes two things in the AppImage Tauri builds:
 //
 // 1. Tauri copies the build host's Wayland libraries into usr/lib. On hosts with Mesa 25
 //    or newer, the host's libEGL then loads against these older copies, WebKit's web
