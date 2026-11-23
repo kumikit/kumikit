@@ -18,6 +18,54 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release tag
+        id: tag
+        run: |
+          tag="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          case "$tag" in
+            v*) ;;
+            *)
+              echo "::error::Release tag must start with 'v', got: $tag"
+              exit 1
+              ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - run: rustup show active-toolchain
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-wasm
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - uses: kumikit/kumikit/.github/actions/setup-kumikit@v0.1.0-m6
+        with:
+          tools: kumikit
+
+      - name: Assemble OS-independent UI bundle
+        env:
+          KUMIKIT_BIN: kumikit
+        run: node scripts/bundle.mjs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-bundle
+          path: target/bundle
+          retention-days: 1
+
   build:
     strategy:
       fail-fast: false
@@ -163,8 +211,126 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  installers:
+    needs: bundle
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Build Linux installers on Ubuntu 22.04 so the AppImage runs on glibc 2.35 and newer.
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,rpm,appimage
+            bin_ext: ''
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: dmg
+            bin_ext: ''
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+            bin_ext: .exe
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Resolve release tag
+        id: tag
+        run: |
+          tag="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          case "$tag" in
+            v*) ;;
+            *)
+              echo "::error::Release tag must start with 'v', got: $tag"
+              exit 1
+              ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Verify toolchain
+        run: |
+          rustup show active-toolchain
+          host=$(rustc -vV | sed -n 's/^host: //p')
+          if [ "$host" != "${{ matrix.target }}" ]; then
+            echo "::error::Expected host ${{ matrix.target }}, got $host"
+            exit 1
+          fi
+
+      - if: runner.os == 'Linux'
+        name: Install Linux WebKitGTK and packaging dependencies
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev rpm squashfs-tools file patchelf xvfb
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-installer-${{ matrix.target }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-bundle
+          path: target/bundle
+
+      - name: Build bundled release core
+        env:
+          TARGET: ${{ matrix.target }}
+          BIN_EXT: ${{ matrix.bin_ext }}
+        run: |
+          set -euo pipefail
+          cargo build --locked --release -p kumikit-core
+          mkdir -p crates/kumikit-shell/binaries
+          cp "target/release/kumikit${BIN_EXT}" "crates/kumikit-shell/binaries/kumikit-${TARGET}${BIN_EXT}"
+
+      - name: Build desktop installers
+        run: npx -y @tauri-apps/cli@2.12.5 build --config tauri.bundle.conf.json --bundles ${{ matrix.bundles }}
+        working-directory: crates/kumikit-shell
+        # linuxdeploy is itself an AppImage; run it without FUSE.
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+
+      - if: runner.os == 'Linux'
+        name: AppImage repack and smoke test
+        run: |
+          set -euo pipefail
+          img=$(ls target/release/bundle/appimage/*.AppImage)
+          node scripts/repack-appimage.mjs "$img"
+          sh scripts/smoke-appimage.sh "$img" target/release/kumikit
+
+      - name: Check installer size budgets
+        run: node scripts/check-installer-size.mjs target/release/bundle
+
+      - name: Stage release installers
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist-installers
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            cp target/release/bundle/deb/*.deb "dist-installers/Kumikit-${TAG}-x86_64.deb"
+            cp target/release/bundle/rpm/*.rpm "dist-installers/Kumikit-${TAG}-x86_64.rpm"
+            cp target/release/bundle/appimage/*.AppImage "dist-installers/Kumikit-${TAG}-x86_64.AppImage"
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            cp target/release/bundle/dmg/*.dmg "dist-installers/Kumikit-${TAG}-aarch64.dmg"
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            cp target/release/bundle/nsis/*-setup.exe "dist-installers/Kumikit-${TAG}-x86_64-setup.exe"
+          fi
+          ls -lh dist-installers/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.target }}
+          path: dist-installers/*
+          if-no-files-found: error
+
   publish:
-    needs: build
+    needs: [build, installers]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -183,11 +349,17 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installers-*
+          path: release-assets
+          merge-multiple: true
+
       - name: Generate SHA256SUMS.txt
         run: |
           set -euo pipefail
           cd release-assets
-          LC_ALL=C sha256sum *.tar.gz *.zip > SHA256SUMS.txt
+          LC_ALL=C sha256sum *.tar.gz *.zip *.deb *.rpm *.AppImage *.dmg *.exe > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Attest build provenance
@@ -196,6 +368,11 @@ jobs:
           subject-path: |
             release-assets/*.tar.gz
             release-assets/*.zip
+            release-assets/*.deb
+            release-assets/*.rpm
+            release-assets/*.AppImage
+            release-assets/*.dmg
+            release-assets/*.exe
             release-assets/SHA256SUMS.txt
 
       - name: Create or update GitHub Release
@@ -204,24 +381,30 @@ jobs:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
+          notes=$(printf '%s\n' \
+            "Desktop installers, CLI, registry tool, and plugin test kit archives for \`${TAG}\`." \
+            "" \
+            "### Desktop installers (unsigned)" \
+            "- **Linux (x86_64):** \`Kumikit-${TAG}-x86_64.deb\`, \`Kumikit-${TAG}-x86_64.rpm\`, \`Kumikit-${TAG}-x86_64.AppImage\`" \
+            "- **macOS (Apple Silicon):** \`Kumikit-${TAG}-aarch64.dmg\`" \
+            "- **Windows (x86_64):** \`Kumikit-${TAG}-x86_64-setup.exe\`" \
+            "" \
+            "### CLI, registry tool, and plugin test kit" \
+            "- \`kumikit-${TAG}-<target>\`: production \`kumikit\` core and CLI binary" \
+            "- \`kumikit-registry-${TAG}-<target>\`: \`kumikit-registry\` checker and index builder" \
+            "- \`kumikit-test-kit-${TAG}-<target>\`: prebuilt \`KUMIKIT_DIR\` bundle for plugin e2e tests and UI builds" \
+            "- \`SHA256SUMS.txt\`: SHA-256 checksums for every asset (also attested via GitHub build provenance)" \
+            "" \
+            "### Use in GitHub Actions" \
+            '```yaml' \
+            "- uses: kumikit/kumikit/.github/actions/setup-kumikit@${TAG}" \
+            "  with:" \
+            "    tools: kumikit,test-kit" \
+            '```')
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" release-assets/* --clobber
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes "$notes"
           else
-            notes=$(printf '%s\n' \
-              "Prebuilt Kumikit CLI, registry tool, and plugin test kit archives for \`${TAG}\`." \
-              "" \
-              "### Assets" \
-              "- \`kumikit-${TAG}-<target>\`: production \`kumikit\` core and CLI binary" \
-              "- \`kumikit-registry-${TAG}-<target>\`: \`kumikit-registry\` checker and index builder" \
-              "- \`kumikit-test-kit-${TAG}-<target>\`: prebuilt \`KUMIKIT_DIR\` bundle for plugin e2e tests and UI builds" \
-              "- \`SHA256SUMS.txt\`: SHA-256 checksums for every archive (also attested via GitHub build provenance)" \
-              "" \
-              "### Use in GitHub Actions" \
-              '```yaml' \
-              "- uses: kumikit/kumikit/.github/actions/setup-kumikit@${TAG}" \
-              "  with:" \
-              "    tools: kumikit,test-kit" \
-              '```')
             extra_flags=""
             case "$TAG" in
               *-*) extra_flags="--prerelease" ;;
