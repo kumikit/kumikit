@@ -178,13 +178,17 @@ runs on glibc 2.35 and newer) and then repacked with `node scripts/repack-appima
 <file>` ([10-distribution](spec/10-distribution.md#desktop-installers)). The installers
 are unsigned.
 
-## Prebuilt binaries and CI action
+## Prebuilt binaries, installers and CI action
 
-Tagged releases on GitHub (`https://github.com/kumikit/kumikit/releases`) attach prebuilt
-archives with `SHA256SUMS.txt` and build provenance attestations for Linux (`x86_64`,
-`aarch64`), macOS (`aarch64`) and Windows (`x86_64`):
+Tagged releases on GitHub (`https://github.com/kumikit/kumikit/releases`) attach unsigned
+desktop installers and prebuilt CLI/tool archives with `SHA256SUMS.txt` and build
+provenance attestations:
 
-- **`kumikit-<tag>-<target>`**: the production `kumikit` CLI and core binary.
+- **Desktop installers:**
+  - Linux (`x86_64`): `Kumikit-<tag>-x86_64.deb`, `Kumikit-<tag>-x86_64.rpm`, and `Kumikit-<tag>-x86_64.AppImage`
+  - macOS (`aarch64`): `Kumikit-<tag>-aarch64.dmg`
+  - Windows (`x86_64`): `Kumikit-<tag>-x86_64-setup.exe`
+- **`kumikit-<tag>-<target>`**: the production `kumikit` CLI and core binary (Linux `x86_64`/`aarch64`, macOS `aarch64`, Windows `x86_64`).
 - **`kumikit-registry-<tag>-<target>`**: the `kumikit-registry` checker and index builder.
 - **`kumikit-test-kit-<tag>-<target>`**: a `KUMIKIT_DIR`-compatible bundle (`kumikit` built
   with `test-hooks`, `fake-acp-agent`, `kumikit_provider_acp.wasm`,

@@ -19,13 +19,15 @@ A small, pluggable framework for working with coding agents.
 The name comes from *kumiko*, Japanese woodwork in which a lattice is assembled from many
 small pieces without nails.
 
-> **Status:** early, pre-1.0 (`v0.1.0-m5`). Milestones M0–M5 are built: the core,
+> **Status:** early, pre-1.0 (`v0.1.0-m6`). Milestones M0–M6 are built: the core,
 > WebAssembly plugins (WIT 0.2.0 and the MCP tool gateway), schedules, the desktop app,
 > remote cores, the browser client, package signing, the official plugin registry
 > ([`kumikit/registry`](https://github.com/kumikit/registry)), and the first-party starter
-> pack of providers and tools. Interfaces stay 0.x until the 1.0 freeze, and there are no
-> published desktop installers yet: [build from source](docs/building.md). The
-> specification is in [docs/spec/](docs/spec/README.md).
+> pack of providers and tools. Interfaces stay 0.x until the 1.0 freeze. Unsigned desktop
+> installers (`.deb`, `.rpm`, `.AppImage`, `.dmg`, Windows `-setup.exe`) and CLI archives
+> are published on [GitHub Releases](https://github.com/kumikit/kumikit/releases), or you
+> can [build from source](docs/building.md). The specification is in
+> [docs/spec/](docs/spec/README.md).
 
 ## Privacy
 
