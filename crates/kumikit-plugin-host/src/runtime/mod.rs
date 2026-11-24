@@ -151,8 +151,19 @@ impl Runtime {
                     PluginEngine::new(&self.config, &self.cache_dir).map_err(|e| e.to_string())?;
                 let mut base = wasi_linker(engine.engine()).map_err(|e| e.to_string())?;
                 add_base_imports(&mut base).map_err(|e| e.to_string())?;
+                bindings::turn_client::kumikit::turn::client::add_to_linker::<
+                    HostState,
+                    HasSelf<HostState>,
+                >(&mut base, |s| s)
+                .map_err(|e| e.to_string())?;
                 let mut provider = wasi_linker(engine.engine()).map_err(|e| e.to_string())?;
                 bindings::provider::Plugin::add_to_linker::<HostState, HasSelf<HostState>>(
+                    &mut provider,
+                    |s| s,
+                )
+                .map_err(|e| e.to_string())?;
+                // Steering providers import it; others never see it.
+                bindings::turn::kumikit::turn::input::add_to_linker::<HostState, HasSelf<HostState>>(
                     &mut provider,
                     |s| s,
                 )
@@ -162,6 +173,11 @@ impl Runtime {
                     &mut tool,
                     |s| s,
                 )
+                .map_err(|e| e.to_string())?;
+                bindings::turn_client::kumikit::turn::client::add_to_linker::<
+                    HostState,
+                    HasSelf<HostState>,
+                >(&mut tool, |s| s)
                 .map_err(|e| e.to_string())?;
                 tracing::debug!("WASM engine started");
                 Ok(Linkers {

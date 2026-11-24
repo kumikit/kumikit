@@ -68,3 +68,43 @@ pub mod tool {
         },
     });
 }
+
+/// `kumikit:turn/steering@0.1.0`: the steering import (ADR 0028), linked for every
+/// provider; providers built for `kumikit:turn/provider@0.1.0` use it.
+#[allow(missing_docs, clippy::all)]
+pub mod turn {
+    wasmtime::component::bindgen!({
+        path: [
+            "../../wit/kumikit-host@0.2.0",
+            "../../wit/kumikit-plugin@0.2.0",
+            "../../wit/kumikit-provider@0.2.0",
+            "../../wit/kumikit-turn@0.1.0",
+        ],
+        world: "kumikit:turn/steering",
+        imports: { default: async },
+        with: {
+            "kumikit:host/types": super::base::kumikit::host::types,
+            "kumikit:host/process": super::base::kumikit::host::process,
+            "kumikit:provider/types": super::provider::kumikit::provider::types,
+        },
+    });
+}
+
+/// `kumikit:turn/client-steering@0.1.0`: client-side steering import (ADR 0028), linked
+/// for base and tool plugins.
+#[allow(missing_docs, clippy::all)]
+pub mod turn_client {
+    wasmtime::component::bindgen!({
+        path: [
+            "../../wit/kumikit-host@0.2.0",
+            "../../wit/kumikit-plugin@0.2.0",
+            "../../wit/kumikit-provider@0.2.0",
+            "../../wit/kumikit-turn@0.1.0",
+        ],
+        world: "kumikit:turn/client-steering",
+        imports: { default: async },
+        with: {
+            "kumikit:host/types": super::base::kumikit::host::types,
+        },
+    });
+}

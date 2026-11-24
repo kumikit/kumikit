@@ -242,6 +242,15 @@ pub enum QueueRemoval {
     Removed,
 }
 
+/// Why a message joined the queue other than by `thread.send` during a turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueAddReason {
+    /// It was sent with `thread.steer` but the running turn did not take it: the model
+    /// cannot be steered, it had attachments, or the turn ended first.
+    NotSteered,
+}
+
 /// `queue.added`: a message joined the queue.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -252,6 +261,21 @@ pub struct QueueAdded {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(as = "Option<bool>", optional)]
     pub front: bool,
+    /// Why, when it was not an ordinary queued message (since 0.8).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub reason: Option<QueueAddReason>,
+}
+
+/// `input.steered`: the running turn's provider took a message sent with
+/// `thread.steer` and passed it to its agent (ADR 0028).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct InputSteered {
+    /// The turn that took it.
+    pub turn: TurnId,
+    /// The message.
+    pub input: UserInput,
 }
 
 /// `queue.updated`: a queued message was edited.
@@ -353,11 +377,14 @@ pub enum ThreadEvent {
     /// `queue.resumed`
     #[serde(rename = "queue.resumed")]
     QueueResumed(QueueResumed),
+    /// `input.steered`
+    #[serde(rename = "input.steered")]
+    InputSteered(InputSteered),
 }
 
 impl ThreadEvent {
     /// Every kind string, in spec table order.
-    pub const KINDS: [&'static str; 19] = [
+    pub const KINDS: [&'static str; 20] = [
         "turn.started",
         "text.delta",
         "text.done",
@@ -377,6 +404,7 @@ impl ThreadEvent {
         "queue.moved",
         "queue.held",
         "queue.resumed",
+        "input.steered",
     ];
 
     /// This event's kind string.
@@ -401,6 +429,7 @@ impl ThreadEvent {
             ThreadEvent::QueueMoved(_) => "queue.moved",
             ThreadEvent::QueueHeld(_) => "queue.held",
             ThreadEvent::QueueResumed(_) => "queue.resumed",
+            ThreadEvent::InputSteered(_) => "input.steered",
         }
     }
 
@@ -418,6 +447,7 @@ impl ThreadEvent {
             ThreadEvent::ApprovalRequested(e) => Some(&e.approval.turn),
             ThreadEvent::Usage(e) => Some(&e.turn),
             ThreadEvent::TurnEnded(e) => Some(&e.turn),
+            ThreadEvent::InputSteered(e) => Some(&e.turn),
             ThreadEvent::ApprovalResolved(_)
             | ThreadEvent::PluginEvent(_)
             | ThreadEvent::QueueAdded(_)

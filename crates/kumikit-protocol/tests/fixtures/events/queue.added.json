@@ -40,5 +40,26 @@
         "front": true
       }
     }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 31,
+      "time": "2026-11-15T10:00:31.000Z",
+      "kind": "queue.added",
+      "data": {
+        "entry": {
+          "id": "01JCQE00000000000000000003",
+          "turn": "01JCTU00000000000000000004",
+          "input": {
+            "text": "and check the docs"
+          }
+        },
+        "front": true,
+        "reason": "not_steered"
+      }
+    }
   }
 ]

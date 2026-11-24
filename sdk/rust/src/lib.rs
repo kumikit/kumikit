@@ -33,6 +33,30 @@ pub mod bindings {
     });
 }
 
+/// Generated bindings for `kumikit:turn/client-steering@0.1.0` (ADR 0028).
+#[allow(missing_docs, clippy::all, unsafe_code)]
+pub mod turn_bindings {
+    wit_bindgen::generate!({
+        path: [
+            "../../wit/kumikit-host@0.2.0",
+            "../../wit/kumikit-plugin@0.2.0",
+            "../../wit/kumikit-provider@0.2.0",
+            "../../wit/kumikit-turn@0.1.0",
+        ],
+        world: "kumikit:turn/client-steering",
+        with: {
+            "kumikit:host/types@0.2.0": crate::bindings::kumikit::host::types,
+        },
+        generate_all,
+    });
+}
+
+/// Steering running turns from a plugin (`docs/spec/03-kernel.md#client-interface`,
+/// ADR 0028). Needs `threads.steer` in `permissions.client`.
+pub mod turn {
+    pub use crate::turn_bindings::kumikit::turn::client::{SteerResult, SteerStatus, steer};
+}
+
 #[doc(hidden)]
 pub use bindings::__export_base_world;
 pub use bindings::kumikit::host::process::{self, Child, ExitStatus, SpawnRequest};

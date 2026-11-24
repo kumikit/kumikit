@@ -24,8 +24,16 @@ pub const WORLD_PLUGIN: &str = "kumikit:plugin/plugin@0.2.0";
 pub const WORLD_PROVIDER: &str = "kumikit:provider/plugin@0.2.0";
 /// The tool world.
 pub const WORLD_TOOL: &str = "kumikit:tool/plugin@0.1.0";
+/// The provider world with steering (ADR 0028): listed next to [`WORLD_PROVIDER`] by
+/// providers that import `kumikit:turn/input`.
+pub const WORLD_PROVIDER_STEER: &str = "kumikit:turn/provider@0.1.0";
 /// Worlds this host can run.
-pub const WORLDS: &[&str] = &[WORLD_PLUGIN, WORLD_PROVIDER, WORLD_TOOL];
+pub const WORLDS: &[&str] = &[
+    WORLD_PLUGIN,
+    WORLD_PROVIDER,
+    WORLD_TOOL,
+    WORLD_PROVIDER_STEER,
+];
 
 /// Manifest file name inside a package.
 pub const MANIFEST_FILE: &str = "plugin.toml";
@@ -240,6 +248,7 @@ pub const CLIENT_OPS: &[&str] = &[
     "threads.read",
     "threads.create",
     "threads.send",
+    "threads.steer",
     "threads.cancel",
     "approvals.respond",
 ];
@@ -624,6 +633,11 @@ impl Manifest {
                     p.push("runtime.worlds is empty".into());
                 }
                 for w in &rt.worlds {
+                    if w == WORLD_PROVIDER_STEER && !rt.worlds.iter().any(|x| x == WORLD_PROVIDER) {
+                        p.push(format!(
+                            "world `{WORLD_PROVIDER_STEER}` adds steering to {WORLD_PROVIDER}: list that world too"
+                        ));
+                    }
                     if WORLDS.contains(&w.as_str()) {
                         worlds.insert(w.as_str());
                     } else if w.starts_with("kumikit:") && w.ends_with("@0.1.0") {

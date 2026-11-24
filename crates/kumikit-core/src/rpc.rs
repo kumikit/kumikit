@@ -595,6 +595,14 @@ impl Conn {
                 k.thread_cancel(&p.thread).await.map_err(kernel_err)?;
                 reply::<m::ThreadCancel>(Empty {})
             }
+            m::ThreadSteer::NAME => {
+                let p = parse::<m::ThreadSteer>(params)?;
+                let steered = k
+                    .thread_steer(&p.thread, p.input)
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::ThreadSteer>(steered)
+            }
             m::ThreadQueueUpdate::NAME => {
                 let p = parse::<m::ThreadQueueUpdate>(params)?;
                 let entry = k

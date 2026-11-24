@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import Approval from '../src/Approval.svelte';
 import Chat from '../src/Chat.svelte';
+import Steer from '../src/Steer.svelte';
 
 const address = { connection: 'local', workspace: 'w', thread: 't' };
 
@@ -110,6 +111,63 @@ describe('the queue panel', () => {
       ['thread.queue.move', { address, entry: 'c', before: 'b' }],
     ]);
     done();
+  });
+
+  it('shows the Not steered badge and offers Steer when the model can be steered', async () => {
+    const viewWithModel: ThreadView = {
+      ...base,
+      status: 'running',
+      thread: {
+        id: 't',
+        workspace: 'w',
+        provider: 'test/p',
+        model: 'steerable',
+        permissionMode: 'standard',
+        status: 'running',
+        created: '2026-11-24T00:00:00Z',
+        updated: '2026-11-24T00:00:00Z',
+      },
+      queue: [entry('a', 'change course')],
+      notSteered: ['a'],
+    };
+    const connection = {
+      id: 'local',
+      ready: true,
+      call: async () => ({}),
+      subscribe: () => () => {},
+      models: async () => [{ id: 'steerable', label: 'Steerable', capabilities: ['steer'] }],
+    };
+    const { ctx, ran } = fakeCtx(viewWithModel);
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address, connection: connection as never } });
+    flushSync();
+    await Promise.resolve();
+    flushSync();
+
+    const panel = target.querySelector<HTMLElement>('section[aria-label="Queued messages"]')!;
+    expect(panel.textContent).toContain('Not steered');
+    const steerBtn = target.querySelector<HTMLButtonElement>('button[aria-label="Steer: change course"]')!;
+    expect(steerBtn).not.toBeNull();
+    steerBtn.click();
+    await Promise.resolve();
+    expect(ran).toEqual([['thread.queue.steer', { address, entry: 'a' }]]);
+
+    // Ctrl+Enter steers while running, Enter queues.
+    const box = target.querySelector('textarea')!;
+    box.value = 'go left';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    box.dispatchEvent(key('Enter', { ctrlKey: true }));
+    flushSync();
+    expect(ran.at(-1)).toEqual(['thread.steer', { address, text: 'go left' }]);
+    expect(box.value).toBe('');
+
+    box.value = 'for later';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    box.dispatchEvent(key('Enter'));
+    flushSync();
+    expect(ran.at(-1)).toEqual(['thread.send', { address, text: 'for later' }]);
+
+    unmount(c);
   });
 });
 
@@ -253,5 +311,16 @@ describe('the approval renderer', () => {
     expect(target.textContent).toContain('Denied');
     expect(target.querySelectorAll('button')).toHaveLength(0);
     unmount(done);
+  });
+});
+
+describe('the steer renderer', () => {
+  it('renders a steered message with its badge', () => {
+    const target = document.createElement('div');
+    const c = mount(Steer, { target, props: { text: 'use the existing helper' } });
+    flushSync();
+    expect(target.textContent).toContain('Steered');
+    expect(target.textContent).toContain('use the existing helper');
+    unmount(c);
   });
 });

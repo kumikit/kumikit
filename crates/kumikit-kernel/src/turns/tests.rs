@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use kumikit_protocol::ErrorCode;
-use kumikit_protocol::event::QueueHold;
+use kumikit_protocol::event::{QueueAddReason, QueueHold};
 use kumikit_protocol::model::ThreadStatus;
 use tokio::sync::Notify;
 
@@ -14,7 +14,8 @@ use crate::provider::{BoxFuture, Model, ProviderError, ProviderEvent, ProviderRe
 use crate::repo::StoredEvent;
 
 /// A fake provider; the message text picks the behavior:
-/// `echo <x>`, `approve`, `approve-fail`, `fail`, `plugin`, `block`, `late`.
+/// `echo <x>`, `approve`, `approve-fail`, `fail`, `plugin`, `block`, `late`, `steer`.
+/// Model `one` reports `steer`; `two` does not.
 #[derive(Debug, Default)]
 struct Fake {
     decisions: Mutex<HashMap<ApprovalId, Decision>>,
@@ -48,7 +49,11 @@ impl Provider for Fake {
                 .map(|id| Model {
                     id: id.into(),
                     label: id.into(),
-                    capabilities: vec![],
+                    capabilities: if id == "one" {
+                        vec!["steer".into()]
+                    } else {
+                        vec![]
+                    },
                 })
                 .to_vec())
         })
@@ -111,6 +116,19 @@ impl Provider for Fake {
                     Ok(())
                 }
                 "block" => std::future::pending().await,
+                "steer" => {
+                    sink.input_ready().await;
+                    let input = sink
+                        .take_input()
+                        .await
+                        .map_err(|e| ProviderError::new(e.to_string()))?
+                        .ok_or_else(|| ProviderError::new("ready but empty"))?;
+                    emit(ProviderEvent::TextDone {
+                        text: format!("steered: {}", input.text),
+                    })
+                    .await?;
+                    Ok(())
+                }
                 "late" => {
                     *self.late_sink.lock().unwrap() = Some(sink.clone());
                     Ok(())
@@ -570,6 +588,142 @@ async fn sending_resumes_a_held_queue_after_the_new_message() {
     let (events, ended) = e.ends(held.last().unwrap().seq, 2).await;
     assert_eq!(ended, [fresh.turn, a.turn]);
     assert_eq!(kinds(&events)[..2], ["queue.resumed", "turn.started"]);
+}
+
+async fn steer(e: &Env, text: &str) -> ThreadSteerResult {
+    e.kernel
+        .thread_steer(&e.thread, UserInput::text(text))
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_steer_reaches_the_running_turn_where_the_provider_takes_it() {
+    let e = env().await;
+    let sent = e.send("steer").await;
+    e.until(0, "turn.started").await;
+    let r = steer(&e, "go left").await;
+    assert_eq!(r.status, SteerStatus::Accepted);
+    assert_eq!(r.turn, sent.turn);
+    let events = e.until(0, "turn.ended").await;
+    assert_eq!(
+        kinds(&events),
+        ["turn.started", "input.steered", "text.done", "turn.ended"]
+    );
+    let ThreadEvent::InputSteered(s) = &events[1].event else {
+        panic!()
+    };
+    assert_eq!(
+        (s.turn.clone(), s.input.text.as_str()),
+        (sent.turn, "go left")
+    );
+    assert_eq!(turn_ended(&events).outcome, TurnOutcome::Done);
+}
+
+#[tokio::test]
+async fn an_untaken_steer_goes_to_the_front_of_the_queue() {
+    let e = env().await;
+    e.send("block").await;
+    e.until(0, "turn.started").await;
+    e.send("echo later").await;
+    assert_eq!(steer(&e, "echo now").await.status, SteerStatus::Accepted);
+    e.kernel.thread_cancel(&e.thread).await.unwrap();
+    let events = e.until(0, "queue.held").await;
+    assert_eq!(
+        kinds(&events),
+        [
+            "turn.started",
+            "queue.added",
+            "turn.ended",
+            "queue.added",
+            "queue.held"
+        ]
+    );
+    let ThreadEvent::QueueAdded(back) = &events[3].event else {
+        panic!()
+    };
+    assert!(back.front);
+    assert_eq!(back.reason, Some(QueueAddReason::NotSteered));
+    e.idle().await;
+    assert_eq!(
+        e.queue().await,
+        (
+            vec!["echo now".into(), "echo later".into()],
+            Some(QueueHold::Stopped)
+        )
+    );
+}
+
+#[tokio::test]
+async fn an_untaken_steer_runs_next_after_a_clean_turn() {
+    let e = env().await;
+    e.send("approve").await;
+    let events = e.until(0, "approval.requested").await;
+    assert_eq!(steer(&e, "echo after").await.status, SteerStatus::Accepted);
+    let ThreadEvent::ApprovalRequested(req) = &events.last().unwrap().event else {
+        panic!()
+    };
+    e.kernel
+        .respond_approval(&req.approval.id, Decision::Allow, None)
+        .await
+        .unwrap();
+    let (events, _) = e.ends(0, 2).await;
+    let started: Vec<_> = events
+        .iter()
+        .filter_map(|ev| match &ev.event {
+            ThreadEvent::TurnStarted(t) => Some(t.input.text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(started, ["approve", "echo after"]);
+}
+
+#[tokio::test]
+async fn a_model_without_steer_or_a_message_with_attachments_is_queued_first() {
+    use kumikit_protocol::model::Attachment;
+    let e = env().await;
+    e.kernel
+        .thread_update(&e.thread, Some("two".into()), None, None)
+        .await
+        .unwrap();
+    e.send("block").await;
+    e.until(0, "turn.started").await;
+    e.send("echo b").await;
+    let r = steer(&e, "echo a").await;
+    assert_eq!(r.status, SteerStatus::Queued);
+    assert!(r.entry.is_some());
+    assert_eq!(
+        e.queue().await,
+        (vec!["echo a".into(), "echo b".into()], None)
+    );
+
+    // Model `one` can be steered, but not with attachments.
+    let e = env().await;
+    e.send("block").await;
+    e.until(0, "turn.started").await;
+    let input = UserInput {
+        text: "look".into(),
+        attachments: vec![Attachment {
+            name: "a.png".into(),
+            mime_type: "image/png".into(),
+            data: "AA==".into(),
+            width: None,
+            height: None,
+        }],
+    };
+    let r = e.kernel.thread_steer(&e.thread, input).await.unwrap();
+    assert_eq!(r.status, SteerStatus::Queued);
+}
+
+#[tokio::test]
+async fn steering_an_idle_thread_is_a_conflict() {
+    let e = env().await;
+    let err = e
+        .kernel
+        .thread_steer(&e.thread, UserInput::text("hi"))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), ErrorCode::Conflict);
 }
 
 #[tokio::test]

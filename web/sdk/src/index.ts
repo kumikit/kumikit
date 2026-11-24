@@ -63,7 +63,9 @@ export type TranscriptItem =
     }
   | { kind: 'file.changed'; path: string; diff?: string }
   | { kind: 'approval'; approval: Approval; resolution?: Resolution }
-  | { kind: 'plugin.event'; plugin: string; event: string; data: unknown };
+  | { kind: 'plugin.event'; plugin: string; event: string; data: unknown }
+  /** A message the user sent with `thread.steer`, where the agent took it (since 0.1.4). */
+  | { kind: 'steer'; text: string };
 
 /** The kind strings of transcript items; `plugin.event` items also match
  * `plugin.event:<plugin>/<kind>`. */
@@ -102,6 +104,9 @@ export interface ThreadView {
   queue: QueueEntry[];
   /** Why the queue waits instead of starting its next message (since 0.1.3). */
   queueHold?: QueueHold;
+  /** Queue entry ids that fell back from `thread.steer` (`reason: "not_steered"`; since
+   * 0.1.4). */
+  notSteered?: string[];
   /** Whether the connection is live (false while reconnecting). */
   live: boolean;
 }

@@ -1,0 +1,77 @@
+package kumikit:turn@0.1.0;
+
+/// Messages a user sends to a running turn: steering (`docs/spec/05-providers.md#steering`,
+/// ADR 0028). Only useful inside `kumikit:provider/provider.send`; outside a turn there is
+/// never input. A provider whose agent can take input mid-turn imports this interface and
+/// reports the `steer` capability on its models.
+interface input {
+  use kumikit:host/types@0.2.0.{error};
+  use kumikit:host/process@0.2.0.{child};
+  use kumikit:provider/types@0.2.0.{user-input};
+
+  /// What `read-stdout` returned.
+  variant read {
+    /// Bytes from the child's stdout.
+    stdout(list<u8>),
+    /// The child's stdout closed.
+    eof,
+    /// A steering message arrived first. It is taken: the kernel has recorded it as
+    /// `input.steered`, and the provider must now pass it to its agent.
+    input(user-input),
+  }
+
+  /// Takes the oldest steering message, if one waits. Never blocks. A taken message is
+  /// recorded as `input.steered`.
+  take: func() -> result<option<user-input>, error>;
+
+  /// Like `child.read-stdout`: up to `max` bytes, waiting for at least one. Returns early
+  /// with `input` when a steering message arrives. Returns `cancelled` once when the turn
+  /// is cancelled, like every blocking import.
+  read-stdout: func(child: borrow<child>, max: u32) -> result<read, error>;
+}
+
+/// The provider world with steering: what a steering provider's manifest lists next to
+/// `kumikit:provider/plugin@0.2.0`.
+world provider {
+  include kumikit:provider/plugin@0.2.0;
+  import input;
+}
+
+/// Only the steering import, for SDKs that add it to a provider built for
+/// `kumikit:provider/plugin@0.2.0`.
+world steering {
+  import input;
+}
+
+/// Client-side steering (`docs/spec/03-kernel.md#client-interface`, ADR 0028).
+/// Needs `threads.steer` in `permissions.client` and access to the thread's workspace.
+interface client {
+  use kumikit:host/types@0.2.0.{error};
+
+  /// What happened to the steering message.
+  enum steer-status {
+    /// The running turn's provider will take it; `input.steered` follows.
+    accepted,
+    /// The turn cannot be steered; it went to the front of the queue instead.
+    queued,
+  }
+
+  /// Result of `steer`.
+  record steer-result {
+    /// What happened.
+    status: steer-status,
+    /// The running turn the message is for.
+    turn: string,
+    /// The queue entry id, for `queued`.
+    entry: option<string>,
+  }
+
+  /// `threads.steer`: sends a message to the running turn's agent.
+  steer: func(thread: string, text: string) -> result<steer-result, error>;
+}
+
+/// Only the client steering import, for plugins built for `kumikit:plugin/plugin@0.2.0`
+/// or `kumikit:tool/plugin@0.1.0` that steer running turns.
+world client-steering {
+  import client;
+}

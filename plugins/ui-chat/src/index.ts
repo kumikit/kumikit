@@ -11,6 +11,7 @@ import FileChange from './FileChange.svelte';
 import Message from './Message.svelte';
 import PluginEvent from './PluginEvent.svelte';
 import Reasoning from './Reasoning.svelte';
+import Steer from './Steer.svelte';
 import Tool from './Tool.svelte';
 import { linkStyles } from './style';
 
@@ -35,6 +36,7 @@ function renderers(ctx: PluginContext): [string, (el: HTMLElement, p: RendererPr
       const i = p.item as Of<'plugin.event'>;
       return show(PluginEvent, el, { plugin: i.plugin, event: i.event, data: i.data });
     }],
+    ['steer', (el, p) => show(Steer, el, { text: (p.item as Of<'steer'>).text })],
   ];
 }
 

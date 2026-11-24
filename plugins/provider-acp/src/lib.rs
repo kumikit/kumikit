@@ -17,7 +17,7 @@ use std::cell::RefCell;
 
 use kumikit_provider::{
     Child, Decision, Error, ErrorCode, Event, Model, Plugin, Provider, ProviderRef, SessionConfig,
-    SpawnRequest, UserInput, events, process, take_line,
+    SpawnRequest, UserInput, events, process, steering, take_line,
 };
 
 use crate::acp::{Action, Attachment, Options, PermissionMode, Session};
@@ -66,6 +66,7 @@ struct State {
     session: Session,
     child: Child,
     buf: Vec<u8>,
+    steer: bool,
 }
 
 thread_local! {
@@ -121,17 +122,39 @@ enum Stop {
     TurnDone,
 }
 
+/// What `read_next` returned from the agent or the steering inbox.
+enum Input {
+    Line(String),
+    Steer(UserInput),
+    Eof,
+}
+
 impl State {
-    fn read_line(&mut self) -> Result<Option<String>, Error> {
+    fn read_next(&mut self) -> Result<Input, Error> {
         loop {
             if let Some(line) = take_line(&mut self.buf, false) {
-                return Ok(Some(String::from_utf8_lossy(&line).into_owned()));
+                return Ok(Input::Line(String::from_utf8_lossy(&line).into_owned()));
             }
-            match self.child.read_stdout(64 * 1024)? {
-                Some(chunk) => self.buf.extend_from_slice(&chunk),
-                None => {
-                    return Ok(take_line(&mut self.buf, true)
-                        .map(|l| String::from_utf8_lossy(&l).into_owned()));
+            if self.steer && self.session.is_prompting() {
+                match steering::read_stdout(&self.child, 64 * 1024)? {
+                    steering::Read::Stdout(chunk) => self.buf.extend_from_slice(&chunk),
+                    steering::Read::Input(input) => return Ok(Input::Steer(input)),
+                    steering::Read::Eof => {
+                        return Ok(match take_line(&mut self.buf, true) {
+                            Some(l) => Input::Line(String::from_utf8_lossy(&l).into_owned()),
+                            None => Input::Eof,
+                        });
+                    }
+                }
+            } else {
+                match self.child.read_stdout(64 * 1024)? {
+                    Some(chunk) => self.buf.extend_from_slice(&chunk),
+                    None => {
+                        return Ok(match take_line(&mut self.buf, true) {
+                            Some(l) => Input::Line(String::from_utf8_lossy(&l).into_owned()),
+                            None => Input::Eof,
+                        });
+                    }
                 }
             }
         }
@@ -145,17 +168,20 @@ impl State {
         let mut cancelled = false;
         loop {
             let Some(action) = queue.pop() else {
-                let line = match self.read_line() {
-                    Ok(Some(l)) => l,
-                    Ok(None) => return Err(err(ErrorCode::Io, "the agent exited")),
+                match self.read_next() {
+                    Ok(Input::Line(l)) => {
+                        queue.extend(self.session.on_line(&l).into_iter().rev());
+                    }
+                    Ok(Input::Steer(input)) => {
+                        queue.extend(self.session.steer(&input.text).into_iter().rev());
+                    }
+                    Ok(Input::Eof) => return Err(err(ErrorCode::Io, "the agent exited")),
                     Err(e) if is_cancelled(&e) => {
                         cancelled = true;
                         queue.extend(self.session.cancel().into_iter().rev());
-                        continue;
                     }
                     Err(e) => return Err(e),
-                };
-                queue.extend(self.session.on_line(&line).into_iter().rev());
+                }
                 continue;
             };
             match action {
@@ -256,6 +282,7 @@ fn probe_models(config: &Config) -> Option<Vec<Model>> {
         }),
         child,
         buf: Vec::new(),
+        steer: false,
     };
     let start = state.session.start();
     let res = state.run(start);
@@ -280,32 +307,42 @@ fn probe_models(config: &Config) -> Option<Vec<Model>> {
     )
 }
 
+fn with_steer_cap(mut models: Vec<Model>, steer: bool) -> Vec<Model> {
+    if steer {
+        for m in &mut models {
+            if !m.capabilities.iter().any(|c| c == "steer") {
+                m.capabilities.push("steer".into());
+            }
+        }
+    }
+    models
+}
+
 impl Provider for Acp {
     fn list_models(provider: ProviderRef) -> Result<Vec<Model>, Error> {
         let cfg = config(&provider)?;
-        if !cfg.models.is_empty() {
-            return Ok(cfg
-                .models()
+        let models = if !cfg.models.is_empty() {
+            cfg.models()
                 .into_iter()
                 .map(|m| Model {
                     id: m.id,
                     label: m.label,
                     capabilities: m.capabilities,
                 })
-                .collect());
-        }
-        if let Some(models) = probe_models(&cfg) {
-            return Ok(models);
-        }
-        Ok(cfg
-            .models()
-            .into_iter()
-            .map(|m| Model {
-                id: m.id,
-                label: m.label,
-                capabilities: m.capabilities,
-            })
-            .collect())
+                .collect()
+        } else if let Some(models) = probe_models(&cfg) {
+            models
+        } else {
+            cfg.models()
+                .into_iter()
+                .map(|m| Model {
+                    id: m.id,
+                    label: m.label,
+                    capabilities: m.capabilities,
+                })
+                .collect()
+        };
+        Ok(with_steer_cap(models, cfg.steer))
     }
 
     fn start_session(provider: ProviderRef, cfg: SessionConfig) -> Result<String, Error> {
@@ -346,6 +383,7 @@ impl Provider for Acp {
             }),
             child,
             buf: Vec::new(),
+            steer: config.steer,
         };
         let start = state.session.start();
         let id = match state.run(start)? {

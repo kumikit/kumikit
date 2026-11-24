@@ -51,6 +51,6 @@ Small, local choices do not need one; a clear commit message is enough.
 | [0025](0025-tool-gateway.md) | The tool gateway: MCP over stdio through the core's socket | Accepted |
 | [0026](0026-first-party-plugins-in-their-own-repositories.md) | First-party plugins live in their own repositories | Accepted |
 | [0027](0027-durable-queue-and-deferred-messages.md) | A durable thread queue, held after stops, and deferred messages | Proposed |
-| [0028](0028-steering-a-running-turn.md) | Steering a running turn through a host input inbox | Proposed |
+| [0028](0028-steering-a-running-turn.md) | Steering a running turn through a host input inbox | Accepted |
 | [0029](0029-provider-switch-and-handoff.md) | Switching provider in a thread, with a bounded handoff | Proposed |
 | [0030](0030-thread-agent-tools-plugin.md) | Agent tools for threads in a first-party plugin | Proposed |

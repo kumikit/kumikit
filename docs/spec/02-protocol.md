@@ -107,11 +107,11 @@ The first call after authentication is `core.hello`:
 ```jsonc
 // → client
 { "jsonrpc": "2.0", "id": 1, "method": "core.hello",
-  "params": { "protocol": "0.7", "client": { "name": "kumikit-desktop", "version": "0.1.0" } } }
+  "params": { "protocol": "0.8", "client": { "name": "kumikit-desktop", "version": "0.1.0" } } }
 
 // ← core
 { "jsonrpc": "2.0", "id": 1, "result": {
-    "protocol": "0.7",
+    "protocol": "0.8",
     "core": { "version": "0.1.0", "name": "devbox", "os": "linux" },
     "plugins": [
       { "id": "kumikit.provider-acp", "version": "0.1.0",
@@ -211,6 +211,16 @@ and both sides ignore fields they do not know.
 | `plugin.enable` | `plugin`, `grant` | `plugin`. `grant` must equal the plugin's requested permissions (they are granted as a whole), otherwise `conflict`. Compiles the component. |
 | `plugin.disable` | `plugin` | `plugin`. Cancels the plugin's running turns and unloads it. |
 | `plugin.uninstall` | `plugin`, `deleteData?` | `{}`. Disables it first; deletes its kv and data directory only if `deleteData` is true. |
+
+### Methods added in 0.8
+
+Steering a running turn ([05](05-providers.md#steering), [ADR 0028](../decisions/0028-steering-a-running-turn.md)).
+
+| Method | Params | Result |
+|---|---|---|
+| `thread.steer` | `thread`, `input` (as in `thread.send`) | `status` (`accepted` or `queued`), `turn`, `entry?` (for `queued`). Sends text to the running turn's inbox when the model has `steer` and `input` has no attachments; otherwise queues it at the front (`reason: "not_steered"`). Fails with `conflict` when no turn runs or the thread is archived. |
+
+Also in 0.8: `input.steered` (emitted when the provider takes a steered message) and `queue.added.reason` (`"not_steered"` when a steer fell back to the queue or remained unread when the turn ended) ([03](03-kernel.md#thread-events)).
 
 ### Methods added in 0.7
 

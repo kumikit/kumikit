@@ -40,8 +40,10 @@ the local id; the protocol and the stored `Thread.provider` use the qualified on
    command line, for example `--model`; when omitted, `provider-acp` selects a non-default
    model through ACP `session/set_config_option` or `session/set_model`), `mode` (a
    session mode to set after opening, for agents whose default mode never asks for
-   approval) and `auth-method` (an ACP authentication method id to call with `authenticate`
-   after `initialize`, for agents that require it before opening a session). The plugin
+   approval), `auth-method` (an ACP authentication method id to call with `authenticate`
+   after `initialize`, for agents that require it before opening a session) and `steer`
+   (boolean, default false: opt-in for agents that accept a second `session/prompt`
+   mid-turn; adds the `steer` capability to their models). The plugin
    host runs delegated `list-models` probes in a short-lived instance with the declaring
    plugin's granted permissions and an isolated probe directory (`KUMIKIT_PROBE_DIR`), and
    caches results per provider until the TTL expires or a plugin changes. The table is
@@ -150,11 +152,30 @@ not hold up other threads.
 - Enforces one running turn per thread; queues further messages in the kernel.
 - Kills the provider's processes on cancel (after the grace period), unload or shutdown.
 
+## Steering
+
+Decided in [ADR 0028](../decisions/0028-steering-a-running-turn.md). A provider whose agent
+can accept user input during a running turn lists `kumikit:turn/provider@0.1.0` next to
+`kumikit:provider/plugin@0.2.0` in `runtime.worlds`, reports `steer` in its models'
+capabilities, and imports `kumikit:turn/input@0.1.0`:
+
+- `take() -> result<option<user-input>, error>` takes the oldest waiting steering message
+  without blocking.
+- `read-stdout(child, max) -> result<read, error>` reads stdout like `child.read-stdout`,
+  but returns early with `read.input(user-input)` when a steering message arrives (preferring
+  waiting input over stdout so streaming output cannot starve steering).
+
+Whenever a message is taken, the kernel appends `input.steered` to the thread's log. Any
+steering messages still in the inbox when `send` finishes are moved to the front of the
+queue with `queue.added { front: true, reason: "not_steered" }`. Providers that stay on
+`kumikit:provider/plugin@0.2.0` need no changes; `thread.steer` queues their messages at
+the front instead.
+
 ## Capabilities
 
 Models report capability strings so the UI adapts without knowing the provider:
-`images`, `reasoning`, `tools`, `approvals`, `resume`, `fork`, `plan-mode`. Unknown
-strings are ignored. New well-known strings are added to this list in the spec.
+`images`, `reasoning`, `tools`, `approvals`, `resume`, `fork`, `plan-mode`, `steer`.
+Unknown strings are ignored. New well-known strings are added to this list in the spec.
 
 ## Testing providers
 

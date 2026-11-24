@@ -40,6 +40,93 @@ pub mod bindings {
     });
 }
 
+/// Generated bindings for `kumikit:turn/steering@0.1.0`, the steering import (ADR 0028).
+/// A provider that uses [`steering`] must list `kumikit:turn/provider@0.1.0` in its
+/// manifest's `runtime.worlds`, next to `kumikit:provider/plugin@0.2.0`.
+#[allow(missing_docs, clippy::all, unsafe_code)]
+pub mod turn_bindings {
+    wit_bindgen::generate!({
+        path: [
+            "../../wit/kumikit-host@0.2.0",
+            "../../wit/kumikit-plugin@0.2.0",
+            "../../wit/kumikit-provider@0.2.0",
+            "../../wit/kumikit-turn@0.1.0",
+        ],
+        world: "kumikit:turn/steering",
+        with: {
+            "kumikit:host/types@0.2.0": kumikit_plugin::bindings::kumikit::host::types,
+            "kumikit:host/process@0.2.0": kumikit_plugin::bindings::kumikit::host::process,
+            "kumikit:provider/types@0.2.0": crate::bindings::kumikit::provider::types,
+        },
+        generate_all,
+    });
+}
+
+/// Steering: messages a user sends while a turn runs (`docs/spec/05-providers.md#steering`).
+///
+/// Only meaningful inside [`Provider::send`]. Report the `steer` capability on models
+/// whose agent can take input mid-turn, and list `kumikit:turn/provider@0.1.0` in the
+/// manifest. A message is recorded as `input.steered` when it is taken, so pass every
+/// taken message to the agent.
+pub mod steering {
+    pub use crate::turn_bindings::kumikit::turn::input::{Read, read_stdout, take};
+    use crate::{Child, Error, ErrorCode, MAX_LINE, UserInput, take_line};
+
+    /// What [`SteerableLines::next_item`] returned.
+    #[derive(Debug)]
+    pub enum Next {
+        /// A line of the child's stdout, without its line ending.
+        Line(String),
+        /// A steering message, already taken: pass it to the agent.
+        Input(UserInput),
+        /// The child's stdout closed.
+        Eof,
+    }
+
+    /// Reads a child's stdout line by line, like [`crate::Lines`], and also returns
+    /// steering messages as they arrive.
+    #[derive(Debug)]
+    pub struct SteerableLines<'a> {
+        child: &'a Child,
+        buf: Vec<u8>,
+        eof: bool,
+    }
+
+    impl<'a> SteerableLines<'a> {
+        /// Reads lines from `child`'s stdout.
+        pub fn new(child: &'a Child) -> Self {
+            SteerableLines {
+                child,
+                buf: Vec::new(),
+                eof: false,
+            }
+        }
+
+        /// The next complete line, a steering message, or EOF. Blocks inside the host
+        /// until one of them arrives.
+        pub fn next_item(&mut self) -> Result<Next, Error> {
+            loop {
+                if let Some(line) = take_line(&mut self.buf, self.eof) {
+                    return String::from_utf8(line)
+                        .map(Next::Line)
+                        .map_err(|_| Error::new(ErrorCode::InvalidArgument, "line is not UTF-8"));
+                }
+                if self.eof {
+                    return Ok(Next::Eof);
+                }
+                if self.buf.len() > MAX_LINE {
+                    return Err(Error::new(ErrorCode::Limit, "line longer than 8 MiB"));
+                }
+                match read_stdout(self.child, 64 * 1024)? {
+                    Read::Stdout(chunk) => self.buf.extend_from_slice(&chunk),
+                    Read::Eof => self.eof = true,
+                    Read::Input(input) => return Ok(Next::Input(input)),
+                }
+            }
+        }
+    }
+}
+
 #[doc(hidden)]
 pub use bindings::__export_provider_world;
 pub use bindings::exports::kumikit::provider::provider::Guest as Provider;

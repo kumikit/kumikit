@@ -6,6 +6,7 @@
 use std::collections::VecDeque;
 
 use kumikit_kernel::{Kernel, ThreadSubscription};
+use kumikit_protocol::methods::SteerStatus;
 use kumikit_protocol::model::{ApprovalId, Decision, ThreadId, UserInput, WorkspaceId};
 use kumikit_protocol::{Topic, WorkspaceEvent};
 use tokio::sync::broadcast;
@@ -14,6 +15,7 @@ use wasmtime_wasi::p2::DynPollable;
 
 use super::bindings::base::kumikit::host::client::{self, Event};
 use super::bindings::base::kumikit::host::types::{Error, ErrorCode};
+use super::bindings::turn_client::kumikit::turn::client as wit_turn_client;
 use super::host::{HostState, err, kernel_err};
 
 /// Most events a subscription buffers before the guest reads them.
@@ -354,6 +356,37 @@ impl client::Host for HostState {
         self.table
             .push(res)
             .map_err(|e| err(ErrorCode::Limit, e.to_string()))
+    }
+}
+
+impl wit_turn_client::Host for HostState {
+    async fn steer(
+        &mut self,
+        thread: String,
+        text: String,
+    ) -> Result<wit_turn_client::SteerResult, Error> {
+        let a = self.access();
+        a.need("threads.steer")?;
+        let thread = ThreadId(thread);
+        a.need_thread("threads.steer", &thread).await?;
+        let r = a
+            .kernel
+            .thread_steer_from(
+                &thread,
+                UserInput::text(text),
+                Some(a.actor.as_str().to_owned()),
+            )
+            .await
+            .map_err(kernel_err)?;
+        let status = match r.status {
+            SteerStatus::Accepted => wit_turn_client::SteerStatus::Accepted,
+            SteerStatus::Queued => wit_turn_client::SteerStatus::Queued,
+        };
+        Ok(wit_turn_client::SteerResult {
+            status,
+            turn: r.turn.0,
+            entry: r.entry.map(|e| e.0),
+        })
     }
 }
 

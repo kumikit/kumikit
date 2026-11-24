@@ -134,6 +134,8 @@ methods! {
         ThreadSend = "thread.send" (ThreadSendParams) -> ThreadSendResult;
         /// `thread.cancel`: cancel the running turn; queued messages are held.
         ThreadCancel = "thread.cancel" (ThreadRef) -> Empty;
+        /// `thread.steer`: a message for the running turn's agent (since 0.8).
+        ThreadSteer = "thread.steer" (ThreadSendParams) -> ThreadSteerResult;
         /// `thread.queue.update`: replace a queued message's input.
         ThreadQueueUpdate = "thread.queue.update" (QueueUpdateParams) -> QueueEntryResult;
         /// `thread.queue.remove`: remove a queued message.
@@ -1005,6 +1007,31 @@ pub struct ThreadSendResult {
     /// True if another turn is running and this one waits in the queue.
     pub queued: bool,
     /// The queue entry, when the message was queued (since 0.7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub entry: Option<QueueEntryId>,
+}
+
+/// What happened to a message sent with `thread.steer`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum SteerStatus {
+    /// The running turn's provider will get it; `input.steered` follows when it takes it.
+    Accepted,
+    /// The turn cannot be steered (the model lacks `steer`, or the message has
+    /// attachments): it went to the front of the queue instead.
+    Queued,
+}
+
+/// Result of `thread.steer`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadSteerResult {
+    /// What happened.
+    pub status: SteerStatus,
+    /// The running turn the message is for.
+    pub turn: TurnId,
+    /// The queue entry, for `queued`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub entry: Option<QueueEntryId>,

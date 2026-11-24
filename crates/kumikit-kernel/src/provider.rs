@@ -5,21 +5,23 @@
 //! [`ProviderEvent`] type cannot express kernel-only kinds (`turn.started`, `turn.ended`,
 //! `approval.resolved`), and which stamps the thread and turn itself.
 
+use std::collections::VecDeque;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use kumikit_protocol::ThreadEvent;
 use kumikit_protocol::event::{
-    ApprovalRequested, FileChanged, PluginEvent, ToolFinished, ToolOutput, ToolStarted, TurnText,
-    Usage,
+    ApprovalRequested, FileChanged, InputSteered, PluginEvent, ToolFinished, ToolOutput,
+    ToolStarted, TurnText, Usage,
 };
 use kumikit_protocol::model::{
     Approval, ApprovalId, ApprovalStatus, Decision, ThreadId, TurnId, UserInput,
 };
 use serde_json::Value;
+use tokio::sync::Notify;
 
 use crate::error::{KernelError, KernelResult};
 use crate::kernel::Kernel;
@@ -214,6 +216,68 @@ pub enum ProviderEvent {
     },
 }
 
+/// Messages sent with `thread.steer` for one turn, waiting for its provider to take them
+/// (ADR 0028). Closed with the turn; what is left then goes back to the queue.
+#[derive(Debug, Default)]
+pub(crate) struct Inbox {
+    /// The waiting inputs, and whether the turn still takes more.
+    state: Mutex<(VecDeque<UserInput>, bool)>,
+    ready: Notify,
+}
+
+impl Inbox {
+    pub(crate) fn new() -> Arc<Self> {
+        Arc::new(Inbox {
+            state: Mutex::new((VecDeque::new(), true)),
+            ready: Notify::new(),
+        })
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, (VecDeque<UserInput>, bool)> {
+        // A plain queue and flag stay consistent if a holder panicked.
+        self.state.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Adds an input; false (and nothing added) once the turn takes no more.
+    pub(crate) fn push(&self, input: UserInput) -> bool {
+        let mut state = self.state();
+        if !state.1 {
+            return false;
+        }
+        state.0.push_back(input);
+        drop(state);
+        self.ready.notify_waiters();
+        true
+    }
+
+    fn pop(&self) -> Option<UserInput> {
+        self.state().0.pop_front()
+    }
+
+    fn unpop(&self, input: UserInput) {
+        self.state().0.push_front(input);
+    }
+
+    /// Takes no more input and returns what was not taken, oldest first.
+    pub(crate) fn close(&self) -> Vec<UserInput> {
+        let mut state = self.state();
+        state.1 = false;
+        state.0.drain(..).collect()
+    }
+
+    async fn ready(&self) {
+        loop {
+            let notified = self.ready.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if !self.state().0.is_empty() {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
 /// Where a provider sends the events of one turn. Closed by the kernel when the turn
 /// ends; later emits fail with `conflict`.
 #[derive(Clone)]
@@ -224,6 +288,8 @@ pub struct EventSink {
     /// Stamped on `plugin.event`.
     plugin: String,
     open: Arc<AtomicBool>,
+    /// Steering input for this turn.
+    inbox: Arc<Inbox>,
 }
 
 impl fmt::Debug for EventSink {
@@ -237,14 +303,48 @@ impl fmt::Debug for EventSink {
 }
 
 impl EventSink {
-    pub(crate) fn new(kernel: Kernel, thread: ThreadId, turn: TurnId, plugin: String) -> Self {
+    pub(crate) fn new(
+        kernel: Kernel,
+        thread: ThreadId,
+        turn: TurnId,
+        plugin: String,
+        inbox: Arc<Inbox>,
+    ) -> Self {
         EventSink {
             kernel,
             thread,
             turn,
             plugin,
             open: Arc::new(AtomicBool::new(true)),
+            inbox,
         }
+    }
+
+    /// Takes the oldest message sent with `thread.steer`, if one waits, and records it as
+    /// `input.steered`: from here on the provider owns it and passes it to its agent.
+    pub async fn take_input(&self) -> KernelResult<Option<UserInput>> {
+        self.check_open()?;
+        let Some(input) = self.inbox.pop() else {
+            return Ok(None);
+        };
+        let steered = ThreadEvent::InputSteered(InputSteered {
+            turn: self.turn.clone(),
+            input: input.clone(),
+        });
+        match self.kernel.append(&self.thread, steered).await {
+            Ok(_) => Ok(Some(input)),
+            Err(e) => {
+                // Not recorded, so not taken: the turn's end returns it to the queue.
+                self.inbox.unpop(input);
+                Err(e)
+            }
+        }
+    }
+
+    /// Waits until a steering message waits to be taken (it does not take it). Never
+    /// returns for a turn that gets none; providers race it against their agent's output.
+    pub async fn input_ready(&self) {
+        self.inbox.ready().await;
     }
 
     /// The turn this sink belongs to.
