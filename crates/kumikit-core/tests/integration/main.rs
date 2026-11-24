@@ -24,4 +24,5 @@ mod schedules;
 mod settings;
 #[cfg(unix)]
 mod signals;
+mod steer;
 mod web;

@@ -877,6 +877,13 @@ export class Kernel {
       const a = args as { address: ThreadAddress; text: string; attachments?: Attachment[] };
       await this.attempt('Cannot send', () => this.threads.send(a.address, a.text, a.attachments));
     });
+    c.register({ id: 'thread.steer', title: 'Steer the running turn', when: 'never' }, async (args) => {
+      const a = args as { address: ThreadAddress; text: string };
+      await this.attempt('Cannot steer', async () => {
+        const status = await this.threads.steer(a.address, a.text);
+        if (status === 'queued') this.notify('This agent cannot be steered; the message is first in the queue.', 'info');
+      });
+    });
     type QueueArgs = { address: ThreadAddress; entry: string };
     c.register({ id: 'thread.queue.update', title: 'Edit a queued message', when: 'never' }, async (args) => {
       const a = args as QueueArgs & { text: string };
@@ -893,6 +900,13 @@ export class Kernel {
     c.register({ id: 'thread.queue.sendNow', title: 'Send a queued message now', when: 'never' }, async (args) => {
       const a = args as QueueArgs;
       await this.attempt('Cannot send the queued message', () => this.threads.queueSendNow(a.address, a.entry));
+    });
+    c.register({ id: 'thread.queue.steer', title: 'Steer with a queued message', when: 'never' }, async (args) => {
+      const a = args as QueueArgs;
+      await this.attempt('Cannot steer', async () => {
+        const status = await this.threads.queueSteer(a.address, a.entry);
+        if (status === 'queued') this.notify('This agent cannot be steered; the message is first in the queue.', 'info');
+      });
     });
     c.register({ id: 'thread.queue.resume', title: 'Resume the queue', when: 'never' }, async (args) => {
       const a = args as { address: ThreadAddress };

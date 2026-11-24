@@ -14,6 +14,7 @@
 
 use kumikit_plugin::client::{self, Decision};
 use kumikit_plugin::timers::{self, Missed, Schedule};
+use kumikit_plugin::turn::{self, SteerStatus};
 use kumikit_plugin::{CallContext, CommandResult, Error, ErrorCode, Plugin, kv, poll};
 use serde_json::{Value, json};
 
@@ -55,6 +56,14 @@ fn run(id: &str, args: &Value) -> Result<Value, Error> {
             None,
         )?),
         "send" => json!(client::send(arg(args, "thread")?, arg(args, "text")?)?),
+        "steer" => {
+            let r = turn::steer(arg(args, "thread")?, arg(args, "text")?)?;
+            let status = match r.status {
+                SteerStatus::Accepted => "accepted",
+                SteerStatus::Queued => "queued",
+            };
+            json!({ "status": status, "turn": r.turn, "entry": r.entry })
+        }
         "cancel" => {
             client::cancel(arg(args, "thread")?)?;
             Value::Null

@@ -61,6 +61,7 @@ import type { ThreadRef } from "./ThreadRef";
 import type { ThreadSendParams } from "./ThreadSendParams";
 import type { ThreadSendResult } from "./ThreadSendResult";
 import type { ThreadSnapshot } from "./ThreadSnapshot";
+import type { ThreadSteerResult } from "./ThreadSteerResult";
 import type { ThreadUpdateParams } from "./ThreadUpdateParams";
 import type { ThreadUpdateResult } from "./ThreadUpdateResult";
 import type { UnsubscribeParams } from "./UnsubscribeParams";
@@ -77,7 +78,7 @@ import type { WorktreeDeleteParams } from "./WorktreeDeleteParams";
 import type { WorktreeListResult } from "./WorktreeListResult";
 
 /** Protocol version spoken by this package, `MAJOR.MINOR`. */
-export const PROTOCOL_VERSION = "0.7";
+export const PROTOCOL_VERSION = "0.8";
 
 /** Every request method with its params and result types. */
 export type Methods = {
@@ -108,6 +109,7 @@ export type Methods = {
   "thread.get": { params: ThreadRef; result: ThreadSnapshot };
   "thread.send": { params: ThreadSendParams; result: ThreadSendResult };
   "thread.cancel": { params: ThreadRef; result: Empty };
+  "thread.steer": { params: ThreadSendParams; result: ThreadSteerResult };
   "thread.queue.update": { params: QueueUpdateParams; result: QueueEntryResult };
   "thread.queue.remove": { params: QueueEntryRef; result: Empty };
   "thread.queue.move": { params: QueueMoveParams; result: Empty };

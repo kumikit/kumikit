@@ -622,6 +622,25 @@ impl Session {
         )]
     }
 
+    /// Whether a turn (`session/prompt`) is currently in flight.
+    pub fn is_prompting(&self) -> bool {
+        self.phase == Phase::Prompting
+    }
+
+    /// Sends a steering message as a second `session/prompt` during a running turn
+    /// (ADR 0028). Resets the accumulated turn text so `TextDone` at turn end only
+    /// covers text emitted after the steer.
+    pub fn steer(&mut self, text: &str) -> Vec<Action> {
+        let (Some(session), Phase::Prompting) = (self.session.clone(), self.phase) else {
+            return Vec::new();
+        };
+        self.text.clear();
+        vec![self.request(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]}),
+        )]
+    }
+
     /// Asks the agent to stop the running prompt (`session/cancel`); the prompt then
     /// ends with stop reason `cancelled`.
     pub fn cancel(&mut self) -> Vec<Action> {
@@ -820,7 +839,13 @@ impl Session {
                 let session = self.session.clone().unwrap_or_default();
                 self.maybe_set_permissions(session)
             }
-            "session/prompt" => self.turn_done(result),
+            "session/prompt" => {
+                if self.pending.values().any(|m| *m == "session/prompt") {
+                    Vec::new()
+                } else {
+                    self.turn_done(result)
+                }
+            }
             _ => Vec::new(),
         }
     }
@@ -1517,5 +1542,49 @@ mod tests {
                 .unwrap()
                 .contains("/tmp/1-notes.txt")
         );
+    }
+
+    #[test]
+    fn steer_sends_a_second_prompt_and_waits_for_both_responses() {
+        let mut s = Session::new(Options {
+            cwd: "/w".into(),
+            ..Options::default()
+        });
+        s.start();
+        s.on_line(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}"#);
+        s.on_line(r#"{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s1"}}"#);
+        s.prompt("start");
+        assert!(s.is_prompting());
+        s.on_line(r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"before"}}}}"#);
+
+        let steered = s.steer("go left");
+        let [Action::Write(line)] = steered.as_slice() else {
+            panic!("{steered:?}");
+        };
+        let v: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(v["method"], "session/prompt");
+        assert_eq!(v["id"], 4);
+        assert_eq!(v["params"]["prompt"][0]["text"], "go left");
+
+        // First prompt response arrives while the steered prompt is still pending.
+        assert!(
+            s.on_line(r#"{"jsonrpc":"2.0","id":3,"result":{}}"#)
+                .is_empty()
+        );
+        assert!(s.is_prompting());
+
+        // Post-steer text and final prompt response end the turn cleanly.
+        s.on_line(r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"after"}}}}"#);
+        let done = s.on_line(r#"{"jsonrpc":"2.0","id":4,"result":{}}"#);
+        assert_eq!(
+            done,
+            [
+                Action::Emit(Event::TextDone {
+                    text: "after".into()
+                }),
+                Action::TurnDone,
+            ]
+        );
+        assert!(!s.is_prompting());
     }
 }

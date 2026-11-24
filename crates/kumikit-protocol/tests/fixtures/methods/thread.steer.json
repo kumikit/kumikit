@@ -1,0 +1,63 @@
+[
+  {
+    "id": 50,
+    "jsonrpc": "2.0",
+    "method": "thread.steer",
+    "params": {
+      "thread": "01JCTH00000000000000000001",
+      "input": {
+        "text": "use the existing helper instead"
+      }
+    }
+  },
+  {
+    "id": 50,
+    "jsonrpc": "2.0",
+    "result": {
+      "status": "accepted",
+      "turn": "01JCTU00000000000000000001"
+    }
+  },
+  {
+    "id": 51,
+    "jsonrpc": "2.0",
+    "method": "thread.steer",
+    "params": {
+      "thread": "01JCTH00000000000000000001",
+      "input": {
+        "text": "and check the docs"
+      }
+    }
+  },
+  {
+    "id": 51,
+    "jsonrpc": "2.0",
+    "result": {
+      "status": "queued",
+      "turn": "01JCTU00000000000000000001",
+      "entry": "01JCQE00000000000000000003"
+    }
+  },
+  {
+    "id": 52,
+    "jsonrpc": "2.0",
+    "method": "thread.steer",
+    "params": {
+      "thread": "01JCTH00000000000000000001",
+      "input": {
+        "text": "too late"
+      }
+    }
+  },
+  {
+    "id": 52,
+    "jsonrpc": "2.0",
+    "error": {
+      "code": -32000,
+      "message": "thread 01JCTH00000000000000000001 has no running turn; send the message instead",
+      "data": {
+        "code": "conflict"
+      }
+    }
+  }
+]

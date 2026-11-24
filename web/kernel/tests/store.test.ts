@@ -84,6 +84,26 @@ describe('thread store', () => {
     ]);
   });
 
+  it('steers a running turn and can steer a queued entry', async () => {
+    const { core, store, runFrame } = await setup();
+    core.handle('thread.steer', () => ({ status: 'accepted', turn: 'u1' }));
+    core.handle('thread.queue.remove', () => ({}));
+    let view!: ThreadView;
+    store.watch(address, (v) => (view = v));
+    await settle();
+    core.append(event('t1', 1, 'queue.added', { entry: { id: 'q1', turn: 'u2', input: { text: 'hurry' } } }));
+    runFrame();
+    expect(await store.steer(address, 'go left')).toBe('accepted');
+    expect(await store.queueSteer(address, 'q1')).toBe('accepted');
+    expect(view.queue).toHaveLength(1);
+    const steerCalls = core.requests.filter((r) => r.method === 'thread.steer' || r.method === 'thread.queue.remove');
+    expect(steerCalls.map((r) => [r.method, r.params])).toEqual([
+      ['thread.steer', { thread: 't1', input: { text: 'go left' } }],
+      ['thread.steer', { thread: 't1', input: { text: 'hurry' } }],
+      ['thread.queue.remove', { thread: 't1', entry: 'q1' }],
+    ]);
+  });
+
   it('stops following a thread nobody watches', async () => {
     const { core, store } = await setup();
     const stop = store.watch(address, () => {});

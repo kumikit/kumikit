@@ -47,6 +47,10 @@ pub struct Config {
     /// agents that require it before `session/new`.
     #[serde(default)]
     pub auth_method: Option<String>,
+    /// Whether this agent accepts a second `session/prompt` during a running turn
+    /// (ADR 0028). False by default.
+    #[serde(default)]
+    pub steer: bool,
 }
 
 impl Config {
@@ -92,11 +96,12 @@ mod tests {
         assert!(c.args_for("default").is_empty());
         let c = Config::parse(
             r#"{"command":"gemini","args":["--experimental-acp"],"model-arg":"--model",
-                "models":[{"id":"pro","label":"Pro"}],"mode":"default","auth-method":"oauth","secret-env":{"KEY":"k"}}"#,
+                "models":[{"id":"pro","label":"Pro"}],"mode":"default","auth-method":"oauth","secret-env":{"KEY":"k"},"steer":true}"#,
         )
         .unwrap();
         assert_eq!(c.args_for("pro"), ["--experimental-acp", "--model", "pro"]);
         assert_eq!(c.auth_method.as_deref(), Some("oauth"));
+        assert!(c.steer);
         assert!(Config::parse(r#"{"command":"x","unknown":1}"#).is_err());
     }
 }

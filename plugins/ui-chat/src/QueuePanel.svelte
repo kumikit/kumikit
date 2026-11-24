@@ -9,13 +9,17 @@
   let {
     queue,
     hold,
+    notSteered = [],
     busy,
+    canSteer = false,
     disabled = false,
     run,
   }: {
     queue: QueueEntry[];
     hold?: QueueHold | undefined;
+    notSteered?: string[];
     busy: boolean;
+    canSteer?: boolean;
     disabled?: boolean;
     /** Runs a kernel command with the thread's address added. */
     run: (command: string, args?: Record<string, unknown>) => Promise<unknown>;
@@ -169,6 +173,9 @@
           >
             <span class="index" aria-hidden="true">{i + 1}</span>
             <span class="text" title={entry.input.text}>{preview}</span>
+            {#if notSteered.includes(entry.id)}
+              <span class="not-steered" title="Could not steer the running turn; queued next">Not steered</span>
+            {/if}
             {#if attachmentCount(entry) > 0}
               <span class="atts" title={`${attachmentCount(entry)} attachment(s)`}>+{attachmentCount(entry)}</span>
             {/if}
@@ -176,6 +183,18 @@
               <span class="from" title={`Sent by ${entry.from.plugin}`}>{entry.from.plugin}</span>
             {/if}
             <span class="actions">
+              {#if busy && canSteer && attachmentCount(entry) === 0}
+                <button
+                  type="button"
+                  class="act steer"
+                  {disabled}
+                  title="Send this to the running agent now"
+                  aria-label={`Steer: ${preview}`}
+                  onclick={() => run('thread.queue.steer', { entry: entry.id })}
+                >
+                  Steer
+                </button>
+              {/if}
               <button
                 type="button"
                 class="act"
@@ -297,6 +316,16 @@
   .from {
     flex: none;
     color: var(--kk-text-muted, GrayText);
+  }
+  .not-steered {
+    flex: none;
+    padding: 0 6px;
+    border-radius: var(--kk-radius-small, 0);
+    background: var(--kk-surface-card, Canvas);
+    color: var(--kk-state-warning, CanvasText);
+  }
+  .act.steer {
+    color: var(--kk-accent, Highlight);
   }
   .actions {
     flex: none;

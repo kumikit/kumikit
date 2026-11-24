@@ -12,10 +12,11 @@ use std::sync::Arc;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use kumikit_protocol::event::{
-    ApprovalResolved, MessageFrom, QueueAdded, QueueEntry, QueueHeld, QueueHold, QueueMoved,
-    QueueRemoval, QueueRemoved, QueueResumed, QueueUpdated, ThreadChange, TurnEnded, TurnStarted,
+    ApprovalResolved, MessageFrom, QueueAddReason, QueueAdded, QueueEntry, QueueHeld, QueueHold,
+    QueueMoved, QueueRemoval, QueueRemoved, QueueResumed, QueueUpdated, ThreadChange, TurnEnded,
+    TurnStarted,
 };
-use kumikit_protocol::methods::{ProviderInfo, ThreadSendResult};
+use kumikit_protocol::methods::{ProviderInfo, SteerStatus, ThreadSendResult, ThreadSteerResult};
 use kumikit_protocol::model::{
     ApprovalId, Attachment, Decision, PermissionMode, QueueEntryId, Resolution, Thread, ThreadId,
     TurnId, TurnOutcome, UserInput, WorkspaceId,
@@ -25,7 +26,7 @@ use tokio::sync::oneshot;
 
 use crate::error::{KernelError, KernelResult};
 use crate::kernel::{Kernel, Session};
-use crate::provider::{EventSink, Model, Provider, SessionConfig};
+use crate::provider::{EventSink, Inbox, Model, Provider, SessionConfig};
 use crate::repo;
 
 /// Maximum attachments accepted on a single user turn.
@@ -96,6 +97,8 @@ pub(crate) struct ThreadRun {
     cancel: Option<oneshot::Sender<()>>,
     /// The entry `thread.queue.sendNow` asked to run once the running turn stops.
     next: Option<QueueEntryId>,
+    /// Steering messages for the running turn (ADR 0028); a new one per turn.
+    inbox: Arc<Inbox>,
 }
 
 /// How a turn's provider call ended.
@@ -391,6 +394,7 @@ impl Kernel {
                 ThreadEvent::QueueAdded(QueueAdded {
                     entry,
                     front: false,
+                    reason: None,
                 }),
             )
             .await?;
@@ -425,6 +429,85 @@ impl Kernel {
             }
         }
         Ok(())
+    }
+
+    /// Sends a message to the running turn's agent (ADR 0028). If the thread's model can
+    /// be steered and the message has no attachments, it waits in the turn's inbox until
+    /// the provider takes it (`input.steered`); otherwise it goes to the front of the
+    /// queue. `conflict` when no turn runs: send it with [`Kernel::thread_send`].
+    pub async fn thread_steer(
+        &self,
+        thread: &ThreadId,
+        input: UserInput,
+    ) -> KernelResult<ThreadSteerResult> {
+        self.thread_steer_from(thread, input, None).await
+    }
+
+    /// Like [`Kernel::thread_steer`], recording `from` (a plugin id) if the message falls
+    /// back to the queue.
+    pub async fn thread_steer_from(
+        &self,
+        thread: &ThreadId,
+        input: UserInput,
+        from: Option<String>,
+    ) -> KernelResult<ThreadSteerResult> {
+        validate_attachments(&input.attachments)?;
+        let row = self.thread_row(thread).await?;
+        if row.archived {
+            return Err(KernelError::Conflict(format!(
+                "thread {thread} is archived"
+            )));
+        }
+        let steerable = input.attachments.is_empty() && self.can_steer(&row.thread).await;
+        let _dispatch = self.inner.dispatch.lock().await;
+        let (turn, inbox) = match self.lock_runs().get(thread) {
+            Some(run) => (run.turn.clone(), Arc::clone(&run.inbox)),
+            None => {
+                return Err(KernelError::Conflict(format!(
+                    "thread {thread} has no running turn; send the message instead"
+                )));
+            }
+        };
+        if steerable && inbox.push(input.clone()) {
+            return Ok(ThreadSteerResult {
+                status: SteerStatus::Accepted,
+                turn,
+                entry: None,
+            });
+        }
+        let entry = QueueEntry {
+            id: QueueEntryId(self.new_id()),
+            turn: TurnId(self.new_id()),
+            input,
+            from: from.map(|plugin| MessageFrom { plugin }),
+        };
+        let id = entry.id.clone();
+        self.append(
+            thread,
+            ThreadEvent::QueueAdded(QueueAdded {
+                entry,
+                front: true,
+                reason: Some(QueueAddReason::NotSteered),
+            }),
+        )
+        .await?;
+        Ok(ThreadSteerResult {
+            status: SteerStatus::Queued,
+            turn,
+            entry: Some(id),
+        })
+    }
+
+    /// Whether the thread's model reports the `steer` capability.
+    async fn can_steer(&self, thread: &Thread) -> bool {
+        let Some(provider) = self.provider(&thread.provider) else {
+            return false;
+        };
+        provider.list_models().await.is_ok_and(|models| {
+            models
+                .iter()
+                .any(|m| m.id == thread.model && m.capabilities.iter().any(|c| c == "steer"))
+        })
     }
 
     // ---- the queue (ADR 0027) ----
@@ -619,6 +702,7 @@ impl Kernel {
                 provider: meta.provider.clone(),
                 cancel: Some(tx),
                 next: None,
+                inbox: Inbox::new(),
             },
         );
         if let Err(e) = self.begin_turn(thread, &first).await {
@@ -762,8 +846,22 @@ impl Kernel {
         error: Option<String>,
     ) -> KernelResult<Option<(Queued, oneshot::Receiver<()>)>> {
         let _dispatch = self.inner.dispatch.lock().await;
-        let requested = self.lock_runs().get_mut(thread).and_then(|r| r.next.take());
-        let queue = self.queue_of(thread).await?;
+        let (requested, unsteered) = match self.lock_runs().get_mut(thread) {
+            Some(run) => (run.next.take(), run.inbox.close()),
+            None => (None, Vec::new()),
+        };
+        // Steering messages the turn did not take go to the front of the queue, in order.
+        let unsteered: Vec<QueueEntry> = unsteered
+            .into_iter()
+            .map(|input| QueueEntry {
+                id: QueueEntryId(self.new_id()),
+                turn: TurnId(self.new_id()),
+                input,
+                from: None,
+            })
+            .collect();
+        let mut queue = unsteered.clone();
+        queue.extend(self.queue_of(thread).await?);
         let mut held = self.queue_hold_of(thread).await?.is_some();
         let requested = requested.and_then(|id| queue.iter().find(|q| q.id == id).cloned());
         let others = queue
@@ -789,6 +887,17 @@ impl Kernel {
             }),
         )
         .await?;
+        for entry in unsteered.into_iter().rev() {
+            self.append(
+                thread,
+                ThreadEvent::QueueAdded(QueueAdded {
+                    entry,
+                    front: true,
+                    reason: Some(QueueAddReason::NotSteered),
+                }),
+            )
+            .await?;
+        }
         if let Some(reason) = hold {
             self.append(thread, ThreadEvent::QueueHeld(QueueHeld { reason }))
                 .await?;
@@ -802,6 +911,7 @@ impl Kernel {
             Some(run) => {
                 run.turn = q.turn.clone();
                 run.cancel = Some(tx);
+                run.inbox = Inbox::new();
             }
             // The kernel is closing and dropped the run.
             None => return Ok(None),
@@ -826,11 +936,16 @@ impl Kernel {
     ) -> KernelResult<Option<(TurnOutcome, Option<String>)>> {
         let Queued { turn, input, .. } = queued;
         let turn = &turn;
+        let inbox = self
+            .lock_runs()
+            .get(thread)
+            .map_or_else(Inbox::new, |r| Arc::clone(&r.inbox));
         let sink = EventSink::new(
             self.clone(),
             thread.clone(),
             turn.clone(),
             provider.plugin_id().to_owned(),
+            inbox,
         );
         let ending = match self.session_for(meta, provider).await {
             Err(message) => Ending::Failed(message),

@@ -146,4 +146,31 @@ describe('the transcript', () => {
     const next = foldEvents(view, [{ topic: 'thread:t1', seq: 2, time: 't', kind: 'usage', data: { turn: 'u', inputTokens: 1, outputTokens: 1 } }]);
     expect(next.queue).toBe(view.queue);
   });
+
+  it('folds input.steered inline and tracks not_steered queue entries', () => {
+    const view = foldEvents(
+      emptyView(address),
+      stamp([
+        { kind: 'turn.started', data: { turn: 'u1', input: { text: 'go' } } },
+        { kind: 'text.delta', data: { turn: 'u1', text: 'first' } },
+        { kind: 'input.steered', data: { turn: 'u1', input: { text: 'go left' } } },
+        { kind: 'text.delta', data: { turn: 'u1', text: 'second' } },
+        {
+          kind: 'queue.added',
+          data: { entry: { id: 'q1', turn: 'u2', input: { text: 'missed' } }, front: true, reason: 'not_steered' },
+        },
+      ]),
+    );
+    expect(view.turns[0]!.items).toEqual([
+      { kind: 'message', text: 'first', done: false },
+      { kind: 'steer', text: 'go left' },
+      { kind: 'message', text: 'second', done: false },
+    ]);
+    expect(view.notSteered).toEqual(['q1']);
+
+    const after = foldEvents(view, [
+      { topic: 'thread:t1', seq: 6, time: 't', kind: 'turn.started', data: { turn: 'u2', input: { text: 'missed' }, entry: 'q1' } },
+    ]);
+    expect(after.notSteered).toBeUndefined();
+  });
 });

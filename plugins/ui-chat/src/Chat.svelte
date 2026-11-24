@@ -95,9 +95,10 @@
   const archived = $derived(view?.status === 'archived');
   const canSend = $derived(!archived && (text.trim().length > 0 || attachments.length > 0));
   const threadModel = $derived(view?.thread?.model ?? '');
-  const modelLabel = $derived(
-    models.find((m) => m.id === threadModel)?.label ?? (threadModel || 'Default'),
-  );
+  const modelInfo = $derived(models.find((m) => m.id === threadModel));
+  const modelLabel = $derived(modelInfo?.label ?? (threadModel || 'Default'));
+  const canSteer = $derived(modelInfo?.capabilities?.includes('steer') ?? false);
+  const canSteerNow = $derived(busy && !archived && text.trim().length > 0 && attachments.length === 0);
   const permissionMode = $derived<PermissionMode>(view?.thread?.permissionMode ?? 'standard');
 
   function item(el: HTMLElement, props: RendererProps) {
@@ -182,6 +183,18 @@
     void run('thread.send', args);
   }
 
+  function steer() {
+    const message = text.trim();
+    if (!message || archived || !busy) return;
+    if (attachments.length > 0) {
+      send();
+      return;
+    }
+    text = '';
+    stuck = true;
+    void run('thread.steer', { address, text: message });
+  }
+
   function onModelChange(e: Event) {
     const next = (e.currentTarget as HTMLSelectElement).value;
     if (!next || next === threadModel) return;
@@ -194,7 +207,10 @@
 
   function onKey(e: KeyboardEvent) {
     if (isComposing(e)) return;
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && busy) {
+      e.preventDefault();
+      steer();
+    } else if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       send();
     } else if (e.key === 'Escape' && busy) {
@@ -278,7 +294,9 @@
     <QueuePanel
       queue={view?.queue ?? []}
       hold={view?.queueHold}
+      notSteered={view?.notSteered ?? []}
       {busy}
+      {canSteer}
       disabled={archived || !connReady}
       run={(command, args) => run(command, { address, ...args })}
     />
@@ -342,7 +360,7 @@
           id={inputId}
           rows="2"
           disabled={archived}
-          placeholder={busy ? 'Queue a follow-up message…' : 'Ask for follow-up changes…'}
+          placeholder={busy ? (canSteer ? 'Queue (Enter) or steer (Ctrl/⌘+Enter)…' : 'Queue a follow-up message…') : 'Ask for follow-up changes…'}
           bind:value={text}
           onkeydown={onKey}
           onpaste={onPaste}
@@ -368,6 +386,18 @@
               <path d="M12.5 7.2L7.3 12.4a3 3 0 0 1-4.2-4.2l5.9-5.9a2 2 0 1 1 2.8 2.8L6.2 10.7a1 1 0 1 1-1.4-1.4l4.9-4.9" />
             </svg>
           </button>
+          {#if busy && canSteer}
+            <button
+              type="button"
+              class="action-btn steer"
+              disabled={!canSteerNow}
+              aria-label="Steer"
+              title="Steer running turn (Ctrl/⌘+Enter)"
+              onclick={steer}
+            >
+              Steer
+            </button>
+          {/if}
           {#if busy}
             <button
               type="button"
@@ -748,6 +778,21 @@
   }
   .action-btn.stop:hover {
     background: var(--kk-surface-hover, ButtonFace);
+  }
+  .action-btn.steer {
+    width: auto;
+    padding: 0 10px;
+    border-color: var(--kk-border-subtle, ButtonBorder);
+    background: var(--kk-surface-raised, ButtonFace);
+    color: var(--kk-accent, Highlight);
+    font-size: var(--kk-font-size-small, small);
+  }
+  .action-btn.steer:hover:not(:disabled) {
+    background: var(--kk-surface-hover, ButtonFace);
+  }
+  .action-btn.steer:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
   .footer {
     display: flex;

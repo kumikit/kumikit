@@ -415,6 +415,65 @@ impl wit_process::HostChild for HostState {
     }
 }
 
+// ---- steering (kumikit:turn/input, ADR 0028) ----
+
+use super::bindings::provider::kumikit::provider::types::UserInput as WitUserInput;
+use super::bindings::turn::kumikit::turn::input as wit_input;
+
+/// Steering carries text only: inputs with attachments are queued by the kernel instead.
+fn wit_user_input(input: kumikit_protocol::model::UserInput) -> WitUserInput {
+    WitUserInput { text: input.text }
+}
+
+impl wit_input::Host for HostState {
+    async fn take(&mut self) -> Result<Option<WitUserInput>, Error> {
+        let Some(sink) = self.session.sink() else {
+            return Ok(None);
+        };
+        let taken = sink.take_input().await.map_err(kernel_err)?;
+        Ok(taken.map(wit_user_input))
+    }
+
+    async fn read_stdout(
+        &mut self,
+        r: Resource<ChildRes>,
+        max: u32,
+    ) -> Result<wit_input::Read, Error> {
+        let child = self.child(&r)?;
+        let n = read_size(max);
+        let Some(sink) = self.session.sink() else {
+            // Outside a turn there is no input: a plain read.
+            let out = self.session.cancellable(child.read_stdout(n)).await?;
+            return Ok(out.map_or(wit_input::Read::Eof, wit_input::Read::Stdout));
+        };
+        loop {
+            // Reading stdout is cancel-safe (a channel receive), so losing the race
+            // drops no output.
+            let next = self
+                .session
+                .cancellable(async {
+                    // Input first: an agent that streams output nonstop is still steered.
+                    tokio::select! {
+                        biased;
+                        () = sink.input_ready() => Err(()),
+                        out = child.read_stdout(n) => Ok(out),
+                    }
+                })
+                .await?;
+            match next {
+                Ok(Some(bytes)) => return Ok(wit_input::Read::Stdout(bytes)),
+                Ok(None) => return Ok(wit_input::Read::Eof),
+                Err(()) => {
+                    if let Some(input) = sink.take_input().await.map_err(kernel_err)? {
+                        return Ok(wit_input::Read::Input(wit_user_input(input)));
+                    }
+                    // Someone else took it first: keep reading.
+                }
+            }
+        }
+    }
+}
+
 // ---- events ----
 
 fn json(what: &str, text: &str) -> Result<serde_json::Value, Error> {

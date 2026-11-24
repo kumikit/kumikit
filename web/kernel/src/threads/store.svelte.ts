@@ -126,6 +126,13 @@ export class ThreadStore {
     await this.#connection(address).call('thread.send', { thread: address.thread, input });
   }
 
+  /** Sends a message to the running turn's agent. Returns `queued` when the turn cannot
+   * be steered and the message went to the front of the queue instead. */
+  async steer(address: ThreadAddress, text: string): Promise<'accepted' | 'queued'> {
+    const r = await this.#connection(address).call('thread.steer', { thread: address.thread, input: { text } });
+    return r.status;
+  }
+
   /** Replaces a queued message's text, keeping its attachments. */
   async queueUpdate(address: ThreadAddress, entry: string, text: string): Promise<void> {
     const queued = this.#get(address).view.queue.find((q) => q.id === entry);
@@ -148,6 +155,16 @@ export class ThreadStore {
   /** Starts a queued message now, stopping the running turn if there is one. */
   async queueSendNow(address: ThreadAddress, entry: string): Promise<void> {
     await this.#connection(address).call('thread.queue.sendNow', { thread: address.thread, entry });
+  }
+
+  /** Steers the running turn with a text-only queued message, removing its queue entry. */
+  async queueSteer(address: ThreadAddress, entry: string): Promise<'accepted' | 'queued'> {
+    const queued = this.#get(address).view.queue.find((q) => q.id === entry);
+    if (!queued) return 'queued';
+    const conn = this.#connection(address);
+    const r = await conn.call('thread.steer', { thread: address.thread, input: { text: queued.input.text } });
+    await conn.call('thread.queue.remove', { thread: address.thread, entry });
+    return r.status;
   }
 
   /** Lets a held queue continue. */

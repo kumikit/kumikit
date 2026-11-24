@@ -25,6 +25,8 @@
 //! - `socket`: tries to open a TCP connection.
 //! - `trap`: panics. `spin`: loops forever. `oom <mib>`: allocates that much.
 //! - `hang`: starts `fake-acp-agent hang` and blocks reading its stdout (until cancel).
+//! - `steer`: like `hang`, but through `kumikit:turn/input`: when a steering message
+//!   arrives it replies `steered: <text>` as `text.done` and ends the turn.
 //! - `ignore-cancel`: like `hang`, but keeps reading after `cancelled`; it returns only
 //!   when the child's stdout closes (the host killed it after the grace period).
 
@@ -110,7 +112,12 @@ impl Provider for Probe {
             .map(|id| Model {
                 id: id.into(),
                 label: id.into(),
-                capabilities: Vec::new(),
+                // The probe model can be steered (the `steer` command).
+                capabilities: if id == "probe" {
+                    vec!["steer".into()]
+                } else {
+                    Vec::new()
+                },
             })
             .to_vec())
     }
@@ -331,6 +338,19 @@ fn probe(command: &str) -> Result<(), Error> {
             let child = process::spawn(&request("fake-acp-agent", &["hang"]))?;
             // Blocks until the host cancels the turn (or the child dies).
             child.read_stdout(1).map(|_| ())
+        }
+        ["steer"] => {
+            let child = process::spawn(&request("fake-acp-agent", &["hang"]))?;
+            loop {
+                match kumikit_provider::steering::read_stdout(&child, 1)? {
+                    kumikit_provider::steering::Read::Input(input) => {
+                        emit(Event::TextDone(format!("steered: {}", input.text)))?;
+                        return Ok(());
+                    }
+                    kumikit_provider::steering::Read::Eof => return Ok(()),
+                    kumikit_provider::steering::Read::Stdout(_) => {}
+                }
+            }
         }
         ["ignore-cancel"] => {
             let child = process::spawn(&request("fake-acp-agent", &["hang"]))?;

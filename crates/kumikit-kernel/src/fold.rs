@@ -230,14 +230,17 @@ mod tests {
             ThreadEvent::QueueAdded(QueueAdded {
                 entry: entry("a", "1"),
                 front: false,
+                reason: None,
             }),
             ThreadEvent::QueueAdded(QueueAdded {
                 entry: entry("b", "2"),
                 front: false,
+                reason: None,
             }),
             ThreadEvent::QueueAdded(QueueAdded {
                 entry: entry("c", "3"),
                 front: true,
+                reason: None,
             }),
             ThreadEvent::QueueUpdated(QueueUpdated {
                 entry: entry("a", "1!"),

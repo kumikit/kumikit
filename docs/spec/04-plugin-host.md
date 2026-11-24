@@ -282,9 +282,10 @@ installed → enabled → active ⇄ idle → unloaded
   so at install and in the plugin's detail page.
 - `network` is enforced on every outgoing request (above).
 - `tools` lets a provider's sessions get the tool gateway; without it they get none.
-- `client` lists the operations of `kumikit:host/client` the plugin may use:
-  `workspaces.list`, `threads.read` (list, get, subscribe), `threads.create`,
-  `threads.send`, `threads.cancel`, `approvals.respond`. `workspaces` limits where:
+- `client` lists the operations of `kumikit:host/client` (and `kumikit:turn/client`) the
+  plugin may use: `workspaces.list`, `threads.read` (list, get, subscribe),
+  `threads.create`, `threads.send`, `threads.steer`, `threads.cancel`,
+  `approvals.respond`. `workspaces` limits where:
   `none`, `linked` (the workspaces the user linked to it) or `all`.
 - `schedules` lets a plugin run on a schedule (manifest triggers and `timers`).
 - `files` is shown and stored as granted, and enforced by `kumikit:host/files` when it

@@ -175,7 +175,7 @@ async fn each_operation_needs_its_grant() {
         let mut c = Client::hello(&dirs.address).await;
         install(&mut c, &probe_kkp(&dirs)).await;
         let manifest = kumikit_test_plugins::CLIENT_MANIFEST.replace(
-            "client = [\"workspaces.list\", \"threads.read\", \"threads.create\", \"threads.send\", \"threads.cancel\", \"approvals.respond\"]\nworkspaces = \"linked\"",
+            "client = [\"workspaces.list\", \"threads.read\", \"threads.create\", \"threads.send\", \"threads.steer\", \"threads.cancel\", \"approvals.respond\"]\nworkspaces = \"linked\"",
             "client = [\"workspaces.list\", \"threads.read\"]\nworkspaces = \"all\"",
         );
         install(&mut c, &client_kkp(&dirs, &manifest)).await;
@@ -190,6 +190,7 @@ async fn each_operation_needs_its_grant() {
             ("providers", json!({})),
             ("create", json!({ "workspace": w })),
             ("send", json!({ "thread": thread, "text": "hi" })),
+            ("steer", json!({ "thread": thread, "text": "go left" })),
             ("cancel", json!({ "thread": thread })),
             ("respond", json!({ "approval": "01JCAPNOPE", "decision": "allow" })),
         ] {

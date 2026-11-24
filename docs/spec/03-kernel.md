@@ -56,12 +56,13 @@ Approval  { id, thread, turn, kind, summary, detail, status }
 | `usage` | `turn`, `inputTokens`, `outputTokens`, `cost?` | provider |
 | `turn.ended` | `turn`, `outcome` (`done`, `cancelled`, `failed`), `error?` | kernel |
 | `plugin.event` | `plugin`, `kind`, `data` | any plugin, namespaced |
-| `queue.added` | `entry` (`{ id, turn, input, from? }`), `front?` (true: it went to the front) | kernel |
+| `queue.added` | `entry` (`{ id, turn, input, from? }`), `front?` (true: it went to the front), `reason?` (`not_steered` when a steer fell back to the queue or was not taken before the turn ended) | kernel |
 | `queue.updated` | `entry`, after the change | kernel |
 | `queue.removed` | `entry` (id), `reason` (`removed`) | kernel |
 | `queue.moved` | `order`: every entry id, in the new order | kernel |
 | `queue.held` | `reason` (`stopped`, `failed`, `restarted`) | kernel |
 | `queue.resumed` | — | kernel |
+| `input.steered` | `turn`, `input` (text taken by the running turn's provider from its inbox) | kernel |
 
 Providers emit through the host; the kernel validates every event (a provider cannot emit
 `turn.started`, `turn.ended` or `approval.resolved`, events for another thread or turn,
@@ -188,8 +189,8 @@ that do not understand one skip it; a UI plugin can register a renderer for it.
 ## Client interface
 
 A plugin granted `permissions.client` operations can act like a client through
-`kumikit:host/client` (bots, scheduled prompts): list workspaces, read, create and send to
-threads, cancel turns and answer approvals. The kernel checks each call against the
+`kumikit:host/client` (and `kumikit:turn/client` for `threads.steer`): list workspaces,
+read, create, send to and steer threads, cancel turns and answer approvals. The kernel checks each call against the
 operations granted and against `permissions.workspaces`: `none`, `linked` (only the
 workspaces the user linked to the plugin with `plugin.setWorkspaces`) or `all`. Messages a
 plugin sends carry `from { plugin }` in `turn.started`; approvals it answers carry

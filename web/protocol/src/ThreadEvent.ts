@@ -2,6 +2,7 @@
 import type { ApprovalRequested } from "./ApprovalRequested";
 import type { ApprovalResolved } from "./ApprovalResolved";
 import type { FileChanged } from "./FileChanged";
+import type { InputSteered } from "./InputSteered";
 import type { PluginEvent } from "./PluginEvent";
 import type { QueueAdded } from "./QueueAdded";
 import type { QueueHeld } from "./QueueHeld";
@@ -20,4 +21,4 @@ import type { Usage } from "./Usage";
 /**
  * A thread event: `kind` plus `data`.
  */
-export type ThreadEvent = { "kind": "turn.started", "data": TurnStarted } | { "kind": "text.delta", "data": TurnText } | { "kind": "text.done", "data": TurnText } | { "kind": "reasoning.delta", "data": TurnText } | { "kind": "tool.started", "data": ToolStarted } | { "kind": "tool.output", "data": ToolOutput } | { "kind": "tool.finished", "data": ToolFinished } | { "kind": "file.changed", "data": FileChanged } | { "kind": "approval.requested", "data": ApprovalRequested } | { "kind": "approval.resolved", "data": ApprovalResolved } | { "kind": "usage", "data": Usage } | { "kind": "turn.ended", "data": TurnEnded } | { "kind": "plugin.event", "data": PluginEvent } | { "kind": "queue.added", "data": QueueAdded } | { "kind": "queue.updated", "data": QueueUpdated } | { "kind": "queue.removed", "data": QueueRemoved } | { "kind": "queue.moved", "data": QueueMoved } | { "kind": "queue.held", "data": QueueHeld } | { "kind": "queue.resumed", "data": QueueResumed };
+export type ThreadEvent = { "kind": "turn.started", "data": TurnStarted } | { "kind": "text.delta", "data": TurnText } | { "kind": "text.done", "data": TurnText } | { "kind": "reasoning.delta", "data": TurnText } | { "kind": "tool.started", "data": ToolStarted } | { "kind": "tool.output", "data": ToolOutput } | { "kind": "tool.finished", "data": ToolFinished } | { "kind": "file.changed", "data": FileChanged } | { "kind": "approval.requested", "data": ApprovalRequested } | { "kind": "approval.resolved", "data": ApprovalResolved } | { "kind": "usage", "data": Usage } | { "kind": "turn.ended", "data": TurnEnded } | { "kind": "plugin.event", "data": PluginEvent } | { "kind": "queue.added", "data": QueueAdded } | { "kind": "queue.updated", "data": QueueUpdated } | { "kind": "queue.removed", "data": QueueRemoved } | { "kind": "queue.moved", "data": QueueMoved } | { "kind": "queue.held", "data": QueueHeld } | { "kind": "queue.resumed", "data": QueueResumed } | { "kind": "input.steered", "data": InputSteered };

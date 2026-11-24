@@ -263,3 +263,27 @@ fn backend_entries_are_checked_against_the_backend_schema() {
     assert!(err.problems.len() >= 2, "{err:?}");
     assert!(check_backend_entry("not json", &serde_json::json!({})).is_err());
 }
+
+#[test]
+fn the_steering_world_comes_with_the_provider_world() {
+    let both = with(
+        PROVIDER,
+        r#"worlds = ["kumikit:provider/plugin@0.2.0"]"#,
+        r#"worlds = ["kumikit:provider/plugin@0.2.0", "kumikit:turn/provider@0.1.0"]"#,
+    );
+    assert_eq!(both, Vec::<String>::new());
+    let m = Manifest::parse(&PROVIDER.replacen(
+        r#"worlds = ["kumikit:provider/plugin@0.2.0"]"#,
+        r#"worlds = ["kumikit:provider/plugin@0.2.0", "kumikit:turn/provider@0.1.0"]"#,
+        1,
+    ))
+    .unwrap();
+    assert_eq!(m.world(), Some(WORLD_PROVIDER), "it runs as a provider");
+
+    let alone = with(
+        PROVIDER,
+        r#"worlds = ["kumikit:provider/plugin@0.2.0"]"#,
+        r#"worlds = ["kumikit:turn/provider@0.1.0"]"#,
+    );
+    assert!(has(&alone, "list that world too"), "{alone:?}");
+}

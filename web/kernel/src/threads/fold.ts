@@ -78,8 +78,16 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
   let pending: Approval[] = view.pendingApprovals;
   let queue = view.queue;
   let queueHold = view.queueHold;
+  let notSteered = view.notSteered;
   let status = view.status;
   let seq = view.seq;
+
+  const dropNotSteered = (id: string) => {
+    if (notSteered && notSteered.includes(id)) {
+      const next = notSteered.filter((x) => x !== id);
+      notSteered = next.length > 0 ? next : undefined;
+    }
+  };
 
   for (const e of fresh) {
     seq = e.seq;
@@ -91,11 +99,20 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
         }
         turns.push(turn);
         const entry = e.data.entry;
-        if (entry !== undefined) queue = queue.filter((q) => q.id !== entry);
+        if (entry !== undefined) {
+          queue = queue.filter((q) => q.id !== entry);
+          dropNotSteered(entry);
+        }
         break;
       }
+      case 'input.steered':
+        withTurn(e.data.turn, (t) => t.items.push({ kind: 'steer', text: e.data.input.text }));
+        break;
       case 'queue.added':
         queue = e.data.front ? [e.data.entry, ...queue] : [...queue, e.data.entry];
+        if (e.data.reason === 'not_steered') {
+          notSteered = notSteered ? [...notSteered.filter((x) => x !== e.data.entry.id), e.data.entry.id] : [e.data.entry.id];
+        }
         break;
       case 'queue.updated': {
         const changed = e.data.entry;
@@ -105,6 +122,7 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
       case 'queue.removed': {
         const id = e.data.entry;
         queue = queue.filter((q) => q.id !== id);
+        dropNotSteered(id);
         break;
       }
       case 'queue.moved': {
@@ -248,5 +266,7 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
   }
   if (queueHold === undefined) delete next.queueHold;
   else next.queueHold = queueHold;
+  if (notSteered === undefined) delete next.notSteered;
+  else next.notSteered = notSteered;
   return next;
 }
