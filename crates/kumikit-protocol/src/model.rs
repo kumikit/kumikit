@@ -59,6 +59,10 @@ id_type!(
     /// Identifies an approval request.
     ApprovalId
 );
+id_type!(
+    /// Identifies a message waiting in a thread's queue.
+    QueueEntryId
+);
 
 /// An RFC 3339 UTC timestamp, for example `2026-11-15T10:00:00.000Z`. Assigned by the
 /// kernel.

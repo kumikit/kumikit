@@ -595,6 +595,41 @@ impl Conn {
                 k.thread_cancel(&p.thread).await.map_err(kernel_err)?;
                 reply::<m::ThreadCancel>(Empty {})
             }
+            m::ThreadQueueUpdate::NAME => {
+                let p = parse::<m::ThreadQueueUpdate>(params)?;
+                let entry = k
+                    .queue_update(&p.thread, &p.entry, p.input)
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::ThreadQueueUpdate>(m::QueueEntryResult { entry })
+            }
+            m::ThreadQueueRemove::NAME => {
+                let p = parse::<m::ThreadQueueRemove>(params)?;
+                k.queue_remove(&p.thread, &p.entry)
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::ThreadQueueRemove>(Empty {})
+            }
+            m::ThreadQueueMove::NAME => {
+                let p = parse::<m::ThreadQueueMove>(params)?;
+                k.queue_move(&p.thread, &p.entry, p.before.as_ref())
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::ThreadQueueMove>(Empty {})
+            }
+            m::ThreadQueueSendNow::NAME => {
+                let p = parse::<m::ThreadQueueSendNow>(params)?;
+                let sent = k
+                    .queue_send_now(&p.thread, &p.entry)
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::ThreadQueueSendNow>(sent)
+            }
+            m::ThreadQueueResume::NAME => {
+                let p = parse::<m::ThreadQueueResume>(params)?;
+                k.queue_resume(&p.thread).await.map_err(kernel_err)?;
+                reply::<m::ThreadQueueResume>(Empty {})
+            }
             m::ThreadRespondApproval::NAME => {
                 let p = parse::<m::ThreadRespondApproval>(params)?;
                 // Local connections have no device id.

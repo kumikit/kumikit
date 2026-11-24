@@ -30,8 +30,88 @@ function fakeCtx(view: ThreadView) {
   return { ctx, ran, push: (v: ThreadView) => push(v) };
 }
 
-const base: ThreadView = { address, status: 'idle', seq: 0, turns: [], pendingApprovals: [], queued: [], live: true };
+const base: ThreadView = { address, status: 'idle', seq: 0, turns: [], pendingApprovals: [], queued: [], queue: [], live: true };
+const entry = (id: string, text: string) => ({ id, turn: `u-${id}`, input: { text } });
 const key = (k: string, extra: KeyboardEventInit = {}) => new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...extra });
+
+describe('the queue panel', () => {
+  function queued(view: Partial<ThreadView>) {
+    const { ctx, ran, push } = fakeCtx(base);
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address } });
+    flushSync();
+    push({ ...base, ...view });
+    flushSync();
+    const panel = target.querySelector<HTMLElement>('section[aria-label="Queued messages"]');
+    const button = (label: string) => target.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+    return { target, panel, ran, button, done: () => unmount(c) };
+  }
+
+  it('is hidden with an empty queue', () => {
+    const { panel, done } = queued({});
+    expect(panel).toBeNull();
+    done();
+  });
+
+  it('lists entries and sends, removes and resumes through the core', async () => {
+    const { panel, ran, button, target, done } = queued({
+      status: 'running',
+      queue: [entry('a', 'first line\nmore'), entry('b', 'second')],
+      queueHold: 'stopped',
+    });
+    expect(panel!.textContent).toContain('first line');
+    expect(panel!.textContent).not.toContain('more');
+    expect(panel!.textContent).toContain('Paused after you stopped the run');
+    button('Send now: second').click();
+    button('Remove queued message 1').click();
+    [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Resume after this run')!.click();
+    await Promise.resolve();
+    expect(ran).toEqual([
+      ['thread.queue.sendNow', { address, entry: 'b' }],
+      ['thread.queue.remove', { address, entry: 'a' }],
+      ['thread.queue.resume', { address }],
+    ]);
+    done();
+  });
+
+  it('edits in place: Enter saves, IME and Escape do not', async () => {
+    const { ran, button, target, done } = queued({ status: 'running', queue: [entry('a', 'old')] });
+    button('Edit queued message 1').click();
+    flushSync();
+    const box = target.querySelector<HTMLTextAreaElement>('textarea[id="queue-edit-a"]')!;
+    box.value = 'new text';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    box.dispatchEvent(key('Enter', { isComposing: true }));
+    expect(ran).toEqual([]);
+    box.dispatchEvent(key('Enter'));
+    flushSync();
+    await Promise.resolve();
+    expect(ran).toEqual([['thread.queue.update', { address, entry: 'a', text: 'new text' }]]);
+
+    button('Edit queued message 1').click();
+    flushSync();
+    target.querySelector<HTMLTextAreaElement>('textarea[id="queue-edit-a"]')!.dispatchEvent(key('Escape'));
+    flushSync();
+    expect(target.querySelector('textarea[id="queue-edit-a"]')).toBeNull();
+    expect(ran).toHaveLength(1);
+    done();
+  });
+
+  it('moves an entry with Alt+Up and Alt+Down', async () => {
+    const { ran, target, done } = queued({ queue: [entry('a', 'one'), entry('b', 'two'), entry('c', 'three')] });
+    const row = (id: string) => target.querySelector<HTMLElement>(`li[data-entry="${id}"]`)!;
+    row('a').dispatchEvent(key('ArrowDown', { altKey: true }));
+    row('c').dispatchEvent(key('ArrowUp', { altKey: true }));
+    row('c').dispatchEvent(key('ArrowDown', { altKey: true }));
+    row('b').dispatchEvent(key('ArrowDown'));
+    await Promise.resolve();
+    expect(ran).toEqual([
+      ['thread.queue.move', { address, entry: 'a', before: 'c' }],
+      ['thread.queue.move', { address, entry: 'c', before: 'b' }],
+    ]);
+    done();
+  });
+});
 
 describe('the chat view', () => {
   it('sends on Enter, not during IME composition, and keeps Shift+Enter for new lines', () => {
@@ -62,6 +142,7 @@ describe('the chat view', () => {
       status: 'running',
       turns: [{ id: 'u1', input: 'fix it', started: 't', items: [{ kind: 'message', text: 'On it', done: false }] }],
       queued: ['and then this'],
+      queue: [entry('q1', 'and then this')],
     });
     flushSync();
     expect(target.textContent).toContain('fix it');

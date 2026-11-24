@@ -1,0 +1,50 @@
+[
+  {
+    "id": 40,
+    "jsonrpc": "2.0",
+    "method": "thread.queue.update",
+    "params": {
+      "thread": "01JCTH00000000000000000001",
+      "entry": "01JCQE00000000000000000001",
+      "input": {
+        "text": "also update the README and the changelog"
+      }
+    }
+  },
+  {
+    "id": 40,
+    "jsonrpc": "2.0",
+    "result": {
+      "entry": {
+        "id": "01JCQE00000000000000000001",
+        "turn": "01JCTU00000000000000000002",
+        "input": {
+          "text": "also update the README and the changelog"
+        }
+      }
+    }
+  },
+  {
+    "id": 41,
+    "jsonrpc": "2.0",
+    "method": "thread.queue.update",
+    "params": {
+      "thread": "01JCTH00000000000000000001",
+      "entry": "01JCQE00000000000000000009",
+      "input": {
+        "text": "x"
+      }
+    }
+  },
+  {
+    "id": 41,
+    "jsonrpc": "2.0",
+    "error": {
+      "code": -32000,
+      "message": "no queued message 01JCQE00000000000000000009",
+      "data": {
+        "code": "not_found"
+      }
+    }
+  }
+]

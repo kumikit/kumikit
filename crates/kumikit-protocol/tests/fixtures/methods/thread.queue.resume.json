@@ -1,0 +1,15 @@
+[
+  {
+    "id": 47,
+    "jsonrpc": "2.0",
+    "method": "thread.queue.resume",
+    "params": {
+      "thread": "01JCTH00000000000000000001"
+    }
+  },
+  {
+    "id": 47,
+    "jsonrpc": "2.0",
+    "result": {}
+  }
+]

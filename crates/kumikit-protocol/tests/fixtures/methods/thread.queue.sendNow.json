@@ -1,0 +1,37 @@
+[
+  {
+    "id": 45,
+    "jsonrpc": "2.0",
+    "method": "thread.queue.sendNow",
+    "params": {
+      "thread": "01JCTH00000000000000000001",
+      "entry": "01JCQE00000000000000000001"
+    }
+  },
+  {
+    "id": 45,
+    "jsonrpc": "2.0",
+    "result": {
+      "turn": "01JCTU00000000000000000002",
+      "queued": true,
+      "entry": "01JCQE00000000000000000001"
+    }
+  },
+  {
+    "id": 46,
+    "jsonrpc": "2.0",
+    "method": "thread.queue.sendNow",
+    "params": {
+      "thread": "01JCTH00000000000000000001",
+      "entry": "01JCQE00000000000000000002"
+    }
+  },
+  {
+    "id": 46,
+    "jsonrpc": "2.0",
+    "result": {
+      "turn": "01JCTU00000000000000000003",
+      "queued": false
+    }
+  }
+]

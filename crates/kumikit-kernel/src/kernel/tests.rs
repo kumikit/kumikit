@@ -61,6 +61,7 @@ fn started(turn: &str) -> ThreadEvent {
         turn: TurnId(turn.into()),
         input: UserInput::text("hi"),
         from: None,
+        entry: None,
     })
 }
 

@@ -1,0 +1,21 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 22,
+      "time": "2026-11-15T10:00:22.000Z",
+      "kind": "queue.updated",
+      "data": {
+        "entry": {
+          "id": "01JCQE00000000000000000001",
+          "turn": "01JCTU00000000000000000002",
+          "input": {
+            "text": "also update the README and the changelog"
+          }
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,16 @@
+[
+  {
+    "id": 42,
+    "jsonrpc": "2.0",
+    "method": "thread.queue.remove",
+    "params": {
+      "thread": "01JCTH00000000000000000001",
+      "entry": "01JCQE00000000000000000002"
+    }
+  },
+  {
+    "id": 42,
+    "jsonrpc": "2.0",
+    "result": {}
+  }
+]

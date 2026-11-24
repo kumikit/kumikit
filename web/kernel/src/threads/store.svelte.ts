@@ -119,13 +119,40 @@ export class ThreadStore {
     for (const t of this.#open.values()) if (!connection || t.address.connection === connection) t.flush();
   }
 
-  /** Sends a message (with optional attachments); one sent during a turn shows as queued
-   * until it starts. */
+  /** Sends a message (with optional attachments). One sent during a turn joins the
+   * thread's queue, which the view follows from the log (`queue.*` events). */
   async send(address: ThreadAddress, text: string, attachments?: Attachment[]): Promise<void> {
-    const t = this.#get(address);
     const input: UserInput = attachments && attachments.length > 0 ? { text, attachments } : { text };
-    const r = await this.#connection(address).call('thread.send', { thread: address.thread, input });
-    if (r.queued) t.set({ ...t.view, queued: [...t.view.queued, text || `[${attachments?.length ?? 0} attachment(s)]`] });
+    await this.#connection(address).call('thread.send', { thread: address.thread, input });
+  }
+
+  /** Replaces a queued message's text, keeping its attachments. */
+  async queueUpdate(address: ThreadAddress, entry: string, text: string): Promise<void> {
+    const queued = this.#get(address).view.queue.find((q) => q.id === entry);
+    const input: UserInput = { ...(queued?.input ?? {}), text };
+    await this.#connection(address).call('thread.queue.update', { thread: address.thread, entry, input });
+  }
+
+  /** Removes a queued message. */
+  async queueRemove(address: ThreadAddress, entry: string): Promise<void> {
+    await this.#connection(address).call('thread.queue.remove', { thread: address.thread, entry });
+  }
+
+  /** Moves a queued message before `before`, or to the end. */
+  async queueMove(address: ThreadAddress, entry: string, before?: string): Promise<void> {
+    const params: { thread: string; entry: string; before?: string } = { thread: address.thread, entry };
+    if (before !== undefined) params.before = before;
+    await this.#connection(address).call('thread.queue.move', params);
+  }
+
+  /** Starts a queued message now, stopping the running turn if there is one. */
+  async queueSendNow(address: ThreadAddress, entry: string): Promise<void> {
+    await this.#connection(address).call('thread.queue.sendNow', { thread: address.thread, entry });
+  }
+
+  /** Lets a held queue continue. */
+  async queueResume(address: ThreadAddress): Promise<void> {
+    await this.#connection(address).call('thread.queue.resume', { thread: address.thread });
   }
 
   /** Updates a thread's model, permission mode, and/or title. */
@@ -146,10 +173,9 @@ export class ThreadStore {
     return thread;
   }
 
+  /** Cancels the running turn; its queue is held, not dropped. */
   async cancel(address: ThreadAddress): Promise<void> {
     await this.#connection(address).call('thread.cancel', { thread: address.thread });
-    const t = this.#open.get(this.#key(address));
-    if (t) t.set({ ...t.view, queued: [] });
   }
 
   /** Answers an approval on the core the thread is on. */

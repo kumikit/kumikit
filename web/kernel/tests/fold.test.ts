@@ -110,9 +110,40 @@ describe('the transcript', () => {
     expect(view.seq).toBe(12);
   });
 
-  it('drops a queued message when its turn starts', () => {
-    const view = { ...emptyView(address), queued: ['next', 'later'] };
-    const after = foldEvents(view, stamp([{ kind: 'turn.started', data: { turn: 'u2', input: { text: 'next' } } }]));
-    expect(after.queued).toEqual(['later']);
+  it('follows the queue from its events', () => {
+    const entry = (id: string, text: string) => ({ id, turn: `u-${id}`, input: { text } });
+    const before = emptyView(address);
+    const view = foldEvents(
+      before,
+      stamp([
+        { kind: 'queue.added', data: { entry: entry('a', 'one') } },
+        { kind: 'queue.added', data: { entry: entry('b', 'two') } },
+        { kind: 'queue.added', data: { entry: entry('c', 'three'), front: true } },
+        { kind: 'queue.updated', data: { entry: entry('a', 'one!') } },
+        { kind: 'queue.moved', data: { order: ['b', 'c', 'a'] } },
+        { kind: 'queue.removed', data: { entry: 'c', reason: 'removed' } },
+        { kind: 'queue.held', data: { reason: 'stopped' } },
+      ]),
+    );
+    expect(view.queue.map((q) => q.id)).toEqual(['b', 'a']);
+    expect(view.queued).toEqual(['two', 'one!']);
+    expect(view.queueHold).toBe('stopped');
+    expect(view.status).toBe('idle');
+    expect(before.queue).toEqual([]);
+
+    const after = foldEvents(view, [
+      { topic: 'thread:t1', seq: 8, time: 't', kind: 'queue.resumed', data: {} },
+      { topic: 'thread:t1', seq: 9, time: 't', kind: 'turn.started', data: { turn: 'u-b', input: { text: 'two' }, entry: 'b' } },
+    ]);
+    expect(after.queue.map((q) => q.id)).toEqual(['a']);
+    expect(after.queued).toEqual(['one!']);
+    expect(after.queueHold).toBeUndefined();
+    expect(after.status).toBe('running');
+  });
+
+  it('keeps the queue array when no queue event arrives', () => {
+    const view = foldEvents(emptyView(address), stamp([{ kind: 'queue.added', data: { entry: { id: 'a', turn: 'u', input: { text: 'x' } } } }]));
+    const next = foldEvents(view, [{ topic: 'thread:t1', seq: 2, time: 't', kind: 'usage', data: { turn: 'u', inputTokens: 1, outputTokens: 1 } }]);
+    expect(next.queue).toBe(view.queue);
   });
 });

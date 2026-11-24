@@ -1,0 +1,13 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 28,
+      "time": "2026-11-15T10:00:28.000Z",
+      "kind": "queue.resumed",
+      "data": {}
+    }
+  }
+]

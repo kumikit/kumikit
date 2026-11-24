@@ -2,6 +2,7 @@
 //! status on append, so a snapshot and `thread.list` cannot disagree.
 
 use kumikit_protocol::ThreadEvent;
+use kumikit_protocol::event::{QueueEntry, QueueHold};
 use kumikit_protocol::model::{
     Approval, ApprovalStatus, ThreadId, ThreadStatus, Timestamp, Turn, TurnOutcome,
 };
@@ -38,6 +39,10 @@ pub struct Fold {
     pub turns: Vec<Turn>,
     /// Every approval, oldest first, with its current status.
     pub approvals: Vec<Approval>,
+    /// Messages waiting in the queue, in order.
+    pub queue: Vec<QueueEntry>,
+    /// Why the queue is held, if it is.
+    pub queue_hold: Option<QueueHold>,
     /// The last applied `seq` (0 if none).
     pub seq: u64,
     /// Time of the last applied event.
@@ -52,6 +57,8 @@ impl Fold {
             status: ThreadStatus::Idle,
             turns: Vec::new(),
             approvals: Vec::new(),
+            queue: Vec::new(),
+            queue_hold: None,
             seq: 0,
             updated: None,
         }
@@ -67,13 +74,38 @@ impl Fold {
     /// Applies one event.
     pub fn apply(&mut self, seq: u64, time: &Timestamp, event: &ThreadEvent) {
         match event {
-            ThreadEvent::TurnStarted(e) => self.turns.push(Turn {
-                id: e.turn.clone(),
-                thread: self.thread.clone(),
-                started: time.clone(),
-                ended: None,
-                outcome: None,
-            }),
+            ThreadEvent::TurnStarted(e) => {
+                if let Some(entry) = &e.entry {
+                    self.queue.retain(|q| &q.id != entry);
+                }
+                self.turns.push(Turn {
+                    id: e.turn.clone(),
+                    thread: self.thread.clone(),
+                    started: time.clone(),
+                    ended: None,
+                    outcome: None,
+                });
+            }
+            ThreadEvent::QueueAdded(e) if e.front => self.queue.insert(0, e.entry.clone()),
+            ThreadEvent::QueueAdded(e) => self.queue.push(e.entry.clone()),
+            ThreadEvent::QueueUpdated(e) => {
+                if let Some(q) = self.queue.iter_mut().find(|q| q.id == e.entry.id) {
+                    *q = e.entry.clone();
+                }
+            }
+            ThreadEvent::QueueRemoved(e) => self.queue.retain(|q| q.id != e.entry),
+            ThreadEvent::QueueMoved(e) => {
+                let mut rest = std::mem::take(&mut self.queue);
+                for id in &e.order {
+                    if let Some(i) = rest.iter().position(|q| &q.id == id) {
+                        self.queue.push(rest.remove(i));
+                    }
+                }
+                // The kernel refuses orders that miss an entry; keep any anyway.
+                self.queue.append(&mut rest);
+            }
+            ThreadEvent::QueueHeld(e) => self.queue_hold = Some(e.reason),
+            ThreadEvent::QueueResumed(_) => self.queue_hold = None,
             ThreadEvent::TurnEnded(e) => {
                 if let Some(t) = self.turns.iter_mut().find(|t| t.id == e.turn) {
                     t.ended = Some(time.clone());
@@ -125,6 +157,7 @@ mod tests {
                 turn: "u".into(),
                 input: UserInput::text("hi"),
                 from: None,
+                entry: None,
             }),
             ThreadEvent::TextDelta(TurnText {
                 turn: "u".into(),
@@ -178,5 +211,75 @@ mod tests {
             0,
         );
         assert_eq!(s, ThreadStatus::Failed);
+    }
+
+    #[test]
+    fn folds_the_queue() {
+        use kumikit_protocol::event::{
+            QueueAdded, QueueHeld, QueueMoved, QueueRemoval, QueueRemoved, QueueResumed,
+            QueueUpdated,
+        };
+        let entry = |id: &str, text: &str| QueueEntry {
+            id: id.into(),
+            turn: format!("t{id}").as_str().into(),
+            input: UserInput::text(text),
+            from: None,
+        };
+        let mut f = Fold::new(ThreadId("th".into()));
+        let events = [
+            ThreadEvent::QueueAdded(QueueAdded {
+                entry: entry("a", "1"),
+                front: false,
+            }),
+            ThreadEvent::QueueAdded(QueueAdded {
+                entry: entry("b", "2"),
+                front: false,
+            }),
+            ThreadEvent::QueueAdded(QueueAdded {
+                entry: entry("c", "3"),
+                front: true,
+            }),
+            ThreadEvent::QueueUpdated(QueueUpdated {
+                entry: entry("a", "1!"),
+            }),
+            ThreadEvent::QueueMoved(QueueMoved {
+                order: vec!["b".into(), "c".into(), "a".into()],
+            }),
+            ThreadEvent::QueueRemoved(QueueRemoved {
+                entry: "c".into(),
+                reason: QueueRemoval::Removed,
+            }),
+            ThreadEvent::QueueHeld(QueueHeld {
+                reason: QueueHold::Stopped,
+            }),
+        ];
+        for (i, e) in events.iter().enumerate() {
+            f.apply(i as u64 + 1, &ts(i as u32), e);
+        }
+        let ids: Vec<&str> = f.queue.iter().map(|q| q.id.as_str()).collect();
+        assert_eq!(ids, ["b", "a"]);
+        assert_eq!(f.queue[1].input.text, "1!");
+        assert_eq!(f.queue_hold, Some(QueueHold::Stopped));
+        assert_eq!(
+            f.status,
+            ThreadStatus::Idle,
+            "queue events do not move the status"
+        );
+
+        f.apply(8, &ts(8), &ThreadEvent::QueueResumed(QueueResumed {}));
+        f.apply(
+            9,
+            &ts(9),
+            &ThreadEvent::TurnStarted(TurnStarted {
+                turn: "tb".into(),
+                input: UserInput::text("2"),
+                from: None,
+                entry: Some("b".into()),
+            }),
+        );
+        assert_eq!(f.queue_hold, None);
+        let ids: Vec<&str> = f.queue.iter().map(|q| q.id.as_str()).collect();
+        assert_eq!(ids, ["a"]);
+        assert_eq!(f.status, ThreadStatus::Running);
     }
 }

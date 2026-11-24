@@ -33,6 +33,10 @@ import type { PluginsChanged } from "./PluginsChanged";
 import type { ProviderListResult } from "./ProviderListResult";
 import type { ProviderModelsParams } from "./ProviderModelsParams";
 import type { ProviderModelsResult } from "./ProviderModelsResult";
+import type { QueueEntryRef } from "./QueueEntryRef";
+import type { QueueEntryResult } from "./QueueEntryResult";
+import type { QueueMoveParams } from "./QueueMoveParams";
+import type { QueueUpdateParams } from "./QueueUpdateParams";
 import type { RegistryListResult } from "./RegistryListResult";
 import type { RegistrySearchParams } from "./RegistrySearchParams";
 import type { RegistrySearchResult } from "./RegistrySearchResult";
@@ -73,7 +77,7 @@ import type { WorktreeDeleteParams } from "./WorktreeDeleteParams";
 import type { WorktreeListResult } from "./WorktreeListResult";
 
 /** Protocol version spoken by this package, `MAJOR.MINOR`. */
-export const PROTOCOL_VERSION = "0.6";
+export const PROTOCOL_VERSION = "0.7";
 
 /** Every request method with its params and result types. */
 export type Methods = {
@@ -104,6 +108,11 @@ export type Methods = {
   "thread.get": { params: ThreadRef; result: ThreadSnapshot };
   "thread.send": { params: ThreadSendParams; result: ThreadSendResult };
   "thread.cancel": { params: ThreadRef; result: Empty };
+  "thread.queue.update": { params: QueueUpdateParams; result: QueueEntryResult };
+  "thread.queue.remove": { params: QueueEntryRef; result: Empty };
+  "thread.queue.move": { params: QueueMoveParams; result: Empty };
+  "thread.queue.sendNow": { params: QueueEntryRef; result: ThreadSendResult };
+  "thread.queue.resume": { params: ThreadRef; result: Empty };
   "thread.respondApproval": { params: RespondApprovalParams; result: Empty };
   "thread.archive": { params: ThreadRef; result: Empty };
   "thread.unarchive": { params: ThreadRef; result: ThreadUpdateResult };

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use kumikit_protocol::event::{ApprovalResolved, ThreadChange, TurnEnded};
+use kumikit_protocol::event::{ApprovalResolved, QueueHeld, QueueHold, ThreadChange, TurnEnded};
 use kumikit_protocol::local::{Platform, default_home_dir};
 use kumikit_protocol::methods::{CoreConfigResult, ThreadSnapshot};
 use kumikit_protocol::model::{
@@ -97,6 +97,9 @@ pub(crate) struct Inner {
     pub(crate) revocations: broadcast::Sender<String>,
     /// Threads with a running turn.
     runs: Mutex<HashMap<ThreadId, ThreadRun>>,
+    /// Serialises queue changes with the decision of what runs next, so a message queued
+    /// while a turn ends is never left behind (`turns.rs`).
+    pub(crate) dispatch: tokio::sync::Mutex<()>,
     /// Provider session per thread, started on first use in this process.
     sessions: Mutex<HashMap<ThreadId, Session>>,
     pub(crate) secrets: SecretStore,
@@ -138,6 +141,7 @@ impl Kernel {
                 workspace_events: broadcast::Sender::new(WORKSPACE_EVENTS),
                 revocations: broadcast::Sender::new(crate::devices::REVOCATIONS),
                 runs: Mutex::new(HashMap::new()),
+                dispatch: tokio::sync::Mutex::new(()),
                 sessions: Mutex::new(HashMap::new()),
                 secrets: SecretStore::new(config.secrets),
                 supervisor: Supervisor::new(config.supervisor),
@@ -280,6 +284,17 @@ impl Kernel {
                     turn,
                     outcome: TurnOutcome::Failed,
                     error: Some(CORE_RESTARTED.into()),
+                }),
+            )
+            .await?;
+        }
+        // Messages that were waiting when the core stopped wait for the user again.
+        let queued = self.inner.store.read(repo::threads_with_open_queue).await?;
+        for thread in queued {
+            self.append(
+                &thread,
+                ThreadEvent::QueueHeld(QueueHeld {
+                    reason: QueueHold::Restarted,
                 }),
             )
             .await?;
@@ -639,6 +654,8 @@ impl Kernel {
                 Ok(ThreadSnapshot {
                     thread,
                     pending_approvals: fold.pending().cloned().collect(),
+                    queue: fold.queue,
+                    queue_hold: fold.queue_hold,
                     turns: fold.turns,
                     seq: fold.seq,
                 })

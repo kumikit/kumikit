@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 /// The UI SDK version this Kumikit provides; manifests' `api` ranges must accept it.
-pub const UI_SDK_VERSION: &str = "0.1.2";
+pub const UI_SDK_VERSION: &str = "0.1.3";
 
 /// Slots a sandboxed panel may contribute to (07-ui-plugins, Level 2).
 pub const PANEL_SLOTS: &[&str] = &["sidebar.section", "inspector.tab", "view", "settings.page"];

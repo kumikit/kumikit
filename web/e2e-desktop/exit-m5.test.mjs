@@ -123,7 +123,7 @@ after(async () => {
     const c = net.connect(socket);
     c.once('error', () => done());
     c.once('connect', () => {
-      c.write('{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.6","client":{"name":"e2e","version":"0"}}}\n');
+      c.write('{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.7","client":{"name":"e2e","version":"0"}}}\n');
       c.write('{"jsonrpc":"2.0","id":2,"method":"core.shutdown","params":{}}\n');
     });
     c.once('close', () => done());
