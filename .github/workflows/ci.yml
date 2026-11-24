@@ -196,33 +196,31 @@ jobs:
       - run: cargo test --workspace --doc
 
   bundle:
-    # Assembles the OS-independent UI bundle once (~40s) using the prebuilt kumikit CLI to
-    # pack provider-acp.kkp, unblocking footprint-desktop, installers, macOS e2e-browser and
-    # Windows e2e-desktop without waiting for build-linux.
+    # Assembles the OS-independent UI bundle once, building this commit's kumikit CLI to
+    # pack provider-acp.kkp (so new WIT worlds or manifest fields in the PR are accepted),
+    # unblocking footprint-desktop, installers, macOS e2e-browser and Windows e2e-desktop.
     needs: changes
     if: >-
       github.event_name != 'pull_request' ||
       needs.changes.outputs.e2e == 'true' ||
       needs.changes.outputs.installers == 'true'
     runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=mold
     steps:
       - uses: actions/checkout@v4
       - run: rustup show active-toolchain
+      - run: sudo apt-get update && sudo apt-get install -y mold
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ci-wasm
+          shared-key: ci-bundle
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
       - run: npm ci
-      - uses: kumikit/kumikit/.github/actions/setup-kumikit@v0.1.0-m5.1
-        with:
-          tools: kumikit
       - name: Assemble OS-independent UI bundle
-        env:
-          KUMIKIT_BIN: kumikit
         run: node scripts/bundle.mjs
       - uses: actions/upload-artifact@v4
         with:
