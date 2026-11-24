@@ -22,6 +22,9 @@ pub enum KernelError {
     /// A provider failed.
     #[error("{0}")]
     PluginFailed(String),
+    /// The caller lacks permission for this action.
+    #[error("{0}")]
+    PermissionDenied(String),
     /// A size or count limit was exceeded (reported as `invalid_params` on the wire).
     #[error("{0}")]
     Limit(String),
@@ -42,6 +45,7 @@ impl KernelError {
             KernelError::Conflict(_) => ErrorCode::Conflict,
             KernelError::Unsupported(_) => ErrorCode::Unsupported,
             KernelError::PluginFailed(_) => ErrorCode::PluginFailed,
+            KernelError::PermissionDenied(_) => ErrorCode::PermissionDenied,
             KernelError::Limit(_) => ErrorCode::InvalidParams,
             KernelError::Io(_) => ErrorCode::Internal,
             KernelError::Store(_) => ErrorCode::Internal,

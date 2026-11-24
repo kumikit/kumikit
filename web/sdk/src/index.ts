@@ -16,6 +16,7 @@ import type {
   ProviderModel,
   QueueEntry,
   QueueHold,
+  QueueTrigger,
   Resolution,
   Thread,
   ThreadStatus,
@@ -23,7 +24,17 @@ import type {
   TurnPurpose,
 } from '@kumikit/protocol';
 
-export type { Attachment, HandoffMode, PermissionMode, ProviderInfo, ProviderModel, QueueEntry, QueueHold, TurnPurpose };
+export type {
+  Attachment,
+  HandoffMode,
+  PermissionMode,
+  ProviderInfo,
+  ProviderModel,
+  QueueEntry,
+  QueueHold,
+  QueueTrigger,
+  TurnPurpose,
+};
 
 import type { Slot, TokenName } from './generated';
 

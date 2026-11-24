@@ -105,6 +105,7 @@ pub(crate) struct Inner {
     pub(crate) secrets: SecretStore,
     pub(crate) supervisor: Supervisor,
     pub(crate) schedules: crate::schedule::State,
+    pub(crate) defer: crate::defer::State,
     pub(crate) gateway: crate::gateway::State,
     pub(crate) default_home_dir: PathBuf,
 }
@@ -146,6 +147,7 @@ impl Kernel {
                 secrets: SecretStore::new(config.secrets),
                 supervisor: Supervisor::new(config.supervisor),
                 schedules: Default::default(),
+                defer: Default::default(),
                 gateway: Default::default(),
                 default_home_dir: config.default_home_dir,
             }),
@@ -162,6 +164,7 @@ impl Kernel {
     /// database after queued writes.
     pub async fn close(&self) {
         self.stop_scheduler();
+        self.stop_defer_timer();
         self.stop_turns().await;
         self.inner.supervisor.shutdown().await;
         self.lock_heads().clear();
@@ -288,7 +291,9 @@ impl Kernel {
             )
             .await?;
         }
-        // Messages that were waiting when the core stopped wait for the user again.
+        // Messages that were waiting (and command triggers interrupted) when the core
+        // stopped wait for the user again.
+        self.inner.store.write(repo::pause_command_triggers).await?;
         let queued = self.inner.store.read(repo::threads_with_open_queue).await?;
         for thread in queued {
             self.append(
@@ -544,6 +549,7 @@ impl Kernel {
             id: ThreadId(self.new_id()),
             workspace: workspace.clone(),
             title,
+            title_source: None,
             provider,
             model,
             permission_mode,
@@ -588,6 +594,49 @@ impl Kernel {
             .thread
             .permission_mode
             .unwrap_or_default())
+    }
+
+    /// Reads up to `limit` (clamped to 200) events of `id` with `seq > after`.
+    pub async fn thread_read_events(
+        &self,
+        id: &ThreadId,
+        after: u64,
+        limit: usize,
+    ) -> KernelResult<Vec<StoredEvent>> {
+        let tid = id.clone();
+        let limit = limit.clamp(1, 200);
+        self.inner
+            .store
+            .read(move |c| {
+                repo::thread_require(c, &tid)?;
+                repo::read_events(c, &tid, after, limit)
+            })
+            .await
+    }
+
+    /// Sets a thread's title as agent-suggested unless the user explicitly renamed it
+    /// (`titleSource == user`, ADR 0030). Returns `true` when updated.
+    pub async fn thread_suggest_title(&self, id: &ThreadId, title: &str) -> KernelResult<bool> {
+        let trimmed = title.trim();
+        if trimmed.is_empty() || trimmed.len() > 200 {
+            return Err(KernelError::InvalidParams(
+                "suggested title must be 1..=200 bytes".into(),
+            ));
+        }
+        let tid = id.clone();
+        let t = trimmed.to_owned();
+        let updated = self.now();
+        let (changed, row) = self
+            .inner
+            .store
+            .write(move |c| repo::thread_suggest_title(c, &tid, &t, &updated))
+            .await?;
+        if changed {
+            self.announce(WorkspaceEvent::ThreadUpdated(ThreadChange {
+                thread: row.public(),
+            }));
+        }
+        Ok(changed)
     }
 
     /// Threads of a workspace, most recently updated first.

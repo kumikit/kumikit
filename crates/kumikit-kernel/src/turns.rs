@@ -19,7 +19,8 @@ use kumikit_protocol::event::{
 use kumikit_protocol::methods::{ProviderInfo, SteerStatus, ThreadSendResult, ThreadSteerResult};
 use kumikit_protocol::model::{
     ApprovalId, Attachment, Decision, HandoffMode, PermissionMode, ProviderModel, QueueEntryId,
-    Resolution, Thread, ThreadId, TurnId, TurnOutcome, TurnPurpose, UserInput, WorkspaceId,
+    Resolution, Thread, ThreadId, TitleSource, TurnId, TurnOutcome, TurnPurpose, UserInput,
+    WorkspaceId,
 };
 use kumikit_protocol::{ThreadEvent, WorkspaceEvent};
 use tokio::sync::oneshot;
@@ -35,7 +36,7 @@ const MAX_ATTACHMENTS: usize = 16;
 /// Maximum total decoded bytes across attachments on a single user turn (4 MiB).
 const MAX_ATTACHMENT_BYTES: usize = 4 * 1024 * 1024;
 
-fn validate_attachments(attachments: &[Attachment]) -> KernelResult<()> {
+pub(crate) fn validate_attachments(attachments: &[Attachment]) -> KernelResult<()> {
     if attachments.len() > MAX_ATTACHMENTS {
         return Err(KernelError::InvalidParams(format!(
             "at most {MAX_ATTACHMENTS} attachments per message"
@@ -66,14 +67,14 @@ fn validate_attachments(attachments: &[Attachment]) -> KernelResult<()> {
     Ok(())
 }
 
-/// A message about to start a turn: the turn it gets, the input, the plugin that sent
-/// it (if one did) and the queue entry it comes from (if it waited).
+/// A message about to start a turn: the turn it gets, the input, who sent it (a plugin
+/// and/or deferred trigger) and the queue entry it comes from (if it waited).
 #[derive(Debug, Clone)]
 pub(crate) struct Queued {
-    turn: TurnId,
-    input: UserInput,
-    from: Option<String>,
-    entry: Option<QueueEntryId>,
+    pub(crate) turn: TurnId,
+    pub(crate) input: UserInput,
+    pub(crate) from: Option<MessageFrom>,
+    pub(crate) entry: Option<QueueEntryId>,
 }
 
 impl From<QueueEntry> for Queued {
@@ -81,7 +82,7 @@ impl From<QueueEntry> for Queued {
         Queued {
             turn: e.turn,
             input: e.input,
-            from: e.from.map(|f| f.plugin),
+            from: e.from,
             entry: Some(e.id),
         }
     }
@@ -353,9 +354,9 @@ impl Kernel {
             Some(m) => Some(m),
             None => row.thread.permission_mode,
         };
-        let next_title = match title {
-            Some(t) => Some(t),
-            None => row.thread.title.clone(),
+        let (next_title, next_title_source) = match title {
+            Some(t) => (Some(t), Some(TitleSource::User)),
+            None => (row.thread.title.clone(), row.thread.title_source),
         };
 
         if switching {
@@ -413,6 +414,7 @@ impl Kernel {
                         &m_for_db,
                         next_mode,
                         t_for_db.as_deref(),
+                        next_title_source,
                         &updated,
                         true,
                         Some(pending_for_db.as_ref()),
@@ -460,6 +462,7 @@ impl Kernel {
                     &m_for_db,
                     next_mode,
                     t_for_db.as_deref(),
+                    next_title_source,
                     &updated,
                     false,
                     None,
@@ -624,7 +627,8 @@ impl Kernel {
                 id: QueueEntryId(self.new_id()),
                 turn: turn.clone(),
                 input,
-                from: from.map(|plugin| MessageFrom { plugin }),
+                from: from.map(MessageFrom::plugin),
+                trigger: None,
             };
             let id = entry.id.clone();
             self.append(
@@ -645,7 +649,7 @@ impl Kernel {
         let first = Queued {
             turn: turn.clone(),
             input,
-            from,
+            from: from.map(MessageFrom::plugin),
             entry: None,
         };
         self.start_run(thread, row.thread, provider, first).await?;
@@ -717,7 +721,8 @@ impl Kernel {
             id: QueueEntryId(self.new_id()),
             turn: TurnId(self.new_id()),
             input,
-            from: from.map(|plugin| MessageFrom { plugin }),
+            from: from.map(MessageFrom::plugin),
+            trigger: None,
         };
         let id = entry.id.clone();
         self.append(
@@ -772,11 +777,12 @@ impl Kernel {
         Ok(queued)
     }
 
-    /// Removes a queued message.
+    /// Removes a queued (or deferred) message.
     pub async fn queue_remove(&self, thread: &ThreadId, entry: &QueueEntryId) -> KernelResult<()> {
         self.thread_row(thread).await?;
         let _dispatch = self.inner.dispatch.lock().await;
         self.queue_entry(thread, entry).await?;
+        self.cancel_defer_task(entry);
         self.append(
             thread,
             ThreadEvent::QueueRemoved(QueueRemoved {
@@ -828,8 +834,8 @@ impl Kernel {
         Ok(())
     }
 
-    /// Starts a queued message now. While a turn runs, that turn is cancelled and this
-    /// message runs next; the rest of the queue is held.
+    /// Starts a queued (or deferred) message now. While a turn runs, that turn is
+    /// cancelled and this message runs next; the rest of the queue is held.
     pub async fn queue_send_now(
         &self,
         thread: &ThreadId,
@@ -842,7 +848,18 @@ impl Kernel {
             )));
         }
         let _dispatch = self.inner.dispatch.lock().await;
-        let queued = self.queue_entry(thread, entry).await?;
+        let mut queued = self.queue_entry(thread, entry).await?;
+        self.cancel_defer_task(entry);
+        if queued.trigger.is_some() {
+            queued.trigger = None;
+            self.append(
+                thread,
+                ThreadEvent::QueueUpdated(QueueUpdated {
+                    entry: queued.clone(),
+                }),
+            )
+            .await?;
+        }
         if let Some(run) = self.lock_runs().get_mut(thread) {
             run.next = Some(queued.id.clone());
             if let Some(tx) = run.cancel.take() {
@@ -865,7 +882,8 @@ impl Kernel {
         })
     }
 
-    /// Lets a held queue start its entries again; an idle thread starts the first one.
+    /// Lets a held queue start its entries again; re-arms held command triggers and on an
+    /// idle thread starts the first ready entry.
     pub async fn queue_resume(&self, thread: &ThreadId) -> KernelResult<()> {
         let row = self.thread_row(thread).await?;
         if row.archived {
@@ -873,23 +891,24 @@ impl Kernel {
                 "thread {thread} is archived"
             )));
         }
-        let _dispatch = self.inner.dispatch.lock().await;
-        if self.queue_hold_of(thread).await?.is_some() {
-            self.append(thread, ThreadEvent::QueueResumed(QueueResumed {}))
-                .await?;
+        {
+            let _dispatch = self.inner.dispatch.lock().await;
+            if self.queue_hold_of(thread).await?.is_some() {
+                self.append(thread, ThreadEvent::QueueResumed(QueueResumed {}))
+                    .await?;
+            }
+            if !self.has_run(thread)
+                && let Some(first) = self.queue_ready_of(thread).await?.into_iter().next()
+            {
+                let provider = self.provider_of(&row.thread)?;
+                self.start_run(thread, row.thread, provider, first.into())
+                    .await?;
+            }
         }
-        if self.has_run(thread) {
-            return Ok(());
-        }
-        let Some(first) = self.queue_of(thread).await?.into_iter().next() else {
-            return Ok(());
-        };
-        let provider = self.provider_of(&row.thread)?;
-        self.start_run(thread, row.thread, provider, first.into())
-            .await
+        self.rearm_command_triggers(thread).await
     }
 
-    async fn queue_of(&self, thread: &ThreadId) -> KernelResult<Vec<QueueEntry>> {
+    pub(crate) async fn queue_of(&self, thread: &ThreadId) -> KernelResult<Vec<QueueEntry>> {
         let t = thread.clone();
         self.inner
             .store
@@ -897,7 +916,15 @@ impl Kernel {
             .await
     }
 
-    async fn queue_hold_of(&self, thread: &ThreadId) -> KernelResult<Option<QueueHold>> {
+    pub(crate) async fn queue_ready_of(&self, thread: &ThreadId) -> KernelResult<Vec<QueueEntry>> {
+        let t = thread.clone();
+        self.inner
+            .store
+            .read(move |c| repo::queue_ready_list(c, &t))
+            .await
+    }
+
+    pub(crate) async fn queue_hold_of(&self, thread: &ThreadId) -> KernelResult<Option<QueueHold>> {
         let t = thread.clone();
         self.inner
             .store
@@ -917,7 +944,7 @@ impl Kernel {
             .ok_or_else(|| KernelError::NotFound(format!("no queued message {entry}")))
     }
 
-    fn provider_of(&self, thread: &Thread) -> KernelResult<Arc<dyn Provider>> {
+    pub(crate) fn provider_of(&self, thread: &Thread) -> KernelResult<Arc<dyn Provider>> {
         self.provider(&thread.provider).ok_or_else(|| {
             KernelError::PluginFailed(format!("provider {} is not available", thread.provider))
         })
@@ -925,7 +952,7 @@ impl Kernel {
 
     /// Registers a run for an idle thread, appends its `turn.started` and spawns the turn
     /// loop. The caller holds `dispatch`.
-    async fn start_run(
+    pub(crate) async fn start_run(
         &self,
         thread: &ThreadId,
         meta: Thread,
@@ -949,7 +976,9 @@ impl Kernel {
         }
         let kernel = self.clone();
         let t = thread.clone();
-        tokio::spawn(async move { kernel.run_turns(t, meta, provider, first, rx).await });
+        let fut: crate::provider::BoxFuture<'static, ()> =
+            Box::pin(async move { kernel.run_turns(t, meta, provider, first, rx).await });
+        tokio::spawn(fut);
         Ok(())
     }
 
@@ -960,7 +989,7 @@ impl Kernel {
             ThreadEvent::TurnStarted(TurnStarted {
                 turn: q.turn.clone(),
                 input: q.input.clone(),
-                from: q.from.clone().map(|plugin| MessageFrom { plugin }),
+                from: q.from.clone(),
                 entry: q.entry.clone(),
                 provider: Some(meta.provider.clone()),
                 model: Some(meta.model.clone()),
@@ -1063,8 +1092,14 @@ impl Kernel {
                 }
             };
             match self.end_turn(&thread, &meta, &turn, outcome, error).await {
-                Ok(Some((q, rx))) => (next_up, cancel) = (q, rx),
-                Ok(None) => break,
+                Ok(Some((q, rx))) => {
+                    tokio::spawn(self.on_turn_ended_triggers(thread.clone(), outcome));
+                    (next_up, cancel) = (q, rx);
+                }
+                Ok(None) => {
+                    tokio::spawn(self.on_turn_ended_triggers(thread.clone(), outcome));
+                    break;
+                }
                 Err(e) => {
                     tracing::warn!(%thread, error = %e, "the next queued message could not start");
                     self.lock_runs().remove(&thread);
@@ -1100,10 +1135,11 @@ impl Kernel {
                 turn: TurnId(self.new_id()),
                 input,
                 from: None,
+                trigger: None,
             })
             .collect();
         let mut queue = unsteered.clone();
-        queue.extend(self.queue_of(thread).await?);
+        queue.extend(self.queue_ready_of(thread).await?);
         let mut held = self.queue_hold_of(thread).await?.is_some();
         let requested = requested.and_then(|id| queue.iter().find(|q| q.id == id).cloned());
         let others = queue

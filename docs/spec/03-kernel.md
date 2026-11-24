@@ -56,9 +56,9 @@ Approval  { id, thread, turn, kind, summary, detail, status }
 | `usage` | `turn`, `inputTokens`, `outputTokens`, `cost?` | provider |
 | `turn.ended` | `turn`, `outcome` (`done`, `cancelled`, `failed`), `error?` | kernel |
 | `plugin.event` | `plugin`, `kind`, `data` | any plugin, namespaced |
-| `queue.added` | `entry` (`{ id, turn, input, from? }`), `front?` (true: it went to the front), `reason?` (`not_steered` when a steer fell back to the queue or was not taken before the turn ended) | kernel |
+| `queue.added` | `entry` (`{ id, turn, input, from?, trigger? }`), `front?` (true: it went to the front), `reason?` (`not_steered` when a steer fell back to the queue or was not taken before the turn ended) | kernel |
 | `queue.updated` | `entry`, after the change | kernel |
-| `queue.removed` | `entry` (id), `reason` (`removed`) | kernel |
+| `queue.removed` | `entry` (id), `reason` (`removed` or `condition_not_met`) | kernel |
 | `queue.moved` | `order`: every entry id, in the new order | kernel |
 | `queue.held` | `reason` (`stopped`, `failed`, `restarted`) | kernel |
 | `queue.resumed` | — | kernel |

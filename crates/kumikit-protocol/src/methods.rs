@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use ts_rs::TS;
 
-use crate::event::{EventNotification, QueueEntry, QueueHold};
+use crate::event::{EventNotification, QueueEntry, QueueHold, QueueTrigger};
 use crate::model::{
     Approval, ApprovalId, Decision, PermissionMode, QueueEntryId, Thread, ThreadId, Timestamp,
     Turn, TurnId, UserInput, Workspace, WorkspaceId,
@@ -136,6 +136,8 @@ methods! {
         ThreadCancel = "thread.cancel" (ThreadRef) -> Empty;
         /// `thread.steer`: a message for the running turn's agent (since 0.8).
         ThreadSteer = "thread.steer" (ThreadSendParams) -> ThreadSteerResult;
+        /// `thread.defer`: queue a message that waits for a trigger before running (since 0.9).
+        ThreadDefer = "thread.defer" (ThreadDeferParams) -> QueueEntryResult;
         /// `thread.queue.update`: replace a queued message's input.
         ThreadQueueUpdate = "thread.queue.update" (QueueUpdateParams) -> QueueEntryResult;
         /// `thread.queue.remove`: remove a queued message.
@@ -1041,6 +1043,18 @@ pub struct ThreadSteerResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub entry: Option<QueueEntryId>,
+}
+
+/// Params of `thread.defer`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadDeferParams {
+    /// The thread.
+    pub thread: ThreadId,
+    /// The message to send when the trigger fires.
+    pub input: UserInput,
+    /// Condition to wait for.
+    pub trigger: QueueTrigger,
 }
 
 /// Params naming a queued message.

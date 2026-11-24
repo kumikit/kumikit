@@ -55,6 +55,7 @@ import type { SubscribeParams } from "./SubscribeParams";
 import type { SubscribeResult } from "./SubscribeResult";
 import type { ThreadCreateParams } from "./ThreadCreateParams";
 import type { ThreadCreateResult } from "./ThreadCreateResult";
+import type { ThreadDeferParams } from "./ThreadDeferParams";
 import type { ThreadListParams } from "./ThreadListParams";
 import type { ThreadListResult } from "./ThreadListResult";
 import type { ThreadRef } from "./ThreadRef";
@@ -110,6 +111,7 @@ export type Methods = {
   "thread.send": { params: ThreadSendParams; result: ThreadSendResult };
   "thread.cancel": { params: ThreadRef; result: Empty };
   "thread.steer": { params: ThreadSendParams; result: ThreadSteerResult };
+  "thread.defer": { params: ThreadDeferParams; result: QueueEntryResult };
   "thread.queue.update": { params: QueueUpdateParams; result: QueueEntryResult };
   "thread.queue.remove": { params: QueueEntryRef; result: Empty };
   "thread.queue.move": { params: QueueMoveParams; result: Empty };

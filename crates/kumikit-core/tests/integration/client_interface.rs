@@ -130,11 +130,77 @@ async fn a_client_plugin_acts_only_where_it_may_and_is_recorded() {
         assert_eq!(resolved["data"]["plugin"], "test.client");
         assert_eq!(events.last().unwrap()["data"]["outcome"], "done");
 
-        // It reads the thread and follows its log through a pollable subscription.
+        // It reads the thread, defers/lists/removes a queued entry, suggests a title, and follows its log.
         let snapshot = run(&mut c, "get", json!({ "thread": thread }))
             .await
             .unwrap();
         assert_eq!(snapshot["thread"]["id"], thread.as_str());
+        let ev_page = run(
+            &mut c,
+            "read-events",
+            json!({ "thread": thread, "after": 0, "limit": 20 }),
+        )
+        .await
+        .unwrap();
+        assert!(!ev_page.as_array().unwrap().is_empty());
+        let deferred = run(
+            &mut c,
+            "defer",
+            json!({
+                "thread": thread,
+                "text": "check later",
+                "trigger": { "kind": "at", "time": "2099-01-01T00:00:00.000Z" }
+            }),
+        )
+        .await
+        .unwrap();
+        let entry_id = deferred["id"].as_str().unwrap().to_owned();
+        let queue = run(&mut c, "list-queue", json!({ "thread": thread }))
+            .await
+            .unwrap();
+        assert_eq!(queue.as_array().unwrap().len(), 1);
+        run(
+            &mut c,
+            "remove-queued",
+            json!({ "thread": thread, "entry": entry_id }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            run(&mut c, "list-queue", json!({ "thread": thread }))
+                .await
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+        // Agent title suggestion applies until the user renames the thread.
+        assert_eq!(
+            run(
+                &mut c,
+                "suggest-title",
+                json!({ "thread": thread, "title": "Agent title" })
+            )
+            .await
+            .unwrap()["applied"],
+            json!(true)
+        );
+        c.call(
+            "thread.update",
+            json!({ "thread": thread, "title": "User title" }),
+        )
+        .await;
+        assert_eq!(
+            run(
+                &mut c,
+                "suggest-title",
+                json!({ "thread": thread, "title": "Ignored title" })
+            )
+            .await
+            .unwrap()["applied"],
+            json!(false)
+        );
         let kinds = run(
             &mut c,
             "follow",
@@ -175,7 +241,7 @@ async fn each_operation_needs_its_grant() {
         let mut c = Client::hello(&dirs.address).await;
         install(&mut c, &probe_kkp(&dirs)).await;
         let manifest = kumikit_test_plugins::CLIENT_MANIFEST.replace(
-            "client = [\"workspaces.list\", \"threads.read\", \"threads.create\", \"threads.send\", \"threads.steer\", \"threads.cancel\", \"approvals.respond\"]\nworkspaces = \"linked\"",
+            "client = [\"workspaces.list\", \"threads.read\", \"threads.create\", \"threads.send\", \"threads.steer\", \"threads.defer\", \"threads.queue\", \"threads.title.suggest\", \"threads.cancel\", \"approvals.respond\"]\nworkspaces = \"linked\"",
             "client = [\"workspaces.list\", \"threads.read\"]\nworkspaces = \"all\"",
         );
         install(&mut c, &client_kkp(&dirs, &manifest)).await;
@@ -191,6 +257,17 @@ async fn each_operation_needs_its_grant() {
             ("create", json!({ "workspace": w })),
             ("send", json!({ "thread": thread, "text": "hi" })),
             ("steer", json!({ "thread": thread, "text": "go left" })),
+            (
+                "defer",
+                json!({
+                    "thread": thread,
+                    "text": "later",
+                    "trigger": { "kind": "at", "time": "2099-01-01T00:00:00.000Z" }
+                }),
+            ),
+            ("list-queue", json!({ "thread": thread })),
+            ("remove-queued", json!({ "thread": thread, "entry": "01JCAPNOPE" })),
+            ("suggest-title", json!({ "thread": thread, "title": "Nope" })),
             ("cancel", json!({ "thread": thread })),
             ("respond", json!({ "approval": "01JCAPNOPE", "decision": "allow" })),
         ] {

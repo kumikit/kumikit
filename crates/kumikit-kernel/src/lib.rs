@@ -2,6 +2,7 @@
 //! See `docs/spec/03-kernel.md`.
 
 pub mod clock;
+pub mod defer;
 pub mod devices;
 pub mod error;
 pub mod fold;

@@ -11,6 +11,7 @@ mod cli;
 mod client_api;
 mod client_interface;
 mod commands;
+mod defer;
 mod exit_m4;
 mod exit_m5;
 mod gateway;

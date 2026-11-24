@@ -156,6 +156,11 @@ impl Runtime {
                     HasSelf<HostState>,
                 >(&mut base, |s| s)
                 .map_err(|e| e.to_string())?;
+                bindings::threads_client::kumikit::threads::client::add_to_linker::<
+                    HostState,
+                    HasSelf<HostState>,
+                >(&mut base, |s| s)
+                .map_err(|e| e.to_string())?;
                 let mut provider = wasi_linker(engine.engine()).map_err(|e| e.to_string())?;
                 bindings::provider::Plugin::add_to_linker::<HostState, HasSelf<HostState>>(
                     &mut provider,
@@ -174,7 +179,17 @@ impl Runtime {
                     |s| s,
                 )
                 .map_err(|e| e.to_string())?;
+                bindings::base::kumikit::host::client::add_to_linker::<
+                    HostState,
+                    HasSelf<HostState>,
+                >(&mut tool, |s| s)
+                .map_err(|e| e.to_string())?;
                 bindings::turn_client::kumikit::turn::client::add_to_linker::<
+                    HostState,
+                    HasSelf<HostState>,
+                >(&mut tool, |s| s)
+                .map_err(|e| e.to_string())?;
+                bindings::threads_client::kumikit::threads::client::add_to_linker::<
                     HostState,
                     HasSelf<HostState>,
                 >(&mut tool, |s| s)
@@ -377,6 +392,7 @@ impl Instance {
             owner: owner.clone(),
             session: config.session,
             settings_schema: config.settings_schema,
+            call_workspace: None,
         };
         let mut store = Store::new(engine.engine(), state);
         engine::apply_limits(&mut store);
@@ -630,7 +646,15 @@ impl Instance {
                     &mut store.data_mut().id.workspaces,
                     vec![PathBuf::from(&call.workspace_root)],
                 );
+                let call_ws = store
+                    .data()
+                    .kernel
+                    .thread_workspace(&kumikit_protocol::model::ThreadId(call.thread.clone()))
+                    .await
+                    .ok();
+                let prev_call_ws = std::mem::replace(&mut store.data_mut().call_workspace, call_ws);
                 let r = p.kumikit_tool_tool().call_call(&mut *store, &call).await;
+                store.data_mut().call_workspace = prev_call_ws;
                 store.data_mut().id.workspaces = acting;
                 finish(&plugin, store, r)
             })

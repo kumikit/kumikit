@@ -249,6 +249,9 @@ pub const CLIENT_OPS: &[&str] = &[
     "threads.create",
     "threads.send",
     "threads.steer",
+    "threads.defer",
+    "threads.queue",
+    "threads.title.suggest",
     "threads.cancel",
     "approvals.respond",
 ];

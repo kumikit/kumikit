@@ -912,6 +912,17 @@ export class Kernel {
       const a = args as { address: ThreadAddress };
       await this.attempt('Cannot resume the queue', () => this.threads.queueResume(a.address));
     });
+    c.register({ id: 'thread.defer', title: 'Schedule a deferred message', when: 'never' }, async (args) => {
+      const a = args as {
+        address: ThreadAddress;
+        text: string;
+        trigger: import('@kumikit/protocol').QueueTrigger;
+        attachments?: Attachment[];
+      };
+      await this.attempt('Cannot schedule message', () =>
+        this.threads.defer(a.address, a.text, a.trigger, a.attachments),
+      );
+    });
     c.register({ id: 'thread.update', title: 'Update thread settings', when: 'never' }, async (args) => {
       const a = args as {
         address: ThreadAddress;

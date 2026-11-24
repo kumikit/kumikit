@@ -118,9 +118,10 @@ pub async fn serve(
             )
         }),
     });
-    // Schedules run only in a serving core; the first tick handles runs missed while it
-    // was down.
+    // Schedules and deferred-message timers run only in a serving core; the first tick
+    // handles runs missed while it was down.
     host.start_scheduler();
+    host.manager().kernel().start_defer_timer();
     // Provider sessions get the tool gateway through this binary's `mcp` command.
     match std::env::current_exe() {
         Ok(exe) => host

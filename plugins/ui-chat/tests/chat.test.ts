@@ -422,3 +422,44 @@ describe('the handoff renderer and provider switch', () => {
     unmount(c);
   });
 });
+
+describe('deferred messages UI', () => {
+  it('shows trigger chips and Run now on deferred queue entries and parses /later', () => {
+    const viewWithDefer: ThreadView = {
+      ...base,
+      queue: [
+        {
+          id: 'q1',
+          turn: 'u2',
+          input: { text: 'check deploy' },
+          trigger: { kind: 'after_command', argv: ['cargo', 'test'], timeoutS: 600 },
+        },
+      ],
+    };
+    const { ctx, ran } = fakeCtx(viewWithDefer);
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address } });
+    flushSync();
+
+    expect(target.textContent).toContain('After `cargo test`');
+    expect(target.textContent).toContain('Run now');
+
+    const ta = target.querySelector<HTMLTextAreaElement>('textarea')!;
+    ta.value = '/later after cargo build -- review output';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    flushSync();
+
+    expect(ran).toEqual([
+      [
+        'thread.defer',
+        {
+          address,
+          text: 'review output',
+          trigger: { kind: 'after_command', argv: ['cargo', 'build'], timeoutS: 600 },
+        },
+      ],
+    ]);
+    unmount(c);
+  });
+});

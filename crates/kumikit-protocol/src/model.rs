@@ -204,6 +204,39 @@ impl PermissionMode {
     }
 }
 
+/// Who set a thread's title (ADR 0030, since 0.9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum TitleSource {
+    /// Derived automatically from the first prompt.
+    Auto,
+    /// Suggested by an agent through `threads.title.suggest`.
+    Agent,
+    /// Explicitly renamed by the user.
+    User,
+}
+
+impl TitleSource {
+    /// The wire/storage string.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TitleSource::Auto => "auto",
+            TitleSource::Agent => "agent",
+            TitleSource::User => "user",
+        }
+    }
+
+    /// Parses the wire/storage string.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "auto" => Some(TitleSource::Auto),
+            "agent" => Some(TitleSource::Agent),
+            "user" => Some(TitleSource::User),
+            _ => None,
+        }
+    }
+}
+
 /// A conversation with an agent inside a workspace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -216,6 +249,9 @@ pub struct Thread {
     /// Optional title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// Who set the title (`auto`, `agent`, or `user`; since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_source: Option<TitleSource>,
     /// Provider id.
     pub provider: String,
     /// Model id, as reported by the provider.
@@ -477,6 +513,7 @@ mod tests {
             id: "th".into(),
             workspace: "ws".into(),
             title: None,
+            title_source: None,
             provider: "p".into(),
             model: "m".into(),
             permission_mode: None,

@@ -39,6 +39,7 @@ pub(crate) fn kernel_err(e: KernelError) -> Error {
         KernelError::NotFound(m) => err(ErrorCode::NotFound, m),
         KernelError::InvalidParams(m) => err(ErrorCode::InvalidArgument, m),
         KernelError::Conflict(m) => err(ErrorCode::Conflict, m),
+        KernelError::PermissionDenied(m) => err(ErrorCode::PermissionDenied, m),
         KernelError::Io(m) => err(ErrorCode::Io, m),
         other => err(ErrorCode::Internal, other.to_string()),
     }
@@ -163,6 +164,8 @@ pub struct HostState {
     pub(crate) owner: OwnerId,
     pub(crate) session: Arc<SessionShared>,
     pub(crate) settings_schema: Option<PathBuf>,
+    /// Workspace of the calling thread during a gateway `tool.call`, if any.
+    pub(crate) call_workspace: Option<kumikit_protocol::model::WorkspaceId>,
 }
 
 impl std::fmt::Debug for HostState {

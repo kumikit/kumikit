@@ -1,0 +1,35 @@
+package kumikit:threads@0.1.0;
+
+/// Additional client operations for threads: deferred messages (ADR 0027), queue
+/// inspection/editing, bounded event reads, and agent-suggested titles (ADR 0030).
+/// Linked for base and tool plugins; every operation checks `permissions.client` and
+/// `permissions.workspaces`.
+interface client {
+  use kumikit:host/types@0.2.0.{error};
+
+  /// `threads.defer`: queues a message waiting on a `QueueTrigger` (JSON). Returns the
+  /// created `QueueEntry` as JSON. Command triggers also need `permissions.spawn` for
+  /// the program and user approval unless the thread is in `full_access`.
+  defer: func(thread: string, text: string, trigger-json: string) -> result<string, error>;
+
+  /// `threads.queue`: lists the thread's queued and deferred messages as a JSON array of
+  /// `QueueEntry`.
+  list-queue: func(thread: string) -> result<string, error>;
+
+  /// `threads.queue`: removes a queued or deferred message by entry id.
+  remove-queued: func(thread: string, entry: string) -> result<_, error>;
+
+  /// `threads.read`: reads up to `limit` (clamped to 200) events of `thread` with
+  /// `seq > after` as a JSON array of `{ seq, time, kind, data }`.
+  read-events: func(thread: string, after: u64, limit: u32) -> result<string, error>;
+
+  /// `threads.title.suggest`: sets the thread's title unless the user has renamed it
+  /// (`titleSource == "user"`). Returns whether the title was updated.
+  suggest-title: func(thread: string, title: string) -> result<bool, error>;
+}
+
+/// Only the thread-ops import, for plugins built for `kumikit:plugin/plugin@0.2.0`
+/// or `kumikit:tool/plugin@0.1.0`.
+world client-threads {
+  import client;
+}

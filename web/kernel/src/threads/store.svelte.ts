@@ -9,6 +9,7 @@ import type {
   EventNotification,
   HandoffMode,
   PermissionMode,
+  QueueTrigger,
   Thread,
   UserInput,
 } from '@kumikit/protocol';
@@ -139,6 +140,17 @@ export class ThreadStore {
   async steer(address: ThreadAddress, text: string): Promise<'accepted' | 'queued'> {
     const r = await this.#connection(address).call('thread.steer', { thread: address.thread, input: { text } });
     return r.status;
+  }
+
+  /** Queues a message waiting on a trigger (ADR 0027). */
+  async defer(
+    address: ThreadAddress,
+    text: string,
+    trigger: QueueTrigger,
+    attachments?: Attachment[],
+  ): Promise<void> {
+    const input: UserInput = attachments && attachments.length > 0 ? { text, attachments } : { text };
+    await this.#connection(address).call('thread.defer', { thread: address.thread, input, trigger });
   }
 
   /** Replaces a queued message's text, keeping its attachments. */

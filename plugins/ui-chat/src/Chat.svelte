@@ -3,7 +3,7 @@
      with clipboard/file attachments plus a compact footer showing the selected model and
      permission-mode padlock popover underneath. -->
 <script lang="ts">
-  import type { HandoffMode, ModelInfo, ProviderInfo } from '@kumikit/protocol';
+  import type { HandoffMode, ModelInfo, ProviderInfo, QueueTrigger } from '@kumikit/protocol';
   import {
     isComposing,
     type Connection,
@@ -50,6 +50,11 @@
   let pendingSwitch = $state<ProviderInfo | undefined>();
   let handoffMode = $state<HandoffMode>('transcript');
   let switching = $state(false);
+  let showLater = $state(false);
+  let laterMode = $state<'minutes' | 'at' | 'after_command' | 'poll_command'>('minutes');
+  let laterMinutes = $state(15);
+  let laterTime = $state('');
+  let laterCmd = $state('');
   let log: HTMLElement;
   let textarea: HTMLTextAreaElement | undefined = $state();
   let fileInput: HTMLInputElement | undefined = $state();
@@ -198,10 +203,114 @@
     void addFiles(files, false);
   }
 
+  function parseLaterCommand(raw: string): { text: string; trigger: QueueTrigger } | null {
+    const rest = raw.slice('/later'.length).trim();
+    if (!rest) return null;
+    const rel = rest.match(/^(\d+)([mh])\s+([\s\S]+)$/i);
+    if (rel) {
+      const amount = Number(rel[1]);
+      const mult = rel[2]!.toLowerCase() === 'h' ? 3_600_000 : 60_000;
+      const body = rel[3]!.trim();
+      if (amount > 0 && body) {
+        return { text: body, trigger: { kind: 'at', time: new Date(Date.now() + amount * mult).toISOString() } };
+      }
+    }
+    const hhmm = rest.match(/^(\d{1,2}):(\d{2})\s+([\s\S]+)$/);
+    if (hhmm) {
+      const h = Number(hhmm[1]);
+      const m = Number(hhmm[2]);
+      const body = hhmm[3]!.trim();
+      if (h >= 0 && h <= 23 && m >= 0 && m <= 59 && body) {
+        const target = new Date();
+        target.setSeconds(0, 0);
+        target.setHours(h, m);
+        if (target.getTime() <= Date.now()) target.setDate(target.getDate() + 1);
+        return { text: body, trigger: { kind: 'at', time: target.toISOString() } };
+      }
+    }
+    const cmd = rest.match(/^(after|until)\s+(.+?)\s+--\s+([\s\S]+)$/i);
+    if (cmd) {
+      const argv = cmd[2]!.trim().split(/\s+/).filter(Boolean);
+      const body = cmd[3]!.trim();
+      if (argv.length > 0 && body) {
+        const trigger: QueueTrigger =
+          cmd[1]!.toLowerCase() === 'after'
+            ? { kind: 'after_command', argv, timeoutS: 600 }
+            : { kind: 'poll_command', argv, everyS: 30, maxTries: 20 };
+        return { text: body, trigger };
+      }
+    }
+    return null;
+  }
+
+  function scheduleLater() {
+    const message = text.trim();
+    const pending = attachments;
+    if ((!message && pending.length === 0) || archived) return;
+    let trigger: QueueTrigger | undefined;
+    if (laterMode === 'minutes') {
+      const mins = Math.max(1, Math.round(Number(laterMinutes) || 15));
+      trigger = { kind: 'at', time: new Date(Date.now() + mins * 60_000).toISOString() };
+    } else if (laterMode === 'at') {
+      const raw = laterTime.trim();
+      const hhmm = raw.match(/^(\d{1,2}):(\d{2})$/);
+      if (hhmm) {
+        const d = new Date();
+        d.setSeconds(0, 0);
+        d.setHours(Number(hhmm[1]), Number(hhmm[2]));
+        if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
+        trigger = { kind: 'at', time: d.toISOString() };
+      } else if (raw && !Number.isNaN(Date.parse(raw))) {
+        trigger = { kind: 'at', time: new Date(raw).toISOString() };
+      }
+    } else {
+      const argv = laterCmd.trim().split(/\s+/).filter(Boolean);
+      if (argv.length > 0) {
+        trigger =
+          laterMode === 'after_command'
+            ? { kind: 'after_command', argv, timeoutS: 600 }
+            : { kind: 'poll_command', argv, everyS: 30, maxTries: 20 };
+      }
+    }
+    if (!trigger) {
+      ctx.notify('Enter a valid time or command to schedule this message.', 'warning');
+      return;
+    }
+    text = '';
+    attachments = [];
+    showLater = false;
+    const args: {
+      address: ThreadAddress;
+      text: string;
+      trigger: QueueTrigger;
+      attachments?: ReturnType<typeof toProtocolAttachments>;
+    } = { address, text: message, trigger };
+    if (pending.length > 0) args.attachments = toProtocolAttachments(pending);
+    void run('thread.defer', args);
+  }
+
   function send() {
     const message = text.trim();
     const pending = attachments;
     if ((!message && pending.length === 0) || archived) return;
+    if (message.startsWith('/later')) {
+      const parsed = parseLaterCommand(message);
+      if (!parsed) {
+        ctx.notify('Usage: /later 15m <msg>, /later 14:30 <msg>, /later after <cmd> -- <msg>, or /later until <cmd> -- <msg>', 'warning');
+        return;
+      }
+      text = '';
+      attachments = [];
+      const args: {
+        address: ThreadAddress;
+        text: string;
+        trigger: QueueTrigger;
+        attachments?: ReturnType<typeof toProtocolAttachments>;
+      } = { address, text: parsed.text, trigger: parsed.trigger };
+      if (pending.length > 0) args.attachments = toProtocolAttachments(pending);
+      void run('thread.defer', args);
+      return;
+    }
     text = '';
     attachments = [];
     stuck = true;
@@ -423,6 +532,30 @@
         </div>
       </div>
     {/if}
+    {#if showLater}
+      <div class="later-bar" role="region" aria-label="Send later">
+        <select class="model-select" aria-label="Trigger type" bind:value={laterMode}>
+          <option value="minutes">In minutes</option>
+          <option value="at">At time (HH:MM)</option>
+          <option value="after_command">After command exits</option>
+          <option value="poll_command">When command passes</option>
+        </select>
+        {#if laterMode === 'minutes'}
+          <input class="later-input short" type="number" min="1" max="10080" aria-label="Minutes from now" bind:value={laterMinutes} />
+          <span class="later-unit">min</span>
+        {:else if laterMode === 'at'}
+          <input class="later-input" type="text" placeholder="14:30 or ISO time" aria-label="Target time" bind:value={laterTime} />
+        {:else}
+          <input class="later-input" type="text" placeholder="cargo test" aria-label="Command" bind:value={laterCmd} />
+        {/if}
+        <button type="button" class="handoff-btn primary" disabled={!canSend} onclick={scheduleLater}>
+          Schedule
+        </button>
+        <button type="button" class="handoff-btn" onclick={() => (showLater = false)}>
+          Cancel
+        </button>
+      </div>
+    {/if}
     <QueuePanel
       queue={view?.queue ?? []}
       hold={view?.queueHold}
@@ -543,6 +676,17 @@
               </svg>
             </button>
           {/if}
+          <button
+            type="button"
+            class="action-btn later"
+            disabled={archived || !connReady}
+            aria-label="Send later"
+            aria-expanded={showLater}
+            title="Send later (or use /later)"
+            onclick={() => (showLater = !showLater)}
+          >
+            Later
+          </button>
           <button
             type="submit"
             class="action-btn send"
@@ -1023,6 +1167,54 @@
   .action-btn.steer:disabled {
     opacity: 0.4;
     cursor: default;
+  }
+  .action-btn.later {
+    width: auto;
+    padding: 0 8px;
+    border-color: var(--kk-border-subtle, ButtonBorder);
+    background: var(--kk-surface-raised, ButtonFace);
+    color: var(--kk-text-secondary, CanvasText);
+    font-size: var(--kk-font-size-small, small);
+  }
+  .action-btn.later:hover:not(:disabled) {
+    background: var(--kk-surface-hover, ButtonFace);
+    color: var(--kk-text-primary, CanvasText);
+  }
+  .action-btn.later:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .later-bar {
+    max-width: 760px;
+    margin: 0 auto 8px;
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-medium, 0);
+    background: var(--kk-surface-raised, Canvas);
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-primary, CanvasText);
+  }
+  .later-input {
+    flex: 1;
+    min-width: 120px;
+    padding: 4px 8px;
+    border: 1px solid var(--kk-border-subtle, FieldText);
+    border-radius: var(--kk-radius-small, 0);
+    background: var(--kk-surface-input, Field);
+    color: var(--kk-text-primary, FieldText);
+    font: inherit;
+  }
+  .later-input.short {
+    flex: 0 0 72px;
+    min-width: 60px;
+  }
+  .later-unit {
+    color: var(--kk-text-muted, GrayText);
   }
   .footer {
     display: flex;

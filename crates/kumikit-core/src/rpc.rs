@@ -610,6 +610,14 @@ impl Conn {
                     .map_err(kernel_err)?;
                 reply::<m::ThreadSteer>(steered)
             }
+            m::ThreadDefer::NAME => {
+                let p = parse::<m::ThreadDefer>(params)?;
+                let entry = k
+                    .thread_defer(&p.thread, p.input, p.trigger)
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::ThreadDefer>(m::QueueEntryResult { entry })
+            }
             m::ThreadQueueUpdate::NAME => {
                 let p = parse::<m::ThreadQueueUpdate>(params)?;
                 let entry = k

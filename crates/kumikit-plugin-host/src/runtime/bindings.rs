@@ -108,3 +108,21 @@ pub mod turn_client {
         },
     });
 }
+
+/// `kumikit:threads/client-threads@0.1.0`: additional client operations for threads
+/// (defer, queue, read-events, suggest-title; ADR 0027, ADR 0030), linked for base and
+/// tool plugins.
+#[allow(missing_docs, clippy::all)]
+pub mod threads_client {
+    wasmtime::component::bindgen!({
+        path: [
+            "../../wit/kumikit-host@0.2.0",
+            "../../wit/kumikit-threads@0.1.0",
+        ],
+        world: "kumikit:threads/client-threads",
+        imports: { default: async },
+        with: {
+            "kumikit:host/types": super::base::kumikit::host::types,
+        },
+    });
+}

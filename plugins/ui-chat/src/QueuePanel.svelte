@@ -3,7 +3,7 @@
      or with Alt+Up/Down. A held queue (after Stop, a failure or a restart) says why and
      offers Resume. Every change goes to the core; the list follows the log. -->
 <script lang="ts">
-  import { isComposing, type QueueEntry, type QueueHold } from '@kumikit/ui-sdk';
+  import { isComposing, type QueueEntry, type QueueHold, type QueueTrigger } from '@kumikit/ui-sdk';
   import { tick } from 'svelte';
 
   let {
@@ -36,6 +36,41 @@
   let dragged = $state<string | undefined>();
   let editor: HTMLTextAreaElement | undefined = $state();
   let list: HTMLOListElement | undefined = $state();
+  let nowMs = $state(Date.now());
+
+  // Tick countdown labels every 30s only while at least one `at` trigger is visible.
+  $effect(() => {
+    const hasAt = queue.some((q) => q.trigger?.kind === 'at');
+    if (!hasAt) return;
+    nowMs = Date.now();
+    const id = setInterval(() => {
+      nowMs = Date.now();
+    }, 30_000);
+    return () => clearInterval(id);
+  });
+
+  function triggerLabel(trigger: QueueTrigger, currentMs: number): string {
+    switch (trigger.kind) {
+      case 'at': {
+        const target = Date.parse(trigger.time);
+        if (!Number.isNaN(target)) {
+          const diffMin = Math.round((target - currentMs) / 60_000);
+          if (diffMin <= 0) return 'Due now';
+          if (diffMin < 60) return `In ${diffMin}m`;
+          const hours = Math.floor(diffMin / 60);
+          const mins = diffMin % 60;
+          return mins > 0 ? `In ${hours}h ${mins}m` : `In ${hours}h`;
+        }
+        return `At ${trigger.time}`;
+      }
+      case 'after_turn':
+        return `After thread ${trigger.thread.slice(0, 8)}${trigger.onlyOnSuccess ? ' (if ok)' : ''}`;
+      case 'after_command':
+        return `After \`${trigger.argv.join(' ')}\``;
+      case 'poll_command':
+        return `Until \`${trigger.argv.join(' ')}\` passes`;
+    }
+  }
 
   function firstLine(entry: QueueEntry): string {
     const line = entry.input.text.split('\n').find((l) => l.trim() !== '');
@@ -173,17 +208,22 @@
           >
             <span class="index" aria-hidden="true">{i + 1}</span>
             <span class="text" title={entry.input.text}>{preview}</span>
+            {#if entry.trigger}
+              <span class="trigger-chip" title={triggerLabel(entry.trigger, nowMs)}>
+                {triggerLabel(entry.trigger, nowMs)}
+              </span>
+            {/if}
             {#if notSteered.includes(entry.id)}
               <span class="not-steered" title="Could not steer the running turn; queued next">Not steered</span>
             {/if}
             {#if attachmentCount(entry) > 0}
               <span class="atts" title={`${attachmentCount(entry)} attachment(s)`}>+{attachmentCount(entry)}</span>
             {/if}
-            {#if entry.from}
+            {#if entry.from?.plugin}
               <span class="from" title={`Sent by ${entry.from.plugin}`}>{entry.from.plugin}</span>
             {/if}
             <span class="actions">
-              {#if busy && canSteer && attachmentCount(entry) === 0}
+              {#if busy && canSteer && !entry.trigger && attachmentCount(entry) === 0}
                 <button
                   type="button"
                   class="act steer"
@@ -199,11 +239,11 @@
                 type="button"
                 class="act"
                 {disabled}
-                title={sendNowTitle}
-                aria-label={`Send now: ${preview}`}
+                title={entry.trigger ? 'Run this deferred message now' : sendNowTitle}
+                aria-label={`${entry.trigger ? 'Run now' : 'Send now'}: ${preview}`}
                 onclick={() => run('thread.queue.sendNow', { entry: entry.id })}
               >
-                Send now
+                {entry.trigger ? 'Run now' : 'Send now'}
               </button>
               <button
                 type="button"
@@ -323,6 +363,18 @@
     border-radius: var(--kk-radius-small, 0);
     background: var(--kk-surface-card, Canvas);
     color: var(--kk-state-warning, CanvasText);
+  }
+  .trigger-chip {
+    flex: none;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0 6px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-small, 0);
+    background: var(--kk-surface-card, Canvas);
+    color: var(--kk-accent, Highlight);
   }
   .act.steer {
     color: var(--kk-accent, Highlight);

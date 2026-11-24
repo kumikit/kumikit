@@ -230,6 +230,7 @@ mod tests {
             turn: format!("t{id}").as_str().into(),
             input: UserInput::text(text),
             from: None,
+            trigger: None,
         };
         let mut f = Fold::new(ThreadId("th".into()));
         let events = [

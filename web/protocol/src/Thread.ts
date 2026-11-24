@@ -3,6 +3,7 @@ import type { PermissionMode } from "./PermissionMode";
 import type { ThreadId } from "./ThreadId";
 import type { ThreadStatus } from "./ThreadStatus";
 import type { Timestamp } from "./Timestamp";
+import type { TitleSource } from "./TitleSource";
 import type { WorkspaceId } from "./WorkspaceId";
 
 /**
@@ -21,6 +22,10 @@ workspace: WorkspaceId,
  * Optional title.
  */
 title?: string, 
+/**
+ * Who set the title (`auto`, `agent`, or `user`; since 0.9).
+ */
+titleSource?: TitleSource, 
 /**
  * Provider id.
  */

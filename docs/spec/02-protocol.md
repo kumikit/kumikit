@@ -220,6 +220,10 @@ Provider switching and bounded conversation handoff ([03](03-kernel.md#thread-ev
 - `thread.update` accepts `provider?` (switching the thread's provider while idle, defaulting
   `model` to the new provider's first model when omitted) and `handoff?` (`transcript`,
   default, or `summary`).
+- `thread.defer { thread, input, trigger }` → `{ entry }` queues a deferred message waiting
+  on `at`, `after_turn`, `after_command`, or `poll_command` ([ADR 0027](../decisions/0027-durable-queue-and-deferred-messages.md)).
+- `QueueEntry` gains `trigger?`; `MessageFrom` gains `deferred?`; `QueueRemoval` gains
+  `condition_not_met`; `Thread` gains `titleSource?` (`auto`, `agent`, `user`).
 - `turn.started` and `Turn` carry `provider?`, `model?` and `purpose?` (`handoff_summary`).
 - New thread events: `thread.switched` and `handoff.delivered`.
 

@@ -7,8 +7,8 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use crate::model::{
-    Approval, ApprovalId, HandoffMode, ProviderModel, QueueEntryId, Resolution, Thread, Timestamp,
-    TurnId, TurnOutcome, TurnPurpose, UserInput,
+    Approval, ApprovalId, HandoffMode, ProviderModel, QueueEntryId, Resolution, Thread, ThreadId,
+    Timestamp, TurnId, TurnOutcome, TurnPurpose, UserInput,
 };
 
 /// `turn.started`: the kernel started a turn for a user message.
@@ -41,12 +41,28 @@ pub struct TurnStarted {
     pub purpose: Option<TurnPurpose>,
 }
 
-/// Who sent a message that a plugin sent for a user (a bot, a schedule).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+/// Who sent a message (a plugin, and/or a deferred entry whose trigger fired).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageFrom {
-    /// The plugin.
-    pub plugin: String,
+    /// The plugin that sent it, if a plugin did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub plugin: Option<String>,
+    /// The deferred queue entry whose trigger fired (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub deferred: Option<QueueEntryId>,
+}
+
+impl MessageFrom {
+    /// A message sent by a plugin.
+    pub fn plugin(plugin: impl Into<String>) -> Self {
+        MessageFrom {
+            plugin: Some(plugin.into()),
+            deferred: None,
+        }
+    }
 }
 
 /// `text.delta`, `text.done` and `reasoning.delta`: a piece of text in a turn.
@@ -197,6 +213,54 @@ pub struct PluginEvent {
     pub data: Value,
 }
 
+/// Condition a deferred queue entry waits for before joining the ready queue (ADR 0027,
+/// since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum QueueTrigger {
+    /// Fire once at or after `time` (RFC 3339).
+    At {
+        /// Target time.
+        time: Timestamp,
+    },
+    /// Fire when `thread`'s running or next turn ends.
+    #[serde(rename_all = "camelCase")]
+    AfterTurn {
+        /// The thread to wait on.
+        thread: ThreadId,
+        /// Fire only when that turn ends `done`.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        only_on_success: bool,
+    },
+    /// Run `argv` under the process supervisor; fire on exit with exit code and output tail.
+    #[serde(rename_all = "camelCase")]
+    AfterCommand {
+        /// Bare program name (`argv[0]`) and its arguments.
+        argv: Vec<String>,
+        /// Optional working directory inside the thread's workspace or worktree.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        cwd: Option<String>,
+        /// Maximum wall time in seconds before the command is killed.
+        timeout_s: u32,
+    },
+    /// Poll `argv` every `everyS` seconds until it exits 0 or `maxTries` attempts finish.
+    #[serde(rename_all = "camelCase")]
+    PollCommand {
+        /// Bare program name (`argv[0]`) and its arguments.
+        argv: Vec<String>,
+        /// Optional working directory inside the thread's workspace or worktree.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        cwd: Option<String>,
+        /// Seconds between runs (minimum 5).
+        every_s: u32,
+        /// Maximum attempts before firing with the last failure.
+        max_tries: u32,
+    },
+}
+
 /// A message waiting in a thread's queue (`docs/spec/03-kernel.md#the-queue`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -207,10 +271,14 @@ pub struct QueueEntry {
     pub turn: TurnId,
     /// The message.
     pub input: UserInput,
-    /// Who sent it, when a plugin did.
+    /// Who sent it, when a plugin or deferred trigger did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub from: Option<MessageFrom>,
+    /// Condition this entry waits on before becoming ready to run (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub trigger: Option<QueueTrigger>,
 }
 
 /// Why a thread's queue waits instead of starting its next entry.
@@ -252,6 +320,8 @@ impl QueueHold {
 pub enum QueueRemoval {
     /// A client or plugin removed it.
     Removed,
+    /// A deferred trigger's condition was not met (for example `onlyOnSuccess` on a failed turn).
+    ConditionNotMet,
 }
 
 /// Why a message joined the queue other than by `thread.send` during a turn.
