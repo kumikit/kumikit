@@ -171,6 +171,17 @@ queue with `queue.added { front: true, reason: "not_steered" }`. Providers that 
 `kumikit:provider/plugin@0.2.0` need no changes; `thread.steer` queues their messages at
 the front instead.
 
+## Handoff
+
+Decided in [ADR 0029](../decisions/0029-provider-switch-and-handoff.md). When a thread
+switches provider (`thread.update { provider, handoff? }`), forks, or loses its stored
+session id, the kernel builds a bounded transcript context (at most the newest 200 user
+and assistant text messages and 64 KiB encoded, plus `file.changed` paths and an optional
+`handoff_summary` note) and renders it as a prompt preamble (`sdk/rust-provider`'s
+`handoff::render` shares the exact format). For `kumikit:provider@0.2.0` providers the
+kernel prepends that preamble to `user-input.text` while keeping `turn.started` clean,
+and appends `handoff.delivered` once the first turn completes `done` with a session id.
+
 ## Capabilities
 
 Models report capability strings so the UI adapts without knowing the provider:

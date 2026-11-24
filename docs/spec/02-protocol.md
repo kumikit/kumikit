@@ -186,7 +186,7 @@ and both sides ignore fields they do not know.
 | `workspace.git.worktreeCreate` | `workspace`, `branch`, `baseBranch?` | `path`, `git`. Creates a linked Git worktree under `<homeDir>/worktrees/<repo>/<branch-slug>` without creating a separate workspace; threads pinned to `path` stay under `workspace`. |
 | `thread.list` | `workspace`, `includeArchived?` | `threads`, most recently updated first |
 | `thread.create` | `workspace`, `provider?` (qualified id), `model?`, `title?`, `permissionMode?` (`standard`, `accept_edits`, `plan`, `full_access`), `worktreePath?` | `thread`. `provider` defaults to the only provider when exactly one exists (`unsupported` if there is none, `invalid_params` if there are several); `model` defaults to the provider's first model; `permissionMode` defaults to `standard`; optional `worktreePath` runs the thread's agent session and tool gateway inside a linked Git worktree while keeping the thread under `workspace`. A closed workspace gives `conflict`. |
-| `thread.update` | `thread`, `model?`, `permissionMode?`, `title?` | `thread`. Fails with `conflict` while a turn runs or on an archived thread. Changing `model` or `permissionMode` ends any idle provider session so the next turn resumes with the new configuration, and emits `thread.updated`. |
+| `thread.update` | `thread`, `provider?` (qualified id), `model?`, `permissionMode?`, `title?`, `handoff?` (`transcript` or `summary`) | `thread`. Fails with `conflict` while a turn runs or on an archived thread. Changing `model` or `permissionMode` ends any idle provider session so the next turn resumes with the new configuration. Changing `provider` (since 0.9) ends the session, clears the stored resume id, optionally runs a `handoff_summary` turn in `summary` mode (falling back to `transcript` on failure), appends `thread.switched` and arms a bounded handoff for the next turn ([ADR 0029](../decisions/0029-provider-switch-and-handoff.md)). Emits `thread.updated`. |
 | `thread.get` | `thread` | `thread`, `turns`, `pendingApprovals`, `queue?` (queued messages in order: `{ id, turn, input, from? }`), `queueHold?` (`stopped`, `failed`, `restarted`), `seq`: a snapshot folded from the log up to `seq` |
 | `thread.send` | `thread`, `input { text, attachments? }` (`attachments`: `{ name, mimeType, data (base64), width?, height? }`, at most 16 files / 4 MiB total decoded) | `turn`, `queued`, `entry?`. One turn runs per thread; a message sent during a turn joins the thread's queue (`entry` names it) and starts after the turns before it. Sending resumes a held queue. See [the queue](03-kernel.md#the-queue). |
 | `thread.cancel` | `thread` | `{}`. Cancels the running turn; queued messages stay and the queue is held (`stopped`). Does nothing if no turn runs. |
@@ -211,6 +211,17 @@ and both sides ignore fields they do not know.
 | `plugin.enable` | `plugin`, `grant` | `plugin`. `grant` must equal the plugin's requested permissions (they are granted as a whole), otherwise `conflict`. Compiles the component. |
 | `plugin.disable` | `plugin` | `plugin`. Cancels the plugin's running turns and unloads it. |
 | `plugin.uninstall` | `plugin`, `deleteData?` | `{}`. Disables it first; deletes its kv and data directory only if `deleteData` is true. |
+
+### Additions in 0.9
+
+Provider switching and bounded conversation handoff ([03](03-kernel.md#thread-events),
+[ADR 0029](../decisions/0029-provider-switch-and-handoff.md)):
+
+- `thread.update` accepts `provider?` (switching the thread's provider while idle, defaulting
+  `model` to the new provider's first model when omitted) and `handoff?` (`transcript`,
+  default, or `summary`).
+- `turn.started` and `Turn` carry `provider?`, `model?` and `purpose?` (`handoff_summary`).
+- New thread events: `thread.switched` and `handoff.delivered`.
 
 ### Methods added in 0.8
 

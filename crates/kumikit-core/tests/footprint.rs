@@ -211,7 +211,7 @@ async fn sample_remote() -> (Duration, Sample) {
         (
             2,
             "core.hello",
-            json!({"protocol":"0.8", "client": {"name": "footprint", "version": "0"}}),
+            json!({"protocol":"0.9", "client": {"name": "footprint", "version": "0"}}),
         ),
     ] {
         ws.send(Message::text(

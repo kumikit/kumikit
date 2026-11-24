@@ -5,7 +5,7 @@
  * (`crates/kumikit-kernel/src/fold.rs`); a shared fixture checks both.
  */
 import type { Approval, EventNotification, ThreadStatus } from '@kumikit/protocol';
-import type { ThreadAddress, ThreadView, TranscriptItem, TurnView } from '@kumikit/ui-sdk';
+import type { ThreadAddress, ThreadSwitchView, ThreadView, TranscriptItem, TurnView } from '@kumikit/ui-sdk';
 
 /** A view with nothing folded in yet. */
 export function emptyView(address: ThreadAddress): ThreadView {
@@ -79,6 +79,7 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
   let queue = view.queue;
   let queueHold = view.queueHold;
   let notSteered = view.notSteered;
+  let switches: ThreadSwitchView[] | undefined = view.switches;
   let status = view.status;
   let seq = view.seq;
 
@@ -97,6 +98,9 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
         if (e.data.input.attachments && e.data.input.attachments.length > 0) {
           turn.attachments = e.data.input.attachments;
         }
+        if (e.data.provider !== undefined) turn.provider = e.data.provider;
+        if (e.data.model !== undefined) turn.model = e.data.model;
+        if (e.data.purpose !== undefined) turn.purpose = e.data.purpose;
         turns.push(turn);
         const entry = e.data.entry;
         if (entry !== undefined) {
@@ -107,6 +111,31 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
       }
       case 'input.steered':
         withTurn(e.data.turn, (t) => t.items.push({ kind: 'steer', text: e.data.input.text }));
+        break;
+      case 'thread.switched': {
+        const afterTurnId = turns.length > 0 ? turns[turns.length - 1]!.id : undefined;
+        const entry: ThreadSwitchView = {
+          seq: e.seq,
+          from: e.data.from,
+          to: e.data.to,
+          handoff: e.data.handoff,
+        };
+        if (afterTurnId !== undefined) entry.afterTurnId = afterTurnId;
+        if (e.data.summaryFailed) entry.summaryFailed = true;
+        switches = switches ? [...switches, entry] : [entry];
+        break;
+      }
+      case 'handoff.delivered':
+        withTurn(e.data.turn, (t) => {
+          t.items.push({
+            kind: 'handoff',
+            from: e.data.from,
+            to: e.data.to,
+            messages: e.data.messages,
+            truncated: Boolean(e.data.truncated),
+            rendered: e.data.rendered,
+          });
+        });
         break;
       case 'queue.added':
         queue = e.data.front ? [e.data.entry, ...queue] : [...queue, e.data.entry];
@@ -268,5 +297,6 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
   else next.queueHold = queueHold;
   if (notSteered === undefined) delete next.notSteered;
   else next.notSteered = notSteered;
+  if (switches !== undefined) next.switches = switches;
   return next;
 }

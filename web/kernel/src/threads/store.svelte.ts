@@ -3,7 +3,15 @@
  * subscription per open thread, events folded into a `ThreadView` once per frame. Threads
  * are keyed by their whole address, so the same ids on two cores never mix.
  */
-import type { Attachment, Decision, EventNotification, PermissionMode, Thread, UserInput } from '@kumikit/protocol';
+import type {
+  Attachment,
+  Decision,
+  EventNotification,
+  HandoffMode,
+  PermissionMode,
+  Thread,
+  UserInput,
+} from '@kumikit/protocol';
 import type { ThreadAddress, ThreadView } from '@kumikit/ui-sdk';
 
 import type { CoreConnection } from '../connections/connection.svelte';
@@ -172,18 +180,27 @@ export class ThreadStore {
     await this.#connection(address).call('thread.queue.resume', { thread: address.thread });
   }
 
-  /** Updates a thread's model, permission mode, and/or title. */
+  /** Updates a thread's provider, model, permission mode, and/or title. */
   async update(
     address: ThreadAddress,
-    patch: { model?: string; permissionMode?: PermissionMode; title?: string },
+    patch: { provider?: string; model?: string; permissionMode?: PermissionMode; title?: string; handoff?: HandoffMode },
   ): Promise<Thread> {
     const conn = this.#connection(address);
-    const params: { thread: string; model?: string; permissionMode?: PermissionMode; title?: string } = {
+    const params: {
+      thread: string;
+      provider?: string;
+      model?: string;
+      permissionMode?: PermissionMode;
+      title?: string;
+      handoff?: HandoffMode;
+    } = {
       thread: address.thread,
     };
+    if (patch.provider !== undefined) params.provider = patch.provider;
     if (patch.model !== undefined) params.model = patch.model;
     if (patch.permissionMode !== undefined) params.permissionMode = patch.permissionMode;
     if (patch.title !== undefined) params.title = patch.title;
+    if (patch.handoff !== undefined) params.handoff = patch.handoff;
     const { thread } = await conn.call('thread.update', params);
     conn.noteThread(thread);
     this.refresh(address.connection);

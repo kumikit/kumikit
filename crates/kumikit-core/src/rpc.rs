@@ -572,7 +572,14 @@ impl Conn {
             m::ThreadUpdate::NAME => {
                 let p = parse::<m::ThreadUpdate>(params)?;
                 let thread = k
-                    .thread_update(&p.thread, p.model, p.permission_mode, p.title)
+                    .thread_update(
+                        &p.thread,
+                        p.provider,
+                        p.model,
+                        p.permission_mode,
+                        p.title,
+                        p.handoff,
+                    )
                     .await
                     .map_err(kernel_err)?;
                 reply::<m::ThreadUpdate>(ThreadUpdateResult { thread })

@@ -268,6 +268,52 @@ impl TurnOutcome {
     }
 }
 
+/// Why a special-purpose turn was started by the kernel (since 0.9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnPurpose {
+    /// A summary turn run on the outgoing provider before switching providers (ADR 0029).
+    HandoffSummary,
+}
+
+impl TurnPurpose {
+    /// The wire/storage string.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TurnPurpose::HandoffSummary => "handoff_summary",
+        }
+    }
+
+    /// Parses the wire/storage string.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "handoff_summary" => Some(TurnPurpose::HandoffSummary),
+            _ => None,
+        }
+    }
+}
+
+/// How conversation history is carried forward when switching providers (ADR 0029, since 0.9).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum HandoffMode {
+    /// Pass the bounded text transcript of earlier turns (default).
+    #[default]
+    Transcript,
+    /// Ask the outgoing provider for a handoff summary note, plus the bounded transcript.
+    Summary,
+}
+
+/// A provider and model pair (used in handoff events, since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModel {
+    /// Qualified provider id.
+    pub provider: String,
+    /// Model id.
+    pub model: String,
+}
+
 /// One user message and the agent's work on it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -277,6 +323,15 @@ pub struct Turn {
     pub id: TurnId,
     /// The thread it belongs to.
     pub thread: ThreadId,
+    /// Provider that ran this turn (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// Model that ran this turn (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Special purpose, when started by the kernel (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<TurnPurpose>,
     /// When it started.
     pub started: Timestamp,
     /// When it ended; absent while running.

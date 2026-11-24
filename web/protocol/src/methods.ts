@@ -78,7 +78,7 @@ import type { WorktreeDeleteParams } from "./WorktreeDeleteParams";
 import type { WorktreeListResult } from "./WorktreeListResult";
 
 /** Protocol version spoken by this package, `MAJOR.MINOR`. */
-export const PROTOCOL_VERSION = "0.8";
+export const PROTOCOL_VERSION = "0.9";
 
 /** Every request method with its params and result types. */
 export type Methods = {

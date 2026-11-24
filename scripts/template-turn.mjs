@@ -34,7 +34,7 @@ const deadline = setTimeout(() => {
 }, 60_000);
 
 await new Promise((r) => c.once('connect', r));
-await call('core.hello', { protocol: '0.8', client: { name: 'template-check', version: '0' } });
+await call('core.hello', { protocol: '0.9', client: { name: 'template-check', version: '0' } });
 const { workspace: ws } = await call('workspace.open', { path: workspace });
 const { thread } = await call('thread.create', { workspace: ws.id, provider });
 await call('events.subscribe', { topic: `thread:${thread.id}`, after: 0 });

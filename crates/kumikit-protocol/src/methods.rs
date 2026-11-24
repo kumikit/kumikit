@@ -939,9 +939,15 @@ pub struct ThreadCreateResult {
 pub struct ThreadUpdateParams {
     /// The thread.
     pub thread: ThreadId,
-    /// New model id (validated against the thread's provider).
+    /// New provider id (ADR 0029, since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// New model id (validated against the thread's provider, or the new `provider`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Handoff mode when changing `provider` (`transcript` by default; since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handoff: Option<crate::model::HandoffMode>,
     /// New permission mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<PermissionMode>,

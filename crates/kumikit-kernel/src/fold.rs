@@ -84,6 +84,9 @@ impl Fold {
                     started: time.clone(),
                     ended: None,
                     outcome: None,
+                    provider: e.provider.clone(),
+                    model: e.model.clone(),
+                    purpose: e.purpose,
                 });
             }
             ThreadEvent::QueueAdded(e) if e.front => self.queue.insert(0, e.entry.clone()),
@@ -158,6 +161,9 @@ mod tests {
                 input: UserInput::text("hi"),
                 from: None,
                 entry: None,
+                provider: None,
+                model: None,
+                purpose: None,
             }),
             ThreadEvent::TextDelta(TurnText {
                 turn: "u".into(),
@@ -278,6 +284,9 @@ mod tests {
                 input: UserInput::text("2"),
                 from: None,
                 entry: Some("b".into()),
+                provider: None,
+                model: None,
+                purpose: None,
             }),
         );
         assert_eq!(f.queue_hold, None);

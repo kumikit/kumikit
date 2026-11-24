@@ -8,6 +8,7 @@ pub mod fold;
 pub mod gateway;
 mod git;
 pub mod grants;
+pub mod handoff;
 mod kernel;
 pub mod plugins;
 pub mod process;

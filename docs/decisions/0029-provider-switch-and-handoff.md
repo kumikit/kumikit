@@ -1,6 +1,6 @@
 # 0029 — Switching provider in a thread, with a bounded handoff
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-24
 
 ## Context
@@ -33,15 +33,16 @@ Options for passing history:
   model }, handoff }`.
 - **Attribution.** `turn.started` gains `provider`, `model` and `purpose?`, so every turn
   keeps its author after later switches. Clients label replies by turn.
-- **Context.** `kumikit:provider@0.3.0` adds `user-input.context: option<handoff-context>`
-  with `from-provider`, `from-model`, `messages` (JSON: `{ role, text, turn }`, user and
-  assistant text only, without tool calls, reasoning or attachment bytes), `files-changed`
-  (paths from `file.changed`), `truncated` and `summary`. It holds at most the newest 200
-  messages and 64 KiB encoded; when it is cut, `truncated` is set and the rendered text
-  says so. `user-input` also gains `attachments` as a real field, replacing the 0.2
-  workaround through session options and a manifest file.
-- **Rendering.** `sdk/rust` renders the context as a prompt preamble so providers agree on
-  its shape. For a 0.2 provider the kernel prepends that rendered text to `text`.
+- **Context.** The kernel builds a bounded handoff context from the thread's event log:
+  `from_provider`, `from_model`, `messages` (`{ role, text, turn }`, user and assistant text
+  only, without tool calls, reasoning, attachment bytes or `handoff_summary` turns),
+  `files_changed` (paths from `file.changed`), `truncated` and `summary`. It holds at most
+  the newest 200 messages and 64 KiB encoded; when it is cut, `truncated` is set and the
+  rendered text says so.
+- **Rendering.** `sdk/rust-provider` (`handoff::render`) and the kernel share the exact
+  prompt-preamble format. For `kumikit:provider@0.2.0` providers the kernel prepends that
+  rendered preamble to `user-input.text` while keeping the thread's `turn.started` event
+  clean, so every provider works without a WIT breaking change.
 - **Delivery.** The handoff is pending until a turn on the new provider ends `done` and the
   provider has returned a session id; then the kernel appends `handoff.delivered`. A
   cancelled or failed first turn keeps it pending, so the next message carries it again.

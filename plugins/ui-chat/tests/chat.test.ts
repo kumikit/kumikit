@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import Approval from '../src/Approval.svelte';
 import Chat from '../src/Chat.svelte';
+import Handoff from '../src/Handoff.svelte';
 import Steer from '../src/Steer.svelte';
 
 const address = { connection: 'local', workspace: 'w', thread: 't' };
@@ -321,6 +322,103 @@ describe('the steer renderer', () => {
     flushSync();
     expect(target.textContent).toContain('Steered');
     expect(target.textContent).toContain('use the existing helper');
+    unmount(c);
+  });
+});
+
+describe('the handoff renderer and provider switch', () => {
+  it('renders a collapsible handoff with the exact carried-forward context', () => {
+    const target = document.createElement('div');
+    const c = mount(Handoff, {
+      target,
+      props: {
+        item: {
+          kind: 'handoff',
+          from: { provider: 'p.a/a', model: 'm1' },
+          to: { provider: 'p.b/b', model: 'm2' },
+          messages: 4,
+          truncated: true,
+          rendered: '[Conversation handoff from p.a/a (m1)]\nUser: hi',
+        },
+      },
+    });
+    flushSync();
+    expect(target.textContent).toContain('Conversation carried forward from p.a/a (m1)');
+    expect(target.textContent).toContain('4 messages (trimmed)');
+    expect(target.querySelector('pre')?.textContent).toContain('User: hi');
+    unmount(c);
+  });
+
+  it('asks for handoff confirmation and sends provider and handoff mode on switch', async () => {
+    const viewWithTurn: ThreadView = {
+      ...base,
+      thread: {
+        id: 't',
+        workspace: 'w',
+        provider: 'p.a/a',
+        model: 'm1',
+        status: 'idle',
+        created: '2026-11-24T00:00:00Z',
+        updated: '2026-11-24T00:00:00Z',
+      },
+      turns: [
+        {
+          id: 'u1',
+          input: 'hello',
+          started: '2026-11-24T00:00:01Z',
+          ended: '2026-11-24T00:00:02Z',
+          outcome: 'done',
+          provider: 'p.a/a',
+          model: 'm1',
+          items: [{ kind: 'message', text: 'hi there', done: true }],
+        },
+      ],
+    };
+    const connection = {
+      id: 'local',
+      ready: true,
+      call: async (method: string) => {
+        if (method === 'provider.list') {
+          return {
+            providers: [
+              { id: 'p.a/a', name: 'Agent A', plugin: 'p.a' },
+              { id: 'p.b/b', name: 'Agent B', plugin: 'p.b' },
+            ],
+          };
+        }
+        return {};
+      },
+      subscribe: () => () => {},
+      models: async () => [{ id: 'm1', label: 'Model 1', capabilities: [] }],
+    };
+    const { ctx, ran } = fakeCtx(viewWithTurn);
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address, connection: connection as never } });
+    flushSync();
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+
+    expect(target.textContent).toContain('Agent A · m1');
+    const select = target.querySelector<HTMLSelectElement>('select[aria-label="Thread provider"]');
+    expect(select).not.toBeNull();
+    select!.value = 'p.b/b';
+    select!.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+
+    expect(target.textContent).toContain('Hand off to Agent B?');
+    const summaryRadio = target.querySelector<HTMLInputElement>('input[value="summary"]');
+    summaryRadio!.checked = true;
+    summaryRadio!.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    const confirmBtn = [...target.querySelectorAll<HTMLButtonElement>('button')].find((b) =>
+      b.textContent?.trim() === 'Hand off',
+    );
+    confirmBtn!.click();
+    await Promise.resolve();
+    flushSync();
+
+    expect(ran).toEqual([['thread.update', { address, provider: 'p.b/b', handoff: 'summary' }]]);
     unmount(c);
   });
 });

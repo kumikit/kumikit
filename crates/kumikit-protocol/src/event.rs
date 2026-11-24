@@ -7,8 +7,8 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use crate::model::{
-    Approval, ApprovalId, QueueEntryId, Resolution, Thread, Timestamp, TurnId, TurnOutcome,
-    UserInput,
+    Approval, ApprovalId, HandoffMode, ProviderModel, QueueEntryId, Resolution, Thread, Timestamp,
+    TurnId, TurnOutcome, TurnPurpose, UserInput,
 };
 
 /// `turn.started`: the kernel started a turn for a user message.
@@ -27,6 +27,18 @@ pub struct TurnStarted {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub entry: Option<QueueEntryId>,
+    /// Qualified provider id running this turn (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub provider: Option<String>,
+    /// Model id running this turn (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub model: Option<String>,
+    /// Special purpose, when started by the kernel (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub purpose: Option<TurnPurpose>,
 }
 
 /// Who sent a message that a plugin sent for a user (a bot, a schedule).
@@ -278,6 +290,41 @@ pub struct InputSteered {
     pub input: UserInput,
 }
 
+/// `thread.switched`: the thread switched to another provider (ADR 0029, since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadSwitched {
+    /// The outgoing provider and model.
+    pub from: ProviderModel,
+    /// The incoming provider and model.
+    pub to: ProviderModel,
+    /// Requested handoff mode.
+    pub handoff: HandoffMode,
+    /// True when `summary` mode fell back to `transcript` because the summary turn failed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub summary_failed: bool,
+}
+
+/// `handoff.delivered`: the bounded earlier conversation was delivered to the new
+/// provider on a completed turn (ADR 0029, since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffDelivered {
+    /// The turn that carried the handoff context.
+    pub turn: TurnId,
+    /// The outgoing provider and model.
+    pub from: ProviderModel,
+    /// The incoming provider and model.
+    pub to: ProviderModel,
+    /// Number of earlier user/assistant messages included.
+    pub messages: u32,
+    /// True when older messages were omitted to stay within the 200-message / 64 KiB cap.
+    pub truncated: bool,
+    /// The exact context preamble carried forward, for disclosure in the UI.
+    pub rendered: String,
+}
+
 /// `queue.updated`: a queued message was edited.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -380,11 +427,17 @@ pub enum ThreadEvent {
     /// `input.steered`
     #[serde(rename = "input.steered")]
     InputSteered(InputSteered),
+    /// `thread.switched`
+    #[serde(rename = "thread.switched")]
+    ThreadSwitched(ThreadSwitched),
+    /// `handoff.delivered`
+    #[serde(rename = "handoff.delivered")]
+    HandoffDelivered(HandoffDelivered),
 }
 
 impl ThreadEvent {
     /// Every kind string, in spec table order.
-    pub const KINDS: [&'static str; 20] = [
+    pub const KINDS: [&'static str; 22] = [
         "turn.started",
         "text.delta",
         "text.done",
@@ -405,6 +458,8 @@ impl ThreadEvent {
         "queue.held",
         "queue.resumed",
         "input.steered",
+        "thread.switched",
+        "handoff.delivered",
     ];
 
     /// This event's kind string.
@@ -430,6 +485,8 @@ impl ThreadEvent {
             ThreadEvent::QueueHeld(_) => "queue.held",
             ThreadEvent::QueueResumed(_) => "queue.resumed",
             ThreadEvent::InputSteered(_) => "input.steered",
+            ThreadEvent::ThreadSwitched(_) => "thread.switched",
+            ThreadEvent::HandoffDelivered(_) => "handoff.delivered",
         }
     }
 
@@ -448,6 +505,7 @@ impl ThreadEvent {
             ThreadEvent::Usage(e) => Some(&e.turn),
             ThreadEvent::TurnEnded(e) => Some(&e.turn),
             ThreadEvent::InputSteered(e) => Some(&e.turn),
+            ThreadEvent::HandoffDelivered(e) => Some(&e.turn),
             ThreadEvent::ApprovalResolved(_)
             | ThreadEvent::PluginEvent(_)
             | ThreadEvent::QueueAdded(_)
@@ -455,7 +513,8 @@ impl ThreadEvent {
             | ThreadEvent::QueueRemoved(_)
             | ThreadEvent::QueueMoved(_)
             | ThreadEvent::QueueHeld(_)
-            | ThreadEvent::QueueResumed(_) => None,
+            | ThreadEvent::QueueResumed(_)
+            | ThreadEvent::ThreadSwitched(_) => None,
         }
     }
 }

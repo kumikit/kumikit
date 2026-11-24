@@ -3,7 +3,7 @@
      with clipboard/file attachments plus a compact footer showing the selected model and
      permission-mode padlock popover underneath. -->
 <script lang="ts">
-  import type { ModelInfo } from '@kumikit/protocol';
+  import type { HandoffMode, ModelInfo, ProviderInfo } from '@kumikit/protocol';
   import {
     isComposing,
     type Connection,
@@ -11,6 +11,7 @@
     type PluginContext,
     type RendererProps,
     type ThreadAddress,
+    type ThreadSwitchView,
     type ThreadView,
   } from '@kumikit/ui-sdk';
   import { tick, untrack } from 'svelte';
@@ -45,6 +46,10 @@
   let dragging = $state(false);
   let armedCancel = $state(false);
   let models = $state.raw<ModelInfo[]>([]);
+  let providers = $state.raw<ProviderInfo[]>([]);
+  let pendingSwitch = $state<ProviderInfo | undefined>();
+  let handoffMode = $state<HandoffMode>('transcript');
+  let switching = $state(false);
   let log: HTMLElement;
   let textarea: HTMLTextAreaElement | undefined = $state();
   let fileInput: HTMLInputElement | undefined = $state();
@@ -62,6 +67,22 @@
   });
 
   $effect(() => ctx.threads.watch(address, (v) => (view = v)));
+
+  // Load available providers so the user can hand off to another agent when idle.
+  $effect(() => {
+    const conn = activeConn;
+    if (!conn?.ready) return;
+    let alive = true;
+    conn.call('provider.list', {}).then(
+      (res) => {
+        if (alive && Array.isArray(res?.providers)) providers = res.providers;
+      },
+      () => {},
+    );
+    return () => {
+      alive = false;
+    };
+  });
 
   // Load the provider's model list (cached on the connection) so the footer shows the
   // human-readable model label and allows switching models when idle.
@@ -94,12 +115,21 @@
   const busy = $derived(view?.status === 'running' || view?.status === 'awaiting_approval');
   const archived = $derived(view?.status === 'archived');
   const canSend = $derived(!archived && (text.trim().length > 0 || attachments.length > 0));
+  const threadProvider = $derived(view?.thread?.provider ?? '');
   const threadModel = $derived(view?.thread?.model ?? '');
   const modelInfo = $derived(models.find((m) => m.id === threadModel));
   const modelLabel = $derived(modelInfo?.label ?? (threadModel || 'Default'));
   const canSteer = $derived(modelInfo?.capabilities?.includes('steer') ?? false);
   const canSteerNow = $derived(busy && !archived && text.trim().length > 0 && attachments.length === 0);
   const permissionMode = $derived<PermissionMode>(view?.thread?.permissionMode ?? 'standard');
+
+  function providerName(id: string): string {
+    return providers.find((p) => p.id === id)?.name ?? id;
+  }
+
+  function switchesAfter(turnId?: string): ThreadSwitchView[] {
+    return (view?.switches ?? []).filter((s) => s.afterTurnId === turnId);
+  }
 
   function item(el: HTMLElement, props: RendererProps) {
     let unmount = ctx.ui.renderItem(el, props);
@@ -195,6 +225,40 @@
     void run('thread.steer', { address, text: message });
   }
 
+  function onProviderChange(e: Event) {
+    const select = e.currentTarget as HTMLSelectElement;
+    const nextId = select.value;
+    if (!nextId || nextId === threadProvider) return;
+    if ((view?.turns.length ?? 0) === 0) {
+      void run('thread.update', { address, provider: nextId });
+      return;
+    }
+    const target = providers.find((p) => p.id === nextId);
+    // Keep the select showing the current provider until the user confirms the handoff.
+    select.value = threadProvider;
+    if (!target) return;
+    handoffMode = 'transcript';
+    pendingSwitch = target;
+  }
+
+  async function confirmSwitch() {
+    if (!pendingSwitch || switching) return;
+    const target = pendingSwitch;
+    const mode = handoffMode;
+    switching = true;
+    try {
+      await run('thread.update', { address, provider: target.id, handoff: mode });
+      pendingSwitch = undefined;
+    } finally {
+      switching = false;
+    }
+  }
+
+  function cancelSwitch() {
+    if (switching) return;
+    pendingSwitch = undefined;
+  }
+
   function onModelChange(e: Event) {
     const next = (e.currentTarget as HTMLSelectElement).value;
     if (!next || next === threadModel) return;
@@ -243,54 +307,122 @@
           <p class="empty-sub">Ask a question, request a code change, or paste a screenshot. Press Enter to send.</p>
         </div>
       {/if}
+      {#each switchesAfter(undefined) as sw (sw.seq)}
+        <div class="switch-divider" role="note">
+          Switched from {providerName(sw.from.provider)} to {providerName(sw.to.provider)} ({sw.to.model}){sw.summaryFailed ? ' · summary failed, using transcript' : ''}
+        </div>
+      {/each}
       {#each view?.turns ?? [] as turn (turn.id)}
-        <article class="turn" aria-label="Turn">
-          <div class="you">
-            <span class="kk-sr-only">You</span>
-            {#if turn.attachments && turn.attachments.length > 0}
-              <div class="turn-atts">
-                {#each turn.attachments as att, idx (idx)}
-                  {@const imgUrl = attachmentImageUrl(att)}
-                  {#if imgUrl}
-                    <figure class="turn-img-card">
-                      <img src={imgUrl} alt={att.name} />
-                      <figcaption>
-                        <span>{att.name}</span>
-                        {#if att.width && att.height}
-                          <span class="dim">{att.width} × {att.height}</span>
-                        {/if}
-                      </figcaption>
-                    </figure>
-                  {:else}
-                    <span class="turn-file-chip">{att.name}</span>
-                  {/if}
-                {/each}
-              </div>
-            {/if}
-            {#if turn.input}
-              <p>{turn.input}</p>
-            {/if}
+        {#if turn.purpose === 'handoff_summary'}
+          <details class="summary-turn" aria-label="Handoff summary turn">
+            <summary>
+              Handoff summary{#if turn.provider} · {providerName(turn.provider)}{#if turn.model} ({turn.model}){/if}{/if}
+            </summary>
+            <div class="agent">
+              {#each turn.items as it, i (i)}
+                <div class="item" use:item={{ item: it, address, run }}></div>
+              {/each}
+              {#if turn.outcome && turn.outcome !== 'done'}
+                <p class="outcome {turn.outcome}">{outcomeText[turn.outcome]}{turn.error ? `: ${turn.error}` : ''}</p>
+              {/if}
+            </div>
+          </details>
+        {:else}
+          <article class="turn" aria-label="Turn">
+            <div class="you">
+              <span class="kk-sr-only">You</span>
+              {#if turn.attachments && turn.attachments.length > 0}
+                <div class="turn-atts">
+                  {#each turn.attachments as att, idx (idx)}
+                    {@const imgUrl = attachmentImageUrl(att)}
+                    {#if imgUrl}
+                      <figure class="turn-img-card">
+                        <img src={imgUrl} alt={att.name} />
+                        <figcaption>
+                          <span>{att.name}</span>
+                          {#if att.width && att.height}
+                            <span class="dim">{att.width} × {att.height}</span>
+                          {/if}
+                        </figcaption>
+                      </figure>
+                    {:else}
+                      <span class="turn-file-chip">{att.name}</span>
+                    {/if}
+                  {/each}
+                </div>
+              {/if}
+              {#if turn.input}
+                <p>{turn.input}</p>
+              {/if}
+            </div>
+            <div class="agent">
+              {#if turn.provider}
+                <div class="turn-author" aria-label="Agent">
+                  {turn.model ? `${providerName(turn.provider)} · ${turn.model}` : providerName(turn.provider)}
+                </div>
+              {/if}
+              {#each turn.items as it, i (i)}
+                <div class="item" use:item={{ item: it, address, run }}></div>
+              {/each}
+              {#if !turn.ended && turn.items.length === 0}
+                <p class="working" aria-label="Working">Working…</p>
+              {/if}
+              {#if turn.outcome && turn.outcome !== 'done'}
+                <p class="outcome {turn.outcome}">{outcomeText[turn.outcome]}{turn.error ? `: ${turn.error}` : ''}</p>
+              {/if}
+              {#if turn.usage}
+                <p class="usage">{turn.usage.inputTokens} in · {turn.usage.outputTokens} out{turn.usage.cost !== undefined ? ` · $${turn.usage.cost.toFixed(4)}` : ''}</p>
+              {/if}
+            </div>
+          </article>
+        {/if}
+        {#each switchesAfter(turn.id) as sw (sw.seq)}
+          <div class="switch-divider" role="note">
+            Switched from {providerName(sw.from.provider)} to {providerName(sw.to.provider)} ({sw.to.model}){sw.summaryFailed ? ' · summary failed, using transcript' : ''}
           </div>
-          <div class="agent">
-            {#each turn.items as it, i (i)}
-              <div class="item" use:item={{ item: it, address, run }}></div>
-            {/each}
-            {#if !turn.ended && turn.items.length === 0}
-              <p class="working" aria-label="Working">Working…</p>
-            {/if}
-            {#if turn.outcome && turn.outcome !== 'done'}
-              <p class="outcome {turn.outcome}">{outcomeText[turn.outcome]}{turn.error ? `: ${turn.error}` : ''}</p>
-            {/if}
-            {#if turn.usage}
-              <p class="usage">{turn.usage.inputTokens} in · {turn.usage.outputTokens} out{turn.usage.cost !== undefined ? ` · $${turn.usage.cost.toFixed(4)}` : ''}</p>
-            {/if}
-          </div>
-        </article>
+        {/each}
       {/each}
     </div>
   </div>
 
   <div class="composer-wrap">
+    {#if pendingSwitch}
+      <div class="handoff-bar" role="region" aria-label="Confirm provider handoff">
+        <span class="handoff-title">Hand off to {pendingSwitch.name}?</span>
+        <div class="handoff-modes" role="radiogroup" aria-label="Handoff mode">
+          <label>
+            <input
+              type="radio"
+              name="handoff-mode"
+              value="transcript"
+              checked={handoffMode === 'transcript'}
+              onchange={() => (handoffMode = 'transcript')}
+              disabled={switching}
+            />
+            Transcript
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="handoff-mode"
+              value="summary"
+              checked={handoffMode === 'summary'}
+              onchange={() => (handoffMode = 'summary')}
+              disabled={switching}
+            />
+            Summary + transcript
+          </label>
+        </div>
+        <div class="handoff-actions">
+          <button type="button" class="handoff-btn primary" disabled={switching} onclick={() => void confirmSwitch()}>
+            {switching ? 'Handing off…' : 'Hand off'}
+          </button>
+          <button type="button" class="handoff-btn" disabled={switching} onclick={cancelSwitch}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    {/if}
     <QueuePanel
       queue={view?.queue ?? []}
       hold={view?.queueHold}
@@ -438,6 +570,23 @@
 
       <div class="footer">
         <div class="footer-left">
+          {#if providers.length > 1}
+            <select
+              class="model-select"
+              aria-label="Thread provider"
+              title={busy ? `Provider: ${providerName(threadProvider)} (wait for turn to finish to switch)` : `Provider: ${providerName(threadProvider)}`}
+              value={threadProvider}
+              disabled={busy || archived || !connReady || switching}
+              onchange={onProviderChange}
+            >
+              {#if threadProvider && !providers.some((p) => p.id === threadProvider)}
+                <option value={threadProvider}>{threadProvider}</option>
+              {/if}
+              {#each providers as p (p.id)}
+                <option value={p.id}>{p.name}</option>
+              {/each}
+            </select>
+          {/if}
           {#if models.length > 1}
             <select
               class="model-select"
@@ -589,6 +738,87 @@
     flex-direction: column;
     gap: 10px;
     min-width: 0;
+  }
+  .turn-author {
+    font-size: var(--kk-font-size-small, small);
+    font-weight: var(--kk-font-weight-strong, bold);
+    color: var(--kk-text-muted, GrayText);
+  }
+  .switch-divider {
+    margin: 6px 0 18px;
+    padding: 4px 10px;
+    border-top: 1px solid var(--kk-border-subtle, CanvasText);
+    border-bottom: 1px solid var(--kk-border-subtle, CanvasText);
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-muted, GrayText);
+    text-align: center;
+  }
+  .summary-turn {
+    margin-bottom: 18px;
+    padding: 8px 12px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-medium, 0);
+    background: var(--kk-surface-raised, Canvas);
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-secondary, CanvasText);
+  }
+  .summary-turn summary {
+    cursor: pointer;
+    color: var(--kk-text-muted, GrayText);
+  }
+  .handoff-bar {
+    max-width: 760px;
+    margin: 0 auto 8px;
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 12px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-medium, 0);
+    background: var(--kk-surface-raised, Canvas);
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-primary, CanvasText);
+  }
+  .handoff-title {
+    font-weight: var(--kk-font-weight-strong, bold);
+  }
+  .handoff-modes {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--kk-text-secondary, CanvasText);
+  }
+  .handoff-modes label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+  .handoff-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .handoff-btn {
+    padding: 4px 10px;
+    border: 1px solid var(--kk-border-subtle, ButtonBorder);
+    border-radius: var(--kk-radius-small, 0);
+    background: var(--kk-surface-card, ButtonFace);
+    color: var(--kk-text-primary, CanvasText);
+    font-size: var(--kk-font-size-small, small);
+    cursor: pointer;
+  }
+  .handoff-btn.primary {
+    border-color: transparent;
+    background: var(--kk-accent, Highlight);
+    color: var(--kk-text-on-accent, HighlightText);
+  }
+  .handoff-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
   .item {
     min-width: 0;

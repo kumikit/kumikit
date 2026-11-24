@@ -915,14 +915,24 @@ export class Kernel {
     c.register({ id: 'thread.update', title: 'Update thread settings', when: 'never' }, async (args) => {
       const a = args as {
         address: ThreadAddress;
+        provider?: string;
         model?: string;
         permissionMode?: PermissionMode;
         title?: string;
+        handoff?: import('@kumikit/protocol').HandoffMode;
       };
-      const patch: { model?: string; permissionMode?: PermissionMode; title?: string } = {};
+      const patch: {
+        provider?: string;
+        model?: string;
+        permissionMode?: PermissionMode;
+        title?: string;
+        handoff?: import('@kumikit/protocol').HandoffMode;
+      } = {};
+      if (a.provider !== undefined) patch.provider = a.provider;
       if (a.model !== undefined) patch.model = a.model;
       if (a.permissionMode !== undefined) patch.permissionMode = a.permissionMode;
       if (a.title !== undefined) patch.title = a.title;
+      if (a.handoff !== undefined) patch.handoff = a.handoff;
       await this.attempt('Cannot update thread', () => this.threads.update(a.address, patch));
     });
     c.register({ id: 'attachment.pick', title: 'Attach files', when: 'never' }, async (args) => {

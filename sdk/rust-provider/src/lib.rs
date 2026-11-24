@@ -127,6 +127,96 @@ pub mod steering {
     }
 }
 
+/// Renders a conversation handoff context into the shared prompt preamble (ADR 0029).
+pub mod handoff {
+    /// Speaker of a handoff message.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Role {
+        /// The user.
+        User,
+        /// The agent.
+        Assistant,
+    }
+
+    /// One plain-text user or assistant message carried across a handoff.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Message {
+        /// Who wrote the message.
+        pub role: Role,
+        /// Plain text of the message.
+        pub text: String,
+    }
+
+    /// Conversation context passed when another provider takes over a thread.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Context {
+        /// Provider that ran the earlier conversation.
+        pub from_provider: String,
+        /// Model that ran the earlier conversation.
+        pub from_model: String,
+        /// Bounded transcript messages, oldest first.
+        pub messages: Vec<Message>,
+        /// Workspace-relative paths of files changed earlier.
+        pub files_changed: Vec<String>,
+        /// Whether earlier messages were omitted to fit the handoff limit.
+        pub truncated: bool,
+        /// Optional summary note from the outgoing provider.
+        pub summary: Option<String>,
+        /// Whether a requested summary could not be generated.
+        pub summary_failed: bool,
+    }
+
+    /// Renders `ctx` as a prompt preamble matching the kernel's handoff format.
+    pub fn render(ctx: &Context) -> String {
+        let mut out = String::new();
+        out.push_str(&format!(
+            "[Conversation handoff from {} ({})]\n",
+            ctx.from_provider, ctx.from_model
+        ));
+        if ctx.summary_failed {
+            out.push_str(
+                "Note: an automatic handoff summary could not be generated; the conversation transcript is included below.\n",
+            );
+        }
+        if let Some(summary) = &ctx.summary {
+            out.push_str("\n## Handoff summary\n");
+            out.push_str(summary.trim());
+            out.push('\n');
+        }
+        if !ctx.files_changed.is_empty() {
+            out.push_str("\n## Files changed earlier\n");
+            for path in &ctx.files_changed {
+                out.push_str("- ");
+                out.push_str(path);
+                out.push('\n');
+            }
+        }
+        if ctx.truncated {
+            out.push_str(
+                "\n(Earlier messages were omitted to stay within the 200-message / 64 KiB handoff limit.)\n",
+            );
+        }
+        if !ctx.messages.is_empty() {
+            out.push_str("\n## Earlier conversation\n");
+            for msg in &ctx.messages {
+                let label = match msg.role {
+                    Role::User => "User",
+                    Role::Assistant => "Assistant",
+                };
+                out.push_str("\n### ");
+                out.push_str(label);
+                out.push('\n');
+                out.push_str(&msg.text);
+                if !msg.text.ends_with('\n') {
+                    out.push('\n');
+                }
+            }
+        }
+        out.push_str("\n[End of handoff — continue with the user's next message below]");
+        out
+    }
+}
+
 #[doc(hidden)]
 pub use bindings::__export_provider_world;
 pub use bindings::exports::kumikit::provider::provider::Guest as Provider;

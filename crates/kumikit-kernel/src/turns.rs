@@ -12,19 +12,20 @@ use std::sync::Arc;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use kumikit_protocol::event::{
-    ApprovalResolved, MessageFrom, QueueAddReason, QueueAdded, QueueEntry, QueueHeld, QueueHold,
-    QueueMoved, QueueRemoval, QueueRemoved, QueueResumed, QueueUpdated, ThreadChange, TurnEnded,
-    TurnStarted,
+    ApprovalResolved, HandoffDelivered, MessageFrom, QueueAddReason, QueueAdded, QueueEntry,
+    QueueHeld, QueueHold, QueueMoved, QueueRemoval, QueueRemoved, QueueResumed, QueueUpdated,
+    ThreadChange, ThreadSwitched, TurnEnded, TurnStarted,
 };
 use kumikit_protocol::methods::{ProviderInfo, SteerStatus, ThreadSendResult, ThreadSteerResult};
 use kumikit_protocol::model::{
-    ApprovalId, Attachment, Decision, PermissionMode, QueueEntryId, Resolution, Thread, ThreadId,
-    TurnId, TurnOutcome, UserInput, WorkspaceId,
+    ApprovalId, Attachment, Decision, HandoffMode, PermissionMode, ProviderModel, QueueEntryId,
+    Resolution, Thread, ThreadId, TurnId, TurnOutcome, TurnPurpose, UserInput, WorkspaceId,
 };
 use kumikit_protocol::{ThreadEvent, WorkspaceEvent};
 use tokio::sync::oneshot;
 
 use crate::error::{KernelError, KernelResult};
+use crate::handoff::{self, PendingHandoff, SUMMARY_PROMPT};
 use crate::kernel::{Kernel, Session};
 use crate::provider::{EventSink, Inbox, Model, Provider, SessionConfig};
 use crate::repo;
@@ -270,15 +271,19 @@ impl Kernel {
         .await
     }
 
-    /// Updates a thread's model, permission mode, and/or title. Fails with `conflict`
-    /// while a turn runs or if the thread is archived. Changing the model or permission
-    /// mode restarts the provider session (with `resume`) on the next turn.
+    /// Updates a thread's provider, model, permission mode, and/or title. Fails with
+    /// `conflict` while a turn runs or if the thread is archived. Changing the model or
+    /// permission mode restarts the provider session (with `resume`) on the next turn.
+    /// Changing `provider` ends the old session, clears the stored resume id, records
+    /// `thread.switched` and arms a bounded handoff for the next turn (ADR 0029).
     pub async fn thread_update(
         &self,
         id: &ThreadId,
+        provider: Option<String>,
         model: Option<String>,
         permission_mode: Option<PermissionMode>,
         title: Option<String>,
+        handoff: Option<HandoffMode>,
     ) -> KernelResult<Thread> {
         if self.has_run(id) {
             return Err(KernelError::Conflict(format!(
@@ -289,29 +294,60 @@ impl Kernel {
         if row.archived {
             return Err(KernelError::Conflict(format!("thread {id} is archived")));
         }
-        let next_model = match model {
-            Some(m) if m != row.thread.model => {
-                let provider = self.provider(&row.thread.provider).ok_or_else(|| {
-                    KernelError::PluginFailed(format!(
-                        "provider {} is not available",
-                        row.thread.provider
-                    ))
-                })?;
-                let models = provider
-                    .list_models()
-                    .await
-                    .map_err(|e| KernelError::PluginFailed(e.message))?;
-                if !models.iter().any(|x| x.id == m) {
+
+        let switching = provider
+            .as_deref()
+            .is_some_and(|p| p != row.thread.provider);
+
+        let (next_provider, next_model) = if switching {
+            let next_provider_id = provider.unwrap_or_else(|| row.thread.provider.clone());
+            let target = self.provider(&next_provider_id).ok_or_else(|| {
+                KernelError::InvalidParams(format!("no provider {next_provider_id}"))
+            })?;
+            let models = target
+                .list_models()
+                .await
+                .map_err(|e| KernelError::PluginFailed(e.message))?;
+            let resolved_model = match model {
+                Some(m) if models.iter().any(|x| x.id == m) => m,
+                Some(m) => {
                     return Err(KernelError::InvalidParams(format!(
                         "provider {} has no model {m}",
-                        provider.id()
+                        target.id()
                     )));
                 }
-                m
-            }
-            Some(m) => m,
-            None => row.thread.model.clone(),
+                None => models.first().map(|m| m.id.clone()).ok_or_else(|| {
+                    KernelError::PluginFailed(format!("provider {} has no models", target.id()))
+                })?,
+            };
+            (next_provider_id, resolved_model)
+        } else {
+            let resolved_model = match model {
+                Some(m) if m != row.thread.model => {
+                    let current = self.provider(&row.thread.provider).ok_or_else(|| {
+                        KernelError::PluginFailed(format!(
+                            "provider {} is not available",
+                            row.thread.provider
+                        ))
+                    })?;
+                    let models = current
+                        .list_models()
+                        .await
+                        .map_err(|e| KernelError::PluginFailed(e.message))?;
+                    if !models.iter().any(|x| x.id == m) {
+                        return Err(KernelError::InvalidParams(format!(
+                            "provider {} has no model {m}",
+                            current.id()
+                        )));
+                    }
+                    m
+                }
+                Some(m) => m,
+                None => row.thread.model.clone(),
+            };
+            (row.thread.provider.clone(), resolved_model)
         };
+
         let next_mode = match permission_mode {
             Some(PermissionMode::Standard) => None,
             Some(m) => Some(m),
@@ -321,33 +357,235 @@ impl Kernel {
             Some(t) => Some(t),
             None => row.thread.title.clone(),
         };
+
+        if switching {
+            let tid = id.clone();
+            let events = self
+                .inner
+                .store
+                .read(move |c| repo::read_all_events(c, &tid))
+                .await?;
+            let has_history = events.iter().any(|e| {
+                matches!(
+                    &e.event,
+                    ThreadEvent::TurnStarted(ts)
+                        if ts.purpose != Some(TurnPurpose::HandoffSummary)
+                )
+            });
+
+            let requested_mode = handoff.unwrap_or(HandoffMode::Transcript);
+            let (summary, summary_failed) = if requested_mode == HandoffMode::Summary && has_history
+            {
+                self.run_handoff_summary(id, &row.thread).await?
+            } else {
+                (None, false)
+            };
+            let effective_mode = if summary_failed {
+                HandoffMode::Transcript
+            } else {
+                requested_mode
+            };
+
+            self.end_live_session(id).await;
+
+            let pending = has_history.then(|| PendingHandoff {
+                from: ProviderModel {
+                    provider: row.thread.provider.clone(),
+                    model: row.thread.model.clone(),
+                },
+                summary,
+                summary_failed,
+            });
+            let updated = self.now();
+            let tid = id.clone();
+            let p_for_db = next_provider.clone();
+            let m_for_db = next_model.clone();
+            let t_for_db = next_title.clone();
+            let pending_for_db = pending.clone();
+            let saved = self
+                .inner
+                .store
+                .write(move |c| {
+                    repo::thread_update(
+                        c,
+                        &tid,
+                        &p_for_db,
+                        &m_for_db,
+                        next_mode,
+                        t_for_db.as_deref(),
+                        &updated,
+                        true,
+                        Some(pending_for_db.as_ref()),
+                    )
+                })
+                .await?;
+            self.append(
+                id,
+                ThreadEvent::ThreadSwitched(ThreadSwitched {
+                    from: ProviderModel {
+                        provider: row.thread.provider.clone(),
+                        model: row.thread.model.clone(),
+                    },
+                    to: ProviderModel {
+                        provider: next_provider,
+                        model: next_model,
+                    },
+                    handoff: effective_mode,
+                    summary_failed,
+                }),
+            )
+            .await?;
+            let public = saved.public();
+            self.announce(WorkspaceEvent::ThreadUpdated(ThreadChange {
+                thread: public.clone(),
+            }));
+            return Ok(public);
+        }
+
         let restart_session =
             next_model != row.thread.model || next_mode != row.thread.permission_mode;
         let updated = self.now();
         let tid = id.clone();
+        let p_for_db = next_provider.clone();
         let m_for_db = next_model.clone();
         let t_for_db = next_title.clone();
         let saved = self
             .inner
             .store
             .write(move |c| {
-                repo::thread_update(c, &tid, &m_for_db, next_mode, t_for_db.as_deref(), &updated)
+                repo::thread_update(
+                    c,
+                    &tid,
+                    &p_for_db,
+                    &m_for_db,
+                    next_mode,
+                    t_for_db.as_deref(),
+                    &updated,
+                    false,
+                    None,
+                )
             })
             .await?;
         if restart_session {
-            let old_session = self.lock_sessions().remove(id);
-            self.gateway_revoke(id);
-            if let Some(session) = old_session
-                && let Some(provider) = self.provider(&session.provider)
-            {
-                provider.end_session(session.id).await;
-            }
+            self.end_live_session(id).await;
         }
         let public = saved.public();
         self.announce(WorkspaceEvent::ThreadUpdated(ThreadChange {
             thread: public.clone(),
         }));
         Ok(public)
+    }
+
+    /// Runs a single `handoff_summary` turn on the outgoing provider and returns
+    /// `(summary, summary_failed)`. Failures do not abort the switch (ADR 0029).
+    async fn run_handoff_summary(
+        &self,
+        thread: &ThreadId,
+        outgoing: &Thread,
+    ) -> KernelResult<(Option<String>, bool)> {
+        let Some(provider) = self.provider(&outgoing.provider) else {
+            return Ok((None, true));
+        };
+        let turn = TurnId(self.new_id());
+        let input = UserInput::text(SUMMARY_PROMPT);
+        let (tx, mut rx) = oneshot::channel();
+        {
+            let _dispatch = self.inner.dispatch.lock().await;
+            if self.has_run(thread) {
+                return Err(KernelError::Conflict(format!(
+                    "thread {thread} has a running turn"
+                )));
+            }
+            self.lock_runs().insert(
+                thread.clone(),
+                ThreadRun {
+                    turn: turn.clone(),
+                    provider: outgoing.provider.clone(),
+                    cancel: Some(tx),
+                    next: None,
+                    inbox: Inbox::new(),
+                },
+            );
+            if let Err(e) = self
+                .append(
+                    thread,
+                    ThreadEvent::TurnStarted(TurnStarted {
+                        turn: turn.clone(),
+                        input: input.clone(),
+                        from: None,
+                        entry: None,
+                        provider: Some(outgoing.provider.clone()),
+                        model: Some(outgoing.model.clone()),
+                        purpose: Some(TurnPurpose::HandoffSummary),
+                    }),
+                )
+                .await
+            {
+                self.lock_runs().remove(thread);
+                return Err(e);
+            }
+        }
+
+        let queued = Queued {
+            turn: turn.clone(),
+            input,
+            from: None,
+            entry: None,
+        };
+        let result = self
+            .run_one(thread, outgoing, &provider, queued, &mut rx, false)
+            .await;
+
+        let (outcome, error) = match result {
+            Ok(Some(ended)) => ended,
+            Ok(None) => {
+                self.lock_runs().remove(thread);
+                return Ok((None, true));
+            }
+            Err(e) => {
+                self.lock_runs().remove(thread);
+                return Err(e);
+            }
+        };
+
+        {
+            let _dispatch = self.inner.dispatch.lock().await;
+            self.lock_runs().remove(thread);
+            self.append(
+                thread,
+                ThreadEvent::TurnEnded(TurnEnded {
+                    turn: turn.clone(),
+                    outcome,
+                    error,
+                }),
+            )
+            .await?;
+        }
+
+        if outcome != TurnOutcome::Done {
+            return Ok((None, true));
+        }
+
+        let tid = thread.clone();
+        let events = self
+            .inner
+            .store
+            .read(move |c| repo::read_all_events(c, &tid))
+            .await?;
+        match handoff::turn_assistant_text(&events, &turn) {
+            Some(text) => Ok((Some(text), false)),
+            None => Ok((None, true)),
+        }
+    }
+
+    async fn end_live_session(&self, id: &ThreadId) {
+        let old_session = self.lock_sessions().remove(id);
+        self.gateway_revoke(id);
+        if let Some(session) = old_session
+            && let Some(provider) = self.provider(&session.provider)
+        {
+            provider.end_session(session.id).await;
+        }
     }
 
     /// Sends a user message: starts a turn, or queues it behind the running one.
@@ -705,7 +943,7 @@ impl Kernel {
                 inbox: Inbox::new(),
             },
         );
-        if let Err(e) = self.begin_turn(thread, &first).await {
+        if let Err(e) = self.begin_turn(thread, &meta, &first).await {
             self.lock_runs().remove(thread);
             return Err(e);
         }
@@ -716,7 +954,7 @@ impl Kernel {
     }
 
     /// Appends `turn.started`; for a queued message this also takes it out of the queue.
-    async fn begin_turn(&self, thread: &ThreadId, q: &Queued) -> KernelResult<()> {
+    async fn begin_turn(&self, thread: &ThreadId, meta: &Thread, q: &Queued) -> KernelResult<()> {
         self.append(
             thread,
             ThreadEvent::TurnStarted(TurnStarted {
@@ -724,6 +962,9 @@ impl Kernel {
                 input: q.input.clone(),
                 from: q.from.clone().map(|plugin| MessageFrom { plugin }),
                 entry: q.entry.clone(),
+                provider: Some(meta.provider.clone()),
+                model: Some(meta.model.clone()),
+                purpose: None,
             }),
         )
         .await?;
@@ -809,7 +1050,7 @@ impl Kernel {
         loop {
             let turn = next_up.turn.clone();
             let (outcome, error) = match self
-                .run_one(&thread, &meta, &provider, next_up, &mut cancel)
+                .run_one(&thread, &meta, &provider, next_up, &mut cancel, true)
                 .await
             {
                 Ok(Some(ended)) => ended,
@@ -821,7 +1062,7 @@ impl Kernel {
                     break;
                 }
             };
-            match self.end_turn(&thread, &turn, outcome, error).await {
+            match self.end_turn(&thread, &meta, &turn, outcome, error).await {
                 Ok(Some((q, rx))) => (next_up, cancel) = (q, rx),
                 Ok(None) => break,
                 Err(e) => {
@@ -841,6 +1082,7 @@ impl Kernel {
     async fn end_turn(
         &self,
         thread: &ThreadId,
+        meta: &Thread,
         turn: &TurnId,
         outcome: TurnOutcome,
         error: Option<String>,
@@ -916,7 +1158,7 @@ impl Kernel {
             // The kernel is closing and dropped the run.
             None => return Ok(None),
         }
-        if let Err(e) = self.begin_turn(thread, &q).await {
+        if let Err(e) = self.begin_turn(thread, meta, &q).await {
             self.lock_runs().remove(thread);
             return Err(e);
         }
@@ -933,9 +1175,53 @@ impl Kernel {
         provider: &Arc<dyn Provider>,
         queued: Queued,
         cancel: &mut oneshot::Receiver<()>,
+        allow_handoff: bool,
     ) -> KernelResult<Option<(TurnOutcome, Option<String>)>> {
-        let Queued { turn, input, .. } = queued;
+        let Queued {
+            turn, mut input, ..
+        } = queued;
         let turn = &turn;
+        let mut active_handoff: Option<(PendingHandoff, u32, bool, String)> = None;
+        if allow_handoff {
+            let row = self.thread_row(thread).await?;
+            let needs_check = row.pending_handoff.is_some()
+                || (row.provider_session.is_none() && !self.lock_sessions().contains_key(thread));
+            if needs_check {
+                let tid = thread.clone();
+                let events = self
+                    .inner
+                    .store
+                    .read(move |c| repo::read_all_events(c, &tid))
+                    .await?;
+                let pending = match row.pending_handoff {
+                    Some(p) => Some(p),
+                    None => handoff::last_author(&events, Some(turn)).map(|from| PendingHandoff {
+                        from,
+                        summary: None,
+                        summary_failed: false,
+                    }),
+                };
+                if let Some(pending) = pending {
+                    let ctx = handoff::build_context(
+                        &events,
+                        pending.from.clone(),
+                        pending.summary.clone(),
+                        pending.summary_failed,
+                        Some(turn),
+                    );
+                    if !ctx.messages.is_empty() || ctx.summary.is_some() {
+                        let rendered = handoff::render(&ctx);
+                        input.text = handoff::prepend(&rendered, &input.text);
+                        active_handoff = Some((
+                            pending,
+                            u32::try_from(ctx.messages.len()).unwrap_or(u32::MAX),
+                            ctx.truncated,
+                            rendered,
+                        ));
+                    }
+                }
+            }
+        }
         let inbox = self
             .lock_runs()
             .get(thread)
@@ -994,6 +1280,45 @@ impl Kernel {
                 // A client answered between the read and this append; that answer stands.
                 Ok(_) | Err(KernelError::Conflict(_)) => {}
                 Err(e) => return Err(e),
+            }
+        }
+        if let Some((pending, messages, truncated, rendered)) = active_handoff {
+            if outcome == TurnOutcome::Done
+                && self.thread_row(thread).await?.provider_session.is_some()
+            {
+                let tid = thread.clone();
+                self.inner
+                    .store
+                    .write(move |c| repo::thread_set_pending_handoff(c, &tid, None))
+                    .await?;
+                self.append(
+                    thread,
+                    ThreadEvent::HandoffDelivered(HandoffDelivered {
+                        turn: turn.clone(),
+                        from: pending.from,
+                        to: ProviderModel {
+                            provider: meta.provider.clone(),
+                            model: meta.model.clone(),
+                        },
+                        messages,
+                        truncated,
+                        rendered,
+                    }),
+                )
+                .await?;
+            } else {
+                // Keep the handoff pending and reset the aborted session so the next turn
+                // sends the handoff cleanly (ADR 0029).
+                let tid = thread.clone();
+                let pending_for_db = pending.clone();
+                self.inner
+                    .store
+                    .write(move |c| {
+                        repo::thread_set_pending_handoff(c, &tid, Some(&pending_for_db))?;
+                        repo::thread_clear_session(c, &tid)
+                    })
+                    .await?;
+                self.end_live_session(thread).await;
             }
         }
         Ok(Some((outcome, error)))

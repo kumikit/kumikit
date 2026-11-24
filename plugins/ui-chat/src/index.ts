@@ -8,6 +8,7 @@ import { type Component, mount, unmount } from 'svelte';
 import Approval from './Approval.svelte';
 import Chat from './Chat.svelte';
 import FileChange from './FileChange.svelte';
+import Handoff from './Handoff.svelte';
 import Message from './Message.svelte';
 import PluginEvent from './PluginEvent.svelte';
 import Reasoning from './Reasoning.svelte';
@@ -37,6 +38,7 @@ function renderers(ctx: PluginContext): [string, (el: HTMLElement, p: RendererPr
       return show(PluginEvent, el, { plugin: i.plugin, event: i.event, data: i.data });
     }],
     ['steer', (el, p) => show(Steer, el, { text: (p.item as Of<'steer'>).text })],
+    ['handoff', (el, p) => show(Handoff, el, { item: p.item as Of<'handoff'> })],
   ];
 }
 

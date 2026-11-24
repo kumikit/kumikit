@@ -5,13 +5,14 @@ use kumikit_protocol::ThreadEvent;
 use kumikit_protocol::event::{MessageFrom, QueueEntry, QueueHold};
 use kumikit_protocol::model::{
     ApprovalId, ApprovalStatus, PermissionMode, QueueEntryId, Thread, ThreadId, ThreadStatus,
-    Timestamp, TurnId, UserInput, Workspace, WorkspaceId, WorkspaceKind,
+    Timestamp, TurnId, TurnPurpose, UserInput, Workspace, WorkspaceId, WorkspaceKind,
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::Value;
 
 use crate::error::{KernelError, KernelResult};
 use crate::fold::next_status;
+use crate::handoff::PendingHandoff;
 use crate::store::StoreError;
 
 /// A workspace row.
@@ -34,6 +35,8 @@ pub struct ThreadRow {
     pub head: u64,
     /// The provider's own session id, if it has one.
     pub provider_session: Option<String>,
+    /// Pending handoff waiting for the next completed turn, if any.
+    pub pending_handoff: Option<PendingHandoff>,
 }
 
 impl ThreadRow {
@@ -196,12 +199,16 @@ pub fn workspace_list(conn: &Connection) -> KernelResult<Vec<Workspace>> {
     Ok(out)
 }
 
-const THREAD_COLUMNS: &str = "id, workspace, title, provider, model, permission_mode, worktree_path, status, archived, created, updated, head, provider_session";
+const THREAD_COLUMNS: &str = "id, workspace, title, provider, model, permission_mode, worktree_path, status, archived, created, updated, head, provider_session, pending_handoff";
 
-fn thread_from_row(row: &Row<'_>) -> rusqlite::Result<(ThreadRow, String, Option<String>, i64)> {
+#[allow(clippy::type_complexity)]
+fn thread_from_row(
+    row: &Row<'_>,
+) -> rusqlite::Result<(ThreadRow, String, Option<String>, i64, Option<String>)> {
     let status: String = row.get("status")?;
     let permission_mode: Option<String> = row.get("permission_mode")?;
     let head: i64 = row.get("head")?;
+    let pending_handoff: Option<String> = row.get("pending_handoff")?;
     Ok((
         ThreadRow {
             thread: Thread {
@@ -219,15 +226,23 @@ fn thread_from_row(row: &Row<'_>) -> rusqlite::Result<(ThreadRow, String, Option
             archived: row.get::<_, i64>("archived")? != 0,
             head: 0,
             provider_session: row.get("provider_session")?,
+            pending_handoff: None,
         },
         status,
         permission_mode,
         head,
+        pending_handoff,
     ))
 }
 
 fn finish_thread(
-    (mut row, status, permission_mode, head): (ThreadRow, String, Option<String>, i64),
+    (mut row, status, permission_mode, head, pending_handoff): (
+        ThreadRow,
+        String,
+        Option<String>,
+        i64,
+        Option<String>,
+    ),
 ) -> KernelResult<ThreadRow> {
     row.thread.status = ThreadStatus::parse(&status)
         .ok_or_else(|| StoreError::Corrupt(format!("unknown thread status {status:?}")))?;
@@ -237,6 +252,10 @@ fn finish_thread(
             PermissionMode::parse(&m)
                 .ok_or_else(|| StoreError::Corrupt(format!("unknown permission mode {m:?}")))?,
         ),
+    };
+    row.pending_handoff = match pending_handoff {
+        None => None,
+        Some(raw) => Some(serde_json::from_str(&raw)?),
     };
     row.head = to_u64(head)?;
     Ok(row)
@@ -263,25 +282,40 @@ pub fn thread_insert(conn: &Connection, t: &Thread) -> KernelResult<()> {
     Ok(())
 }
 
-/// Updates a thread's model, permission mode, and/or title, bumping `updated`.
+/// Updates a thread's provider, model, permission mode, and/or title, bumping `updated`.
+/// When `clear_session` is true, `provider_session` is cleared. When `pending_handoff` is
+/// `Some(h)`, `pending_handoff` is replaced with `h`.
+#[allow(clippy::too_many_arguments)]
 pub fn thread_update(
     conn: &Connection,
     id: &ThreadId,
+    provider: &str,
     model: &str,
     permission_mode: Option<PermissionMode>,
     title: Option<&str>,
     updated: &Timestamp,
+    clear_session: bool,
+    pending_handoff: Option<Option<&PendingHandoff>>,
 ) -> KernelResult<ThreadRow> {
     conn.execute(
-        "UPDATE threads SET model = ?2, permission_mode = ?3, title = ?4, updated = ?5 WHERE id = ?1",
+        "UPDATE threads
+         SET provider = ?2, model = ?3, permission_mode = ?4, title = ?5, updated = ?6
+         WHERE id = ?1",
         params![
             id.as_str(),
+            provider,
             model,
             permission_mode.map(PermissionMode::as_str),
             title,
             updated.0,
         ],
     )?;
+    if clear_session {
+        thread_clear_session(conn, id)?;
+    }
+    if let Some(handoff) = pending_handoff {
+        thread_set_pending_handoff(conn, id, handoff)?;
+    }
     thread_require(conn, id)
 }
 
@@ -409,6 +443,29 @@ pub fn thread_set_session(conn: &Connection, id: &ThreadId, session: &str) -> Ke
     Ok(())
 }
 
+/// Clears the stored provider session id for a thread.
+pub fn thread_clear_session(conn: &Connection, id: &ThreadId) -> KernelResult<()> {
+    conn.execute(
+        "UPDATE threads SET provider_session = NULL WHERE id = ?1",
+        [id.as_str()],
+    )?;
+    Ok(())
+}
+
+/// Sets or clears a thread's pending handoff metadata.
+pub fn thread_set_pending_handoff(
+    conn: &Connection,
+    id: &ThreadId,
+    pending: Option<&PendingHandoff>,
+) -> KernelResult<()> {
+    let encoded = pending.map(serde_json::to_string).transpose()?;
+    conn.execute(
+        "UPDATE threads SET pending_handoff = ?2 WHERE id = ?1",
+        params![id.as_str(), encoded],
+    )?;
+    Ok(())
+}
+
 /// Appends an event to a thread's log and updates the derived columns in the same
 /// transaction. Returns the new `seq`.
 pub fn append_event(
@@ -457,8 +514,17 @@ pub fn append_event(
                 }
             }
             conn.execute(
-                "INSERT INTO turns (id, thread, started_seq, started) VALUES (?1, ?2, ?3, ?4)",
-                params![e.turn.as_str(), thread.as_str(), seq_i, time.0],
+                "INSERT INTO turns (id, thread, started_seq, started, provider, model, purpose)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    e.turn.as_str(),
+                    thread.as_str(),
+                    seq_i,
+                    time.0,
+                    e.provider,
+                    e.model,
+                    e.purpose.map(TurnPurpose::as_str),
+                ],
             )?;
         }
         ThreadEvent::QueueAdded(e) => {
@@ -710,6 +776,19 @@ pub fn read_events(
             time: Timestamp(time),
             event,
         });
+    }
+    Ok(out)
+}
+
+/// Reads every event of `thread`, in sequence order.
+pub fn read_all_events(conn: &Connection, thread: &ThreadId) -> KernelResult<Vec<StoredEvent>> {
+    let mut out = Vec::new();
+    let mut after = 0;
+    loop {
+        let batch = read_events(conn, thread, after, 4096)?;
+        let Some(last) = batch.last() else { break };
+        after = last.seq;
+        out.extend(batch);
     }
     Ok(out)
 }

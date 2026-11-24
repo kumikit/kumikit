@@ -14,6 +14,7 @@ mod commands;
 mod exit_m4;
 mod exit_m5;
 mod gateway;
+mod handoff;
 mod http;
 mod permission_wording;
 mod plugins;
