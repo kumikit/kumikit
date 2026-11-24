@@ -75,7 +75,11 @@
     return displayRoot.length > 26 ? `${displayRoot.slice(0, 25)}…` : displayRoot;
   });
   const triggerLabel = $derived(
-    git?.isRepo ? (git.branch ?? 'HEAD') : (workspace?.name ?? ''),
+    workspace?.kind === 'chat'
+      ? ''
+      : git?.isRepo
+        ? (git.branch ?? 'HEAD')
+        : (workspace?.name ?? ''),
   );
   const triggerAria = $derived(
     git?.isRepo

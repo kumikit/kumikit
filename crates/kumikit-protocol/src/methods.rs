@@ -110,6 +110,8 @@ methods! {
         WorkspaceList = "workspace.list" (Empty) -> WorkspaceListResult;
         /// `workspace.open`: register a directory, or return the existing workspace for it.
         WorkspaceOpen = "workspace.open" (WorkspaceOpenParams) -> WorkspaceOpenResult;
+        /// `workspace.chat`: open or create the core-managed chat workspace (no project folder selection required).
+        WorkspaceChat = "workspace.chat" (Empty) -> WorkspaceOpenResult;
         /// `workspace.close`: hide a workspace; its data is kept.
         WorkspaceClose = "workspace.close" (WorkspaceRef) -> Empty;
         /// `workspace.delete`: permanently delete a workspace and all its threads and history.

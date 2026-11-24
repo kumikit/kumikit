@@ -9,6 +9,7 @@
     | 'folder-plus'
     | 'folder'
     | 'plus'
+    | 'message'
     | 'message-plus'
     | 'chevron-right'
     | 'chevron-down'
@@ -64,6 +65,8 @@
   {:else if name === 'plus'}
     <line x1="8" y1="3" x2="8" y2="13" />
     <line x1="3" y1="8" x2="13" y2="8" />
+  {:else if name === 'message'}
+    <path d="M2.25 3.75A1.5 1.5 0 0 1 3.75 2.25h8.5a1.5 1.5 0 0 1 1.5 1.5v6.5a1.5 1.5 0 0 1-1.5 1.5H6.25L3 14v-2.25H3.75a1.5 1.5 0 0 1-1.5-1.5z" />
   {:else if name === 'message-plus'}
     <path d="M2.25 3.75A1.5 1.5 0 0 1 3.75 2.25h8.5a1.5 1.5 0 0 1 1.5 1.5v6.5a1.5 1.5 0 0 1-1.5 1.5H6.25L3 14v-2.25H3.75a1.5 1.5 0 0 1-1.5-1.5z" />
     <line x1="8" y1="5" x2="8" y2="9" />

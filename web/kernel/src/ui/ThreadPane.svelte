@@ -19,7 +19,9 @@
   const view = $derived(address ? kernel.slotsIn('thread.view', address.connection)[0] : undefined);
   const thread = $derived(address && conn ? (conn.threads[address.workspace] ?? []).find((t) => t.id === address.thread) : undefined);
   const slotProps = $derived(address ? { address, connection: kernel.pluginConnection(address.connection) } : undefined);
-  const wsName = $derived(tab && conn ? conn.workspaces.find((w) => w.id === tab.workspace)?.name : undefined);
+  const ws = $derived(tab && conn ? conn.workspaces.find((w) => w.id === tab.workspace) : undefined);
+  const wsName = $derived(ws?.name);
+  const isChat = $derived(ws?.kind === 'chat');
 
   // The registries' hosts, from their list (a local read: nothing is fetched).
   const registryHosts = $derived(
@@ -77,10 +79,14 @@
   {#if !tab}
     <div class="kk-empty empty-hero">
       <div class="hero-copy">
-        <h1>Start a workspace</h1>
-        <p class="kk-muted">Open a project folder to start working with an agent, or split panes to monitor multiple sessions side by side.</p>
+        <h1>Start a chat or task</h1>
+        <p class="kk-muted">Start a quick chat right away, or open a project folder to run coding tasks with an agent.</p>
         <div class="hero-actions">
-          <button type="button" class="kk-button primary" onclick={() => kernel.openWorkspaceFolder()}>
+          <button type="button" class="kk-button primary" disabled={!kernel.connection.ready} onclick={() => void kernel.startNewChat()}>
+            <Icon name="message-plus" size={14} />
+            New chat
+          </button>
+          <button type="button" class="kk-button" disabled={!kernel.connection.ready} onclick={() => kernel.openWorkspaceFolder()}>
             <Icon name="folder-plus" size={14} />
             Open folder…
           </button>
@@ -122,10 +128,20 @@
             <span class="kk-status {thread.status}" aria-hidden="true"></span>
             <span>{statusText[thread.status] ?? thread.status}</span>
           </span>
-          {#if thread.worktreePath}
+          {#if isChat}
+            <span class="kind-pill" title="Standalone chat (no project folder)">
+              <Icon name="message" size={11} />
+              <span>Chat</span>
+            </span>
+          {:else if thread.worktreePath}
             <span class="wt-pill" title={`Worktree: ${thread.worktreePath}`}>
               <Icon name="worktree" size={11} />
               <span>Worktree</span>
+            </span>
+          {:else}
+            <span class="kind-pill" title={ws?.root ? `Task in ${ws.root}` : 'Project task'}>
+              <Icon name="folder" size={11} />
+              <span>Task</span>
             </span>
           {/if}
           <span class="model-tag">{conn?.providers.find((p) => p.id === thread.provider)?.name ?? thread.provider} · {thread.model}</span>
@@ -247,6 +263,18 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
+    padding: 1px 7px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-large, 0);
+    background: var(--kk-surface-card, Canvas);
+    font-size: var(--kk-font-size-small, small);
+    color: var(--kk-text-secondary, CanvasText);
+    white-space: nowrap;
+  }
+  .kind-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     padding: 1px 7px;
     border: 1px solid var(--kk-border-subtle, CanvasText);
     border-radius: var(--kk-radius-large, 0);

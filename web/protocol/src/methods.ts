@@ -92,6 +92,7 @@ export type Methods = {
   "provider.models": { params: ProviderModelsParams; result: ProviderModelsResult };
   "workspace.list": { params: Empty; result: WorkspaceListResult };
   "workspace.open": { params: WorkspaceOpenParams; result: WorkspaceOpenResult };
+  "workspace.chat": { params: Empty; result: WorkspaceOpenResult };
   "workspace.close": { params: WorkspaceRef; result: Empty };
   "workspace.delete": { params: WorkspaceRef; result: Empty };
   "workspace.git.status": { params: WorkspaceGitStatusParams; result: WorkspaceGitInfo };

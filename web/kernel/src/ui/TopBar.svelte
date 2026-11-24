@@ -42,20 +42,10 @@
     <button
       type="button"
       class="kk-icon-btn"
-      aria-label="Open project folder"
-      title={`Open project folder (${modKey}O)`}
+      aria-label="New chat"
+      title={`New chat (${modKey}Shift+N)`}
       disabled={!kernel.connection.ready}
-      onclick={() => kernel.openWorkspaceFolder()}
-    >
-      <Icon name="folder-plus" />
-    </button>
-    <button
-      type="button"
-      class="kk-icon-btn"
-      aria-label="New thread"
-      title={`New thread (${modKey}N)`}
-      disabled={!kernel.connection.ready || !kernel.activeTab}
-      onclick={() => kernel.startDraftThread()}
+      onclick={() => void kernel.startNewChat()}
     >
       <Icon name="message-plus" />
     </button>

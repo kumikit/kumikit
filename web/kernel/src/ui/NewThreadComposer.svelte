@@ -41,7 +41,9 @@
   });
 
   const providers = $derived(connection.providers);
-  const workspaceRoot = $derived(connection.workspaces.find((w) => w.id === workspaceId)?.root);
+  const workspace = $derived(connection.workspaces.find((w) => w.id === workspaceId));
+  const workspaceRoot = $derived(workspace?.root);
+  const isChat = $derived(workspace?.kind === 'chat');
   let provider = $state(untrack(() => kernel.settings.value.lastProvider ?? ''));
   let model = $state(untrack(() => kernel.settings.value.lastModel ?? ''));
   let permissionMode = $state<PermissionMode>(untrack(() => kernel.settings.value.defaultPermissionMode));
@@ -213,11 +215,13 @@
   }
 </script>
 
-<section class="draft" aria-label={`New thread in ${workspaceName ?? 'workspace'}`}>
+<section class="draft" aria-label={isChat ? 'New chat' : `New task in ${workspaceName ?? 'workspace'}`}>
   <div class="inner">
     <div class="intro">
-      <h1>{workspaceName ?? 'Workspace'}</h1>
-      {#if worktreePath}
+      <h1>{isChat ? 'New chat' : (workspaceName ?? 'Workspace')}</h1>
+      {#if isChat}
+        <p class="kk-muted">Chat with an agent — no project folder required.</p>
+      {:else if worktreePath}
         <div class="wt-badge" title={worktreePath}>
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="2" y="2.25" width="4.75" height="4.75" rx="1" />
@@ -236,7 +240,7 @@
           </button>
         </div>
       {:else}
-        <p class="kk-muted">Start a new thread — pick an agent, model, and permissions below, then type or paste.</p>
+        <p class="kk-muted">Start a new task — pick an agent, model, and permissions below, then type or paste.</p>
       {/if}
     </div>
 
@@ -393,23 +397,25 @@
               }}
             />
           </div>
-          <BranchPicker
-            {connection}
-            {workspaceId}
-            {workspaceRoot}
-            {workspaceName}
-            {worktreePath}
-            disabled={busy}
-            onNotify={(m, t) => kernel.notify(m, t)}
-            onSelectWorktree={(path) => {
-              const target: { connection: string; workspace: string; worktreePath?: string } = {
-                connection: connection.id,
-                workspace: workspaceId,
-              };
-              if (path) target.worktreePath = path;
-              kernel.startDraftThread(target, paneId);
-            }}
-          />
+          {#if !isChat}
+            <BranchPicker
+              {connection}
+              {workspaceId}
+              {workspaceRoot}
+              {workspaceName}
+              {worktreePath}
+              disabled={busy}
+              onNotify={(m, t) => kernel.notify(m, t)}
+              onSelectWorktree={(path) => {
+                const target: { connection: string; workspace: string; worktreePath?: string } = {
+                  connection: connection.id,
+                  workspace: workspaceId,
+                };
+                if (path) target.worktreePath = path;
+                kernel.startDraftThread(target, paneId);
+              }}
+            />
+          {/if}
         {/if}
       </div>
     </form>

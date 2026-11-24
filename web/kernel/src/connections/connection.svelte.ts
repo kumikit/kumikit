@@ -226,6 +226,13 @@ export class CoreConnection {
     return workspace;
   }
 
+  /** Opens or creates the core-managed chat workspace (no project folder required). */
+  async openChatWorkspace(): Promise<Workspace> {
+    const { workspace } = await this.call('workspace.chat', {});
+    this.noteWorkspace(workspace);
+    return workspace;
+  }
+
   /** For a core of another version that knows `core.shutdown` (0.3 and later): stops
    * it, so the next connection starts the bundled core. */
   async restartMismatchedCore(): Promise<boolean> {

@@ -4,7 +4,7 @@
 use kumikit_protocol::ThreadEvent;
 use kumikit_protocol::model::{
     ApprovalId, ApprovalStatus, PermissionMode, Thread, ThreadId, ThreadStatus, Timestamp, TurnId,
-    Workspace, WorkspaceId,
+    Workspace, WorkspaceId, WorkspaceKind,
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::Value;
@@ -66,11 +66,17 @@ fn to_i64(v: u64) -> KernelResult<i64> {
 }
 
 fn workspace_from_row(row: &Row<'_>) -> rusqlite::Result<WorkspaceRow> {
+    let kind_str: String = row.get("kind")?;
+    let kind = match WorkspaceKind::parse(&kind_str) {
+        Some(WorkspaceKind::Chat) => Some(WorkspaceKind::Chat),
+        _ => None,
+    };
     Ok(WorkspaceRow {
         workspace: Workspace {
             id: WorkspaceId(row.get("id")?),
             name: row.get("name")?,
             root: row.get("root")?,
+            kind,
         },
         closed: row.get::<_, i64>("closed")? != 0,
     })
@@ -80,8 +86,19 @@ fn workspace_from_row(row: &Row<'_>) -> rusqlite::Result<WorkspaceRow> {
 pub fn workspace_by_root(conn: &Connection, root: &str) -> KernelResult<Option<WorkspaceRow>> {
     Ok(conn
         .query_row(
-            "SELECT id, name, root, closed FROM workspaces WHERE root = ?1",
+            "SELECT id, name, root, kind, closed FROM workspaces WHERE root = ?1",
             [root],
+            workspace_from_row,
+        )
+        .optional()?)
+}
+
+/// The core-managed chat workspace, if one has been created.
+pub fn workspace_chat(conn: &Connection) -> KernelResult<Option<WorkspaceRow>> {
+    Ok(conn
+        .query_row(
+            "SELECT id, name, root, kind, closed FROM workspaces WHERE kind = 'chat' LIMIT 1",
+            [],
             workspace_from_row,
         )
         .optional()?)
@@ -91,7 +108,7 @@ pub fn workspace_by_root(conn: &Connection, root: &str) -> KernelResult<Option<W
 pub fn workspace_get(conn: &Connection, id: &WorkspaceId) -> KernelResult<Option<WorkspaceRow>> {
     Ok(conn
         .query_row(
-            "SELECT id, name, root, closed FROM workspaces WHERE id = ?1",
+            "SELECT id, name, root, kind, closed FROM workspaces WHERE id = ?1",
             [id.as_str()],
             workspace_from_row,
         )
@@ -104,9 +121,10 @@ pub fn workspace_insert(
     ws: &Workspace,
     created: &Timestamp,
 ) -> KernelResult<()> {
+    let kind = ws.kind.unwrap_or_default().as_str();
     conn.execute(
-        "INSERT INTO workspaces (id, name, root, created) VALUES (?1, ?2, ?3, ?4)",
-        params![ws.id.as_str(), ws.name, ws.root, created.0],
+        "INSERT INTO workspaces (id, name, root, kind, created) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![ws.id.as_str(), ws.name, ws.root, kind, created.0],
     )?;
     Ok(())
 }
@@ -163,7 +181,7 @@ pub fn workspace_delete(conn: &Connection, id: &WorkspaceId) -> KernelResult<Vec
 /// Open workspaces, by name.
 pub fn workspace_list(conn: &Connection) -> KernelResult<Vec<Workspace>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, root, closed FROM workspaces WHERE closed = 0 ORDER BY name, id",
+        "SELECT id, name, root, kind, closed FROM workspaces WHERE closed = 0 ORDER BY name, id",
     )?;
     let rows = stmt.query_map([], workspace_from_row)?;
     let mut out = Vec::new();

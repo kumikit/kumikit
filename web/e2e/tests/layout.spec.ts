@@ -46,6 +46,15 @@ test('sidebars resize and collapse, splits start new threads, and right inspecto
 
   await open(page, kk);
 
+  // Verify top bar layout: left sidebar toggle + New chat button, without redundant Open project folder / New thread buttons.
+  const topbar = page.locator('header.topbar');
+  await expect(topbar.getByRole('button', { name: 'New chat' })).toBeVisible();
+  await expect(topbar.getByRole('button', { name: 'Open project folder' })).toHaveCount(0);
+  await expect(topbar.getByRole('button', { name: 'New thread' })).toHaveCount(0);
+
+  // Verify core icon uses the connected state styling.
+  await expect(page.locator('[data-core-status="connected"]')).toBeVisible();
+
   // Verify status bar layout: plugins, settings, theme, commands on left; Connected on right;
   // no sidebar toggles or duplicate Changes/Commands buttons in footer.
   const footer = page.locator('footer');
@@ -86,6 +95,18 @@ test('sidebars resize and collapse, splits start new threads, and right inspecto
   await expect(page.locator('[data-overlay="cores"]')).toBeVisible();
   await page.locator('[data-overlay-scrim]').click({ position: { x: 8, y: 8 } });
   await expect(page.locator('[data-overlay="cores"]')).toHaveCount(0);
+
+  // Start a standalone Chat directly from the top bar without selecting a project folder.
+  await topbar.getByRole('button', { name: 'New chat' }).click();
+  await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+  // Chats do not show a Git branch/worktree picker.
+  await expect(page.getByRole('button', { name: /^Git (branch|worktree):/ })).toHaveCount(0);
+  await page.getByLabel('Message').fill('Quick chat hello');
+  await page.getByLabel('Message').press('Enter');
+  await expect(page.getByRole('log', { name: 'Transcript' })).toContainText('hello from kumikit');
+  await expect(page.locator('.kind-pill', { hasText: 'Chat' })).toBeVisible();
+  // Clean up the Chats tab so subsequent workspace assertions run against `proj`.
+  await page.getByRole('button', { name: 'Close Chats' }).click();
 
   await kk.pick(kk.project);
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
@@ -198,8 +219,8 @@ test('sidebars resize and collapse, splits start new threads, and right inspecto
   await expect(settingsSheet.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
   await settingsSheet.getByRole('button', { name: 'Close', exact: true }).click();
 
-  // New threads now inherit Full access from Settings -> General.
-  await page.getByRole('button', { name: 'New thread in proj' }).click();
+  // New tasks now inherit Full access from Settings -> General.
+  await page.getByRole('button', { name: 'New task in proj' }).click();
   await expect(firstPane.getByRole('button', { name: 'Permissions: Full access' })).toBeVisible();
 
   // Active branch pill: switch to feature-a via Other branch…, then Switch to main, then create a worktree.
@@ -252,23 +273,23 @@ test('sidebars resize and collapse, splits start new threads, and right inspecto
 
   await sidebar.getByRole('button', { name: /Worktree hello/ }).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Delete' }).click();
-  // Confirm dialog appears before deleting; Cancel keeps the thread.
+  // Confirm dialog appears before deleting; Cancel keeps the task.
   const confirmDialog = page.getByRole('alertdialog');
-  await expect(confirmDialog).toContainText('Delete thread');
+  await expect(confirmDialog).toContainText('Delete task');
   await confirmDialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(confirmDialog).toHaveCount(0);
   await expect(sidebar.getByRole('button', { name: /Worktree hello/ })).toBeVisible();
 
-  // Confirming deletes the thread and removes its managed worktree folder on disk.
+  // Confirming deletes the task and removes its managed worktree folder on disk.
   await sidebar.getByRole('button', { name: /Worktree hello/ }).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Delete' }).click();
   await expect(confirmDialog).toBeVisible();
-  await confirmDialog.getByRole('button', { name: 'Delete thread' }).click();
+  await confirmDialog.getByRole('button', { name: 'Delete task' }).click();
   await expect(sidebar.getByRole('button', { name: /Worktree hello/ })).toHaveCount(0);
   await expect.poll(() => existsSync(join(customHome, 'worktrees', 'proj', 'feat-demo-wt'))).toBe(false);
 
   // Create another worktree and manage/delete it from Settings -> Worktrees.
-  await page.getByRole('button', { name: 'New thread in proj' }).click();
+  await page.getByRole('button', { name: 'New task in proj' }).click();
   await firstPane.getByRole('button', { name: 'Git branch: main' }).click();
   await firstPane.getByRole('menuitem', { name: /New thread in a worktree/ }).click();
   await firstPane.getByPlaceholder('feat/my-change').fill('feat/manage-wt');

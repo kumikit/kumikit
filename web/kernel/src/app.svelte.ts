@@ -525,7 +525,10 @@ export class Kernel {
   async deleteWorkspace(connection: string, workspace: string): Promise<boolean> {
     const c = this.connectionFor(connection);
     if (!c) return false;
-    const ok = await this.attempt('Cannot delete project', () => c.call('workspace.delete', { workspace }));
+    const isChat = c.workspaces.find((w) => w.id === workspace)?.kind === 'chat';
+    const ok = await this.attempt(isChat ? 'Cannot delete chats' : 'Cannot delete project', () =>
+      c.call('workspace.delete', { workspace }),
+    );
     if (!ok) return false;
     const key = `${connection}/${workspace}`;
     const stop = this.#unwatch.get(key);
@@ -535,7 +538,7 @@ export class Kernel {
     }
     c.removeWorkspace(workspace);
     this.#removeWorkspaceFromTabs(connection, workspace);
-    this.notify('Project deleted', 'info');
+    this.notify(isChat ? 'Chats deleted' : 'Project deleted', 'info');
     return true;
   }
 
@@ -640,6 +643,15 @@ export class Kernel {
     }
     const ws = await this.attempt('Cannot open the folder', () => c.openWorkspace(path));
     if (ws) this.openTab(connection, ws.id);
+  }
+
+  /** Starts a new standalone chat without requiring a project folder. */
+  async startNewChat(connection: string = this.connection.id, paneId: string = this.activePaneId): Promise<void> {
+    const c = this.connectionFor(connection);
+    if (!c || !c.ready) return;
+    const existing = c.workspaces.find((w) => w.kind === 'chat');
+    const ws = existing ?? (await this.attempt('Cannot start chat', () => c.openChatWorkspace()));
+    if (ws) this.startDraftThread({ connection: c.id, workspace: ws.id }, paneId);
   }
 
   /** Opens the native multi-file attachment dialog rooted at the workspace (or thread worktree)
@@ -796,6 +808,9 @@ export class Kernel {
     });
     c.register({ id: 'workspace.open', title: 'Open a project folder…', keybinding: 'Mod+O', when: 'connection.ready' }, () =>
       this.openWorkspaceFolder(),
+    );
+    c.register({ id: 'chat.new', title: 'New chat', keybinding: 'Mod+Shift+N', when: 'connection.ready' }, () =>
+      this.startNewChat(),
     );
     c.register({ id: 'thread.new', title: 'New thread', keybinding: 'Mod+N', when: 'connection.ready && tab.open' }, (args) => {
       const a = args as { connection?: string; workspace?: string; worktreePath?: string } | undefined;

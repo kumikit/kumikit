@@ -132,6 +132,7 @@ export type * from "./WorkspaceGitCheckoutParams";
 export type * from "./WorkspaceGitInfo";
 export type * from "./WorkspaceGitStatusParams";
 export type * from "./WorkspaceId";
+export type * from "./WorkspaceKind";
 export type * from "./WorkspaceListResult";
 export type * from "./WorkspaceOpenParams";
 export type * from "./WorkspaceOpenResult";

@@ -1,0 +1,20 @@
+[
+  {
+    "id": 13,
+    "jsonrpc": "2.0",
+    "method": "workspace.chat",
+    "params": {}
+  },
+  {
+    "id": 13,
+    "jsonrpc": "2.0",
+    "result": {
+      "workspace": {
+        "id": "01JCWS00000000000000000002",
+        "name": "Chats",
+        "root": "/home/user/.kumikit/chats",
+        "kind": "chat"
+      }
+    }
+  }
+]

@@ -231,6 +231,12 @@ of the desktop or browser bundle.
 - Accessibility: semantic HTML first, ARIA where needed, contrast checked by theme
   validation, forced-colors respected.
 - Enter and Escape handlers in text inputs ignore IME composition.
+- **Top bar:** thin utility chrome with the left-sidebar toggle and a **New chat** button
+  (starting a folderless chat via `workspace.chat`) on the left, active workspace/view
+  breadcrumb in the center, and split controls plus right-inspector toggle on the right.
+  **Tasks** live under opened project folders (opened via the core header in the sidebar);
+  **Chats** live in a dedicated **Chats** group without requiring a project folder or Git
+  branch picker.
 - Right-clicking a project or thread in the left sidebar opens a context menu (**Delete**
   for projects; **Archive** / **Unarchive** and **Delete** for threads); destructive
   deletions always ask for confirmation in an in-app dialog first. Outside editable text

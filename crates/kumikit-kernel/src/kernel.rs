@@ -307,7 +307,67 @@ impl Kernel {
                     }
                     return Ok(existing.workspace);
                 }
-                let ws = Workspace { id, name, root };
+                let ws = Workspace {
+                    id,
+                    name,
+                    root,
+                    kind: None,
+                };
+                repo::workspace_insert(c, &ws, &created)?;
+                Ok(ws)
+            })
+            .await
+    }
+
+    /// Opens or creates the core-managed chat workspace under `<homeDir>/chats` so users
+    /// can start standalone chats without selecting a project folder.
+    pub async fn workspace_chat(&self) -> KernelResult<Workspace> {
+        if let Some(existing) = self.inner.store.read(repo::workspace_chat).await? {
+            let root = PathBuf::from(&existing.workspace.root);
+            tokio::task::spawn_blocking(move || std::fs::create_dir_all(&root))
+                .await
+                .map_err(|e| StoreError::Task(e.to_string()))?
+                .map_err(|e| KernelError::Io(format!("cannot prepare chats folder: {e}")))?;
+            if existing.closed {
+                let id = existing.workspace.id.clone();
+                self.inner
+                    .store
+                    .write(move |c| repo::workspace_set_closed(c, &id, false))
+                    .await?;
+            }
+            return Ok(existing.workspace);
+        }
+        let cfg = self.core_config().await?;
+        let chats_dir = PathBuf::from(&cfg.home_dir).join("chats");
+        let dir_to_create = chats_dir.clone();
+        tokio::task::spawn_blocking(move || std::fs::create_dir_all(&dir_to_create))
+            .await
+            .map_err(|e| StoreError::Task(e.to_string()))?
+            .map_err(|e| KernelError::Io(format!("cannot create chats folder: {e}")))?;
+        let root = canonical_dir(&chats_dir.to_string_lossy()).await?;
+        let id = WorkspaceId(self.new_id());
+        let created = self.now();
+        self.inner
+            .store
+            .write(move |c| {
+                if let Some(existing) = repo::workspace_chat(c)? {
+                    if existing.closed {
+                        repo::workspace_set_closed(c, &existing.workspace.id, false)?;
+                    }
+                    return Ok(existing.workspace);
+                }
+                if let Some(existing) = repo::workspace_by_root(c, &root)? {
+                    if existing.closed {
+                        repo::workspace_set_closed(c, &existing.workspace.id, false)?;
+                    }
+                    return Ok(existing.workspace);
+                }
+                let ws = Workspace {
+                    id,
+                    name: "Chats".into(),
+                    root,
+                    kind: Some(kumikit_protocol::model::WorkspaceKind::Chat),
+                };
                 repo::workspace_insert(c, &ws, &created)?;
                 Ok(ws)
             })

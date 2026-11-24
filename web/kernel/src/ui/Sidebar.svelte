@@ -28,6 +28,7 @@
         archived: boolean;
         running: boolean;
         hasWorktree: boolean;
+        isChat: boolean;
       }
     | {
         kind: 'workspace';
@@ -38,6 +39,7 @@
         workspaceName: string;
         threadCount: number;
         running: boolean;
+        isChat: boolean;
       };
 
   let menu = $state<SidebarMenu | undefined>();
@@ -50,6 +52,7 @@
     title: string,
     status: string,
     hasWorktree: boolean,
+    isChat: boolean,
   ) {
     e.preventDefault();
     e.stopPropagation();
@@ -64,6 +67,7 @@
       archived: status === 'archived',
       running: status === 'running' || status === 'awaiting_approval',
       hasWorktree,
+      isChat,
     };
   }
 
@@ -73,6 +77,7 @@
     workspace: string,
     workspaceName: string,
     allThreads: { status: string }[],
+    isChat: boolean,
   ) {
     e.preventDefault();
     e.stopPropagation();
@@ -85,16 +90,18 @@
       workspaceName,
       threadCount: allThreads.length,
       running: allThreads.some((t) => t.status === 'running' || t.status === 'awaiting_approval'),
+      isChat,
     };
   }
 
   function confirmDeleteThread(m: Extract<SidebarMenu, { kind: 'thread' }>) {
+    const noun = m.isChat ? 'chat' : 'task';
     kernel.confirm({
-      title: `Delete thread “${m.title}”?`,
+      title: `Delete ${noun} “${m.title}”?`,
       message: m.hasWorktree
-        ? 'This permanently deletes this thread and its history, and removes its managed worktree folder if no other thread uses it.'
-        : 'This permanently deletes this thread and its message history.',
-      confirmLabel: 'Delete thread',
+        ? 'This permanently deletes this task and its history, and removes its managed worktree folder if no other task uses it.'
+        : `This permanently deletes this ${noun} and its message history.`,
+      confirmLabel: `Delete ${noun}`,
       tone: 'danger',
       onConfirm: async () => {
         await kernel.deleteThread(m.connection, m.workspace, m.threadId);
@@ -103,9 +110,25 @@
   }
 
   function confirmDeleteWorkspace(m: Extract<SidebarMenu, { kind: 'workspace' }>) {
+    if (m.isChat) {
+      const message =
+        m.threadCount > 0
+          ? `This permanently deletes all ${m.threadCount} ${m.threadCount === 1 ? 'chat' : 'chats'} (including archived) on this core.`
+          : 'This removes the Chats group from the sidebar until you start a new chat.';
+      kernel.confirm({
+        title: 'Delete all chats?',
+        message,
+        confirmLabel: 'Delete chats',
+        tone: 'danger',
+        onConfirm: async () => {
+          await kernel.deleteWorkspace(m.connection, m.workspace);
+        },
+      });
+      return;
+    }
     const message =
       m.threadCount > 0
-        ? `This permanently deletes “${m.workspaceName}” and all ${m.threadCount} ${m.threadCount === 1 ? 'thread' : 'threads'} (including archived) and any managed worktrees created for them in Kumikit. Your project files on disk will not be touched.`
+        ? `This permanently deletes “${m.workspaceName}” and all ${m.threadCount} ${m.threadCount === 1 ? 'task' : 'tasks'} (including archived) and any managed worktrees created for them in Kumikit. Your project files on disk will not be touched.`
         : `This removes “${m.workspaceName}” from Kumikit. Your project files on disk will not be touched.`;
     kernel.confirm({
       title: `Delete project “${m.workspaceName}”?`,
@@ -227,6 +250,7 @@
       conn: CoreConnection;
       wsId: string;
       wsName: string;
+      isChat: boolean;
       id: string;
       title: string;
       status: string;
@@ -236,14 +260,16 @@
     }[] = [];
     for (const conn of kernel.connections) {
       for (const ws of conn.workspaces) {
+        const isChat = ws.kind === 'chat';
         for (const t of conn.threads[ws.id] ?? []) {
           if (t.status === 'archived') continue;
-          const title = t.title ?? `Thread ${t.created.slice(0, 16).replace('T', ' ')}`;
+          const title = t.title ?? `${isChat ? 'Chat' : 'Task'} ${t.created.slice(0, 16).replace('T', ' ')}`;
           if (!matchesFilter(`${title} ${ws.name} ${conn.label}`)) continue;
           const entry: (typeof items)[number] = {
             conn,
             wsId: ws.id,
             wsName: ws.name,
+            isChat,
             id: t.id,
             title,
             status: t.status,
@@ -269,6 +295,7 @@
       conn: CoreConnection;
       wsId: string;
       wsName: string;
+      isChat: boolean;
       id: string;
       title: string;
       created: string;
@@ -277,13 +304,15 @@
     }[] = [];
     for (const conn of kernel.connections) {
       for (const ws of conn.workspaces) {
+        const isChat = ws.kind === 'chat';
         for (const t of conn.threads[ws.id] ?? []) {
           if (t.status !== 'archived') continue;
-          const title = t.title ?? `Thread ${t.created.slice(0, 16).replace('T', ' ')}`;
+          const title = t.title ?? `${isChat ? 'Chat' : 'Task'} ${t.created.slice(0, 16).replace('T', ' ')}`;
           const entry: (typeof items)[number] = {
             conn,
             wsId: ws.id,
             wsName: ws.name,
+            isChat,
             id: t.id,
             title,
             created: t.created,
@@ -395,17 +424,19 @@
               aria-current={here ? 'page' : undefined}
               onclick={() => kernel.openTab(item.conn.id, item.wsId, item.id)}
               oncontextmenu={(e) =>
-                openThreadMenu(e, item.conn.id, item.wsId, item.id, item.title, item.status, Boolean(item.worktreePath))}
+                openThreadMenu(e, item.conn.id, item.wsId, item.id, item.title, item.status, Boolean(item.worktreePath), item.isChat)}
             >
               <span class="kk-status {item.status}" aria-hidden="true"></span>
               <span class="thread-main">
                 <span class="title-row">
-                  {#if item.worktreePath}
+                  {#if item.isChat}
+                    <span class="chat-mark" title="Chat"><Icon name="message" size={11} /></span>
+                  {:else if item.worktreePath}
                     <span class="wt-mark" title={`Worktree: ${item.worktreePath}`}><Icon name="worktree" size={11} /></span>
                   {/if}
                   <span class="title">{item.title}</span>
                 </span>
-                <span class="meta">{item.wsName} · {shortTime(item.created)}</span>
+                <span class="meta">{item.isChat ? 'Chat' : item.wsName} · {shortTime(item.created)}</span>
               </span>
               <span class="kk-sr-only">, {statusText[item.status] ?? item.status}</span>
             </button>
@@ -416,9 +447,20 @@
       </ul>
     {:else}
       {#each kernel.connections as conn (conn.id)}
+        {@const orderedWorkspaces = [
+          ...conn.workspaces.filter((w) => w.kind === 'chat'),
+          ...conn.workspaces.filter((w) => w.kind !== 'chat'),
+        ]}
         <section class="core" aria-label={conn.label} data-core={conn.id}>
           <div class="head">
-            <span class="kk-status {conn.status === 'ready' ? 'ready' : 'awaiting_approval'}" aria-hidden="true"></span>
+            <span
+              class="core-icon"
+              class:connected={conn.status === 'ready'}
+              data-core-status={conn.status === 'ready' ? 'connected' : 'disconnected'}
+              aria-hidden="true"
+            >
+              <Icon name="server" size={13} />
+            </span>
             <span class="name" title={coreTitle(conn)}>{conn.label}</span>
             {#if conn.status !== 'ready'}
               <span class="state {conn.status}" role="status">{connText[conn.status] ?? conn.status}</span>
@@ -434,7 +476,8 @@
               <Icon name="folder-plus" size={13} />
             </button>
           </div>
-          {#each conn.workspaces as ws (ws.id)}
+          {#each orderedWorkspaces as ws (ws.id)}
+            {@const isChat = ws.kind === 'chat'}
             {@const allWsThreads = conn.threads[ws.id] ?? []}
             {@const wsThreads = allWsThreads.filter((t) => t.status !== 'archived')}
             {@const filteredThreads = wsThreads.filter((t) => matchesFilter(`${t.title ?? ''} ${ws.name}`))}
@@ -448,7 +491,7 @@
                   class:current
                   role="group"
                   aria-label={ws.name}
-                  oncontextmenu={(e) => openWorkspaceMenu(e, conn.id, ws.id, ws.name, allWsThreads)}
+                  oncontextmenu={(e) => openWorkspaceMenu(e, conn.id, ws.id, ws.name, allWsThreads, isChat)}
                 >
                   <button
                     type="button"
@@ -462,9 +505,12 @@
                   <button
                     type="button"
                     class="ws"
-                    title={ws.root}
+                    title={isChat ? 'Chats (no project folder required)' : ws.root}
                     onclick={() => kernel.openTab(conn.id, ws.id)}
                   >
+                    {#if isChat}
+                      <span class="chat-mark" aria-hidden="true"><Icon name="message" size={12} /></span>
+                    {/if}
                     <span class="ws-name">{ws.name}</span>
                     {#if wsThreads.length > 0}
                       <span class="count" aria-hidden="true">{wsThreads.length}</span>
@@ -473,8 +519,8 @@
                   <button
                     type="button"
                     class="kk-icon-btn ws-add"
-                    aria-label={`New thread in ${ws.name}`}
-                    title={`New thread in ${ws.name}`}
+                    aria-label={isChat ? 'New chat' : `New task in ${ws.name}`}
+                    title={isChat ? 'New chat' : `New task in ${ws.name}`}
                     disabled={!conn.ready}
                     onclick={() => kernel.startDraftThread({ connection: conn.id, workspace: ws.id })}
                   >
@@ -485,7 +531,7 @@
                   <ul>
                     {#each filteredThreads as t (t.id)}
                       {@const here = current && kernel.activeThread?.thread === t.id}
-                      {@const tLabel = t.title ?? `Thread ${t.created.slice(0, 16).replace('T', ' ')}`}
+                      {@const tLabel = t.title ?? `${isChat ? 'Chat' : 'Task'} ${t.created.slice(0, 16).replace('T', ' ')}`}
                       <li>
                         <button
                           type="button"
@@ -496,7 +542,7 @@
                             ? `${tLabel} (Worktree: ${t.worktreePath})`
                             : tLabel}
                           onclick={() => kernel.openTab(conn.id, ws.id, t.id)}
-                          oncontextmenu={(e) => openThreadMenu(e, conn.id, ws.id, t.id, tLabel, t.status, Boolean(t.worktreePath))}
+                          oncontextmenu={(e) => openThreadMenu(e, conn.id, ws.id, t.id, tLabel, t.status, Boolean(t.worktreePath), isChat)}
                         >
                           <span class="kk-status {t.status}" aria-hidden="true"></span>
                           {#if t.worktreePath}
@@ -507,14 +553,14 @@
                         </button>
                       </li>
                     {:else}
-                      <li class="kk-muted none">No threads yet</li>
+                      <li class="kk-muted none">{isChat ? 'No chats yet' : 'No tasks yet'}</li>
                     {/each}
                   </ul>
                 {/if}
               </section>
             {/if}
           {:else}
-            {#if conn.ready}<p class="kk-muted none">Open a project folder to start.</p>{/if}
+            {#if conn.ready}<p class="kk-muted none">Open a project folder for tasks, or start a new chat.</p>{/if}
           {/each}
         </section>
       {/each}
@@ -559,9 +605,11 @@
                 title={`${item.title} · ${item.wsName}`}
                 onclick={() => kernel.openTab(item.conn.id, item.wsId, item.id)}
                 oncontextmenu={(e) =>
-                  openThreadMenu(e, item.conn.id, item.wsId, item.id, item.title, 'archived', Boolean(item.worktreePath))}
+                  openThreadMenu(e, item.conn.id, item.wsId, item.id, item.title, 'archived', Boolean(item.worktreePath), item.isChat)}
               >
-                {#if item.worktreePath}
+                {#if item.isChat}
+                  <span class="chat-mark" aria-hidden="true"><Icon name="message" size={11} /></span>
+                {:else if item.worktreePath}
                   <span class="wt-mark" aria-hidden="true"><Icon name="worktree" size={11} /></span>
                 {/if}
                 <span class="title">{item.title}</span>
@@ -646,6 +694,21 @@
     gap: 6px;
     padding: 2px 4px;
     color: var(--kk-text-secondary, CanvasText);
+  }
+  .core-icon {
+    display: inline-flex;
+    align-items: center;
+    color: var(--kk-state-danger, CanvasText);
+    flex: none;
+  }
+  .core-icon.connected {
+    color: var(--kk-state-success, Highlight);
+  }
+  .chat-mark {
+    display: inline-flex;
+    align-items: center;
+    color: var(--kk-text-secondary, CanvasText);
+    flex: none;
   }
   .name {
     flex: 1;

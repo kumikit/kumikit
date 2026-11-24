@@ -503,6 +503,11 @@ impl Conn {
                 let workspace = k.workspace_open(&p.path).await.map_err(kernel_err)?;
                 reply::<m::WorkspaceOpen>(WorkspaceOpenResult { workspace })
             }
+            m::WorkspaceChat::NAME => {
+                parse::<m::WorkspaceChat>(params)?;
+                let workspace = k.workspace_chat().await.map_err(kernel_err)?;
+                reply::<m::WorkspaceChat>(WorkspaceOpenResult { workspace })
+            }
             m::WorkspaceClose::NAME => {
                 let p = parse::<m::WorkspaceClose>(params)?;
                 k.workspace_close(&p.workspace).await.map_err(kernel_err)?;

@@ -194,6 +194,42 @@ async fn workspace_delete_removes_workspace_threads_and_rejects_running() {
 }
 
 #[tokio::test]
+async fn workspace_chat_creates_and_reuses_chat_workspace() {
+    let e = env().await;
+    let custom_home = e.dir.path().join("kk-home");
+    e.kernel
+        .set_core_config(Some(custom_home.to_str().unwrap().into()))
+        .await
+        .unwrap();
+
+    let chat = e.kernel.workspace_chat().await.unwrap();
+    assert_eq!(chat.name, "Chats");
+    assert_eq!(
+        chat.kind,
+        Some(kumikit_protocol::model::WorkspaceKind::Chat)
+    );
+    assert!(std::path::Path::new(&chat.root).is_dir());
+
+    // Calling again returns the same workspace idempotentently.
+    let chat2 = e.kernel.workspace_chat().await.unwrap();
+    assert_eq!(chat2.id, chat.id);
+
+    // Threads can be created in the chat workspace without selecting a project folder.
+    let t = e
+        .kernel
+        .thread_insert(
+            &chat.id,
+            "p".into(),
+            "m".into(),
+            Some("Quick question".into()),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(t.workspace, chat.id);
+}
+
+#[tokio::test]
 async fn seq_starts_at_one_and_is_contiguous_under_concurrency() {
     let e = env().await;
     let t = e.thread().await;

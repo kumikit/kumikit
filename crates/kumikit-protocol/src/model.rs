@@ -72,16 +72,51 @@ impl fmt::Display for Timestamp {
     }
 }
 
-/// A project directory known to a core.
+/// Whether a workspace represents a user project folder (tasks) or the core's
+/// folderless chat space (chats).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceKind {
+    /// A user-chosen project folder; threads in it are tasks.
+    #[default]
+    Project,
+    /// Core-managed scratch directory for chats that do not require a project folder.
+    Chat,
+}
+
+impl WorkspaceKind {
+    /// The wire/storage string.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WorkspaceKind::Project => "project",
+            WorkspaceKind::Chat => "chat",
+        }
+    }
+
+    /// Parses the wire/storage string.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "project" => Some(WorkspaceKind::Project),
+            "chat" => Some(WorkspaceKind::Chat),
+            _ => None,
+        }
+    }
+}
+
+/// A project directory (or core-managed chat workspace) known to a core.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Workspace {
     /// Workspace id.
     pub id: WorkspaceId,
-    /// Display name; the root directory's last component.
+    /// Display name; the root directory's last component, or `Chats` for the chat workspace.
     pub name: String,
     /// Canonical absolute path of the root directory.
     pub root: String,
+    /// Workspace kind (`project` by default; `chat` for folderless chats). Omitted when `project`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub kind: Option<WorkspaceKind>,
 }
 
 /// Where a thread is in its lifecycle. Derived from the log, except `archived`.
