@@ -7,7 +7,8 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use crate::model::{
-    Approval, ApprovalId, Resolution, Thread, Timestamp, TurnId, TurnOutcome, UserInput,
+    Approval, ApprovalId, QueueEntryId, Resolution, Thread, Timestamp, TurnId, TurnOutcome,
+    UserInput,
 };
 
 /// `turn.started`: the kernel started a turn for a user message.
@@ -22,6 +23,10 @@ pub struct TurnStarted {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub from: Option<MessageFrom>,
+    /// The queue entry it came from; starting the turn removes the entry (since 0.7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub entry: Option<QueueEntryId>,
 }
 
 /// Who sent a message that a plugin sent for a user (a bot, a schedule).
@@ -180,6 +185,113 @@ pub struct PluginEvent {
     pub data: Value,
 }
 
+/// A message waiting in a thread's queue (`docs/spec/03-kernel.md#the-queue`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueEntry {
+    /// The entry.
+    pub id: QueueEntryId,
+    /// The turn it will run as.
+    pub turn: TurnId,
+    /// The message.
+    pub input: UserInput,
+    /// Who sent it, when a plugin did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub from: Option<MessageFrom>,
+}
+
+/// Why a thread's queue waits instead of starting its next entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueHold {
+    /// The user stopped the running turn.
+    Stopped,
+    /// The running turn failed.
+    Failed,
+    /// The core restarted with messages in the queue.
+    Restarted,
+}
+
+impl QueueHold {
+    /// The wire string.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            QueueHold::Stopped => "stopped",
+            QueueHold::Failed => "failed",
+            QueueHold::Restarted => "restarted",
+        }
+    }
+
+    /// Parses the wire string.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "stopped" => Some(QueueHold::Stopped),
+            "failed" => Some(QueueHold::Failed),
+            "restarted" => Some(QueueHold::Restarted),
+            _ => None,
+        }
+    }
+}
+
+/// Why an entry left the queue without starting a turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueRemoval {
+    /// A client or plugin removed it.
+    Removed,
+}
+
+/// `queue.added`: a message joined the queue.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueAdded {
+    /// The new entry.
+    pub entry: QueueEntry,
+    /// True if it went to the front of the queue instead of the back.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub front: bool,
+}
+
+/// `queue.updated`: a queued message was edited.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueUpdated {
+    /// The entry after the edit.
+    pub entry: QueueEntry,
+}
+
+/// `queue.removed`: an entry left the queue without starting a turn.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueRemoved {
+    /// The entry.
+    pub entry: QueueEntryId,
+    /// Why.
+    pub reason: QueueRemoval,
+}
+
+/// `queue.moved`: the queue's order changed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueMoved {
+    /// Every entry, in the new order.
+    pub order: Vec<QueueEntryId>,
+}
+
+/// `queue.held`: the queue waits for `thread.queue.resume`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueHeld {
+    /// Why.
+    pub reason: QueueHold,
+}
+
+/// `queue.resumed`: a held queue may start its entries again.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+pub struct QueueResumed {}
+
 /// A thread event: `kind` plus `data`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", content = "data")]
@@ -223,11 +335,29 @@ pub enum ThreadEvent {
     /// `plugin.event`
     #[serde(rename = "plugin.event")]
     PluginEvent(PluginEvent),
+    /// `queue.added`
+    #[serde(rename = "queue.added")]
+    QueueAdded(QueueAdded),
+    /// `queue.updated`
+    #[serde(rename = "queue.updated")]
+    QueueUpdated(QueueUpdated),
+    /// `queue.removed`
+    #[serde(rename = "queue.removed")]
+    QueueRemoved(QueueRemoved),
+    /// `queue.moved`
+    #[serde(rename = "queue.moved")]
+    QueueMoved(QueueMoved),
+    /// `queue.held`
+    #[serde(rename = "queue.held")]
+    QueueHeld(QueueHeld),
+    /// `queue.resumed`
+    #[serde(rename = "queue.resumed")]
+    QueueResumed(QueueResumed),
 }
 
 impl ThreadEvent {
     /// Every kind string, in spec table order.
-    pub const KINDS: [&'static str; 13] = [
+    pub const KINDS: [&'static str; 19] = [
         "turn.started",
         "text.delta",
         "text.done",
@@ -241,6 +371,12 @@ impl ThreadEvent {
         "usage",
         "turn.ended",
         "plugin.event",
+        "queue.added",
+        "queue.updated",
+        "queue.removed",
+        "queue.moved",
+        "queue.held",
+        "queue.resumed",
     ];
 
     /// This event's kind string.
@@ -259,6 +395,12 @@ impl ThreadEvent {
             ThreadEvent::Usage(_) => "usage",
             ThreadEvent::TurnEnded(_) => "turn.ended",
             ThreadEvent::PluginEvent(_) => "plugin.event",
+            ThreadEvent::QueueAdded(_) => "queue.added",
+            ThreadEvent::QueueUpdated(_) => "queue.updated",
+            ThreadEvent::QueueRemoved(_) => "queue.removed",
+            ThreadEvent::QueueMoved(_) => "queue.moved",
+            ThreadEvent::QueueHeld(_) => "queue.held",
+            ThreadEvent::QueueResumed(_) => "queue.resumed",
         }
     }
 
@@ -276,7 +418,14 @@ impl ThreadEvent {
             ThreadEvent::ApprovalRequested(e) => Some(&e.approval.turn),
             ThreadEvent::Usage(e) => Some(&e.turn),
             ThreadEvent::TurnEnded(e) => Some(&e.turn),
-            ThreadEvent::ApprovalResolved(_) | ThreadEvent::PluginEvent(_) => None,
+            ThreadEvent::ApprovalResolved(_)
+            | ThreadEvent::PluginEvent(_)
+            | ThreadEvent::QueueAdded(_)
+            | ThreadEvent::QueueUpdated(_)
+            | ThreadEvent::QueueRemoved(_)
+            | ThreadEvent::QueueMoved(_)
+            | ThreadEvent::QueueHeld(_)
+            | ThreadEvent::QueueResumed(_) => None,
         }
     }
 }

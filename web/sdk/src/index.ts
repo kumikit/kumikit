@@ -11,13 +11,15 @@ import type {
   Methods,
   ModelInfo,
   PermissionMode,
+  QueueEntry,
+  QueueHold,
   Resolution,
   Thread,
   ThreadStatus,
   TurnOutcome,
 } from '@kumikit/protocol';
 
-export type { Attachment, PermissionMode };
+export type { Attachment, PermissionMode, QueueEntry, QueueHold };
 
 import type { Slot, TokenName } from './generated';
 
@@ -92,8 +94,14 @@ export interface ThreadView {
   seq: number;
   turns: TurnView[];
   pendingApprovals: Approval[];
-  /** Messages sent while a turn runs, in order; they start when it ends. */
+  /** The texts of `queue`, in order. Kept for plugins written against 0.1.2; read
+   * `queue` instead. */
   queued: string[];
+  /** Messages waiting for the running turn to end, in order (since 0.1.3). Edit them
+   * with the `thread.queue.*` commands. */
+  queue: QueueEntry[];
+  /** Why the queue waits instead of starting its next message (since 0.1.3). */
+  queueHold?: QueueHold;
   /** Whether the connection is live (false while reconnecting). */
   live: boolean;
 }

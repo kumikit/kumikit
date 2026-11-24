@@ -1,0 +1,44 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 20,
+      "time": "2026-11-15T10:00:20.000Z",
+      "kind": "queue.added",
+      "data": {
+        "entry": {
+          "id": "01JCQE00000000000000000001",
+          "turn": "01JCTU00000000000000000002",
+          "input": {
+            "text": "also update the README"
+          }
+        }
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 21,
+      "time": "2026-11-15T10:00:21.000Z",
+      "kind": "queue.added",
+      "data": {
+        "entry": {
+          "id": "01JCQE00000000000000000002",
+          "turn": "01JCTU00000000000000000003",
+          "input": {
+            "text": "run the tests"
+          },
+          "from": {
+            "plugin": "kumikit.schedules"
+          }
+        },
+        "front": true
+      }
+    }
+  }
+]

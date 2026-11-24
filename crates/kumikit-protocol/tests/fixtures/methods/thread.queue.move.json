@@ -1,0 +1,31 @@
+[
+  {
+    "id": 43,
+    "jsonrpc": "2.0",
+    "method": "thread.queue.move",
+    "params": {
+      "thread": "01JCTH00000000000000000001",
+      "entry": "01JCQE00000000000000000002",
+      "before": "01JCQE00000000000000000001"
+    }
+  },
+  {
+    "id": 43,
+    "jsonrpc": "2.0",
+    "result": {}
+  },
+  {
+    "id": 44,
+    "jsonrpc": "2.0",
+    "method": "thread.queue.move",
+    "params": {
+      "thread": "01JCTH00000000000000000001",
+      "entry": "01JCQE00000000000000000002"
+    }
+  },
+  {
+    "id": 44,
+    "jsonrpc": "2.0",
+    "result": {}
+  }
+]

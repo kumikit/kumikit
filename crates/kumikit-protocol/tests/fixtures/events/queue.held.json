@@ -1,0 +1,41 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 25,
+      "time": "2026-11-15T10:00:25.000Z",
+      "kind": "queue.held",
+      "data": {
+        "reason": "stopped"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 26,
+      "time": "2026-11-15T10:00:26.000Z",
+      "kind": "queue.held",
+      "data": {
+        "reason": "failed"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 27,
+      "time": "2026-11-15T10:00:27.000Z",
+      "kind": "queue.held",
+      "data": {
+        "reason": "restarted"
+      }
+    }
+  }
+]

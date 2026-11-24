@@ -30,8 +30,8 @@ Slots are versioned with the UI SDK. Adding a slot is a minor change.
 
 ## Versions
 
-The UI SDK is at **0.1.2** (0.1.0 plus sandboxed panels in 0.1.1, and `CommandResult`
-and `x-secret` secret names in 0.1.2) and freezes at 1.0 after M5,
+The UI SDK is at **0.1.3** (0.1.0 plus sandboxed panels in 0.1.1, `CommandResult`
+and `x-secret` secret names in 0.1.2, and the thread queue in `ThreadView` in 0.1.3) and freezes at 1.0 after M5,
 before the official registry opens to third parties
 ([ADR 0014](../decisions/0014-ui-sdk-versioning.md),
 [ADR 0020](../decisions/0020-interface-freeze-after-m5.md)). A UI plugin's or theme's `api` is a
@@ -39,7 +39,7 @@ range over the UI SDK version (`api = "^0.1"`), separate from the kernel plugin 
 core plugins. The slot list and the token set of each published SDK version are files in
 `web/sdk/api/<version>/` (`slots.json`, `tokens.json`); `web/sdk/api/PUBLISHED` records
 their hashes, and a test fails if a published version changes. A version that changes neither list
-(0.1.1, 0.1.2) adds no directory; its lists are those of 0.1.0.
+(0.1.1, 0.1.2, 0.1.3) adds no directory; its lists are those of 0.1.0.
 
 ## Manifest
 

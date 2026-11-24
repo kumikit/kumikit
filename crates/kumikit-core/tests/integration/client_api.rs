@@ -219,7 +219,7 @@ async fn bundled_plugins_are_seeded_once() {
         let hello = c
             .call(
                 "core.hello",
-                json!({"protocol":"0.6", "client": {"name": "t", "version": "0"}}),
+                json!({"protocol":"0.7", "client": {"name": "t", "version": "0"}}),
             )
             .await;
         if hello["plugins"].as_array().unwrap().is_empty() {
@@ -322,11 +322,20 @@ async fn a_newer_bundled_version_replaces_the_bundled_copy() {
         std::fs::copy(version("0.2.0", ""), bundle.join("probe.kkp")).unwrap();
         let (core, _) = Core::start_with_args(&dirs, None, &args).await;
         let mut c = Client::hello(&dirs.address).await;
+        // The update disables, replaces and enables again, so the list can show 0.2.0
+        // still disabled in between: wait for the end state, or for the changes to stop.
         let mut p = plugin(&c.call("plugin.list", json!({})).await);
-        while p["version"] != "0.2.0" {
-            c.notification("core.pluginsChanged").await;
+        while !(p["version"] == "0.2.0" && p["state"] == "enabled") {
+            let quiet = std::time::Duration::from_secs(10);
+            if tokio::time::timeout(quiet, c.notification("core.pluginsChanged"))
+                .await
+                .is_err()
+            {
+                break;
+            }
             p = plugin(&c.call("plugin.list", json!({})).await);
         }
+        assert_eq!(p["version"], "0.2.0", "{p}");
         assert_eq!(p["state"], "enabled", "{p}");
         assert_eq!(p["source"], "bundled", "{p}");
         core.stop().await;

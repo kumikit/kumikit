@@ -168,7 +168,7 @@ experience, plus Orca-inspired workspace and session organization:
   creation, remembered provider/model, thread management, settings/plugins/cores visual
   consistency, keyboard navigation across splits).
 
-**Status:** in progress (`m6-ui-design`). Plan: [M6 — UI design and usability](../plans/2026-11-22-m6-ui-design.md).
+**Status:** done (merged to `main`). Plan: [M6 — UI design and usability](../plans/2026-11-22-m6-ui-design.md).
 
 **Exit:**
 1. Left and right sidebars resize smoothly, collapse/expand via toolbar icons, status bar dock
@@ -179,6 +179,31 @@ experience, plus Orca-inspired workspace and session organization:
    and threads, persisted across reloads.
 4. All existing accessibility (WCAG AA axe checks in light and dark themes), UI rule checks,
    bundle size budget (≤ 150 KB gzipped), unit tests and desktop/browser exit tests pass.
+
+## M7 — Threads
+
+The chat panel as a full working surface for agent threads, built as general kernel
+features that every provider and client gets:
+
+- A durable, editable message queue that is held, not dropped, after a stop, a failure or
+  a restart.
+- Steering a running agent through a host input inbox (`kumikit:host@0.3.0`) and a `steer`
+  model capability, falling back to the queue.
+- Switching provider in an idle thread with a bounded handoff of the conversation
+  (`kumikit:provider@0.3.0`), and per-turn provider attribution.
+- Deferred messages: send at a time, after another thread's turn, or after a command
+  exits or succeeds (a build, CI); agent tools for them in a first-party `kumikit.threads`
+  plugin.
+- Forks, edit-and-resend, `/btw` side threads, provider slash commands, `@` mentions, turn
+  cards, per-turn changes, find in thread, usage-limit holds and opt-in turn checks.
+
+**Status:** in progress (`feat/m7-threads`). Plan:
+[M7 — Threads](../plans/2026-11-24-m7-threads.md).
+
+**Exit:** see the plan's exit criteria: queue held across restart; a steer lands mid-turn
+on Claude Code; a Claude Code thread hands off to an ACP agent with its history; a
+wake-up fires when a build command succeeds; edit-and-resend forks; all existing checks
+pass.
 
 ## Open questions
 

@@ -107,11 +107,11 @@ The first call after authentication is `core.hello`:
 ```jsonc
 // → client
 { "jsonrpc": "2.0", "id": 1, "method": "core.hello",
-  "params": { "protocol": "0.6", "client": { "name": "kumikit-desktop", "version": "0.1.0" } } }
+  "params": { "protocol": "0.7", "client": { "name": "kumikit-desktop", "version": "0.1.0" } } }
 
 // ← core
 { "jsonrpc": "2.0", "id": 1, "result": {
-    "protocol": "0.6",
+    "protocol": "0.7",
     "core": { "version": "0.1.0", "name": "devbox", "os": "linux" },
     "plugins": [
       { "id": "kumikit.provider-acp", "version": "0.1.0",
@@ -187,9 +187,9 @@ and both sides ignore fields they do not know.
 | `thread.list` | `workspace`, `includeArchived?` | `threads`, most recently updated first |
 | `thread.create` | `workspace`, `provider?` (qualified id), `model?`, `title?`, `permissionMode?` (`standard`, `accept_edits`, `plan`, `full_access`), `worktreePath?` | `thread`. `provider` defaults to the only provider when exactly one exists (`unsupported` if there is none, `invalid_params` if there are several); `model` defaults to the provider's first model; `permissionMode` defaults to `standard`; optional `worktreePath` runs the thread's agent session and tool gateway inside a linked Git worktree while keeping the thread under `workspace`. A closed workspace gives `conflict`. |
 | `thread.update` | `thread`, `model?`, `permissionMode?`, `title?` | `thread`. Fails with `conflict` while a turn runs or on an archived thread. Changing `model` or `permissionMode` ends any idle provider session so the next turn resumes with the new configuration, and emits `thread.updated`. |
-| `thread.get` | `thread` | `thread`, `turns`, `pendingApprovals`, `seq`: a snapshot folded from the log up to `seq` |
-| `thread.send` | `thread`, `input { text, attachments? }` (`attachments`: `{ name, mimeType, data (base64), width?, height? }`, at most 16 files / 4 MiB total decoded) | `turn`, `queued`. One turn runs per thread; a message sent during a turn is queued in memory and starts when the turn ends. |
-| `thread.cancel` | `thread` | `{}`. Cancels the running turn and drops queued messages; does nothing if no turn runs. |
+| `thread.get` | `thread` | `thread`, `turns`, `pendingApprovals`, `queue?` (queued messages in order: `{ id, turn, input, from? }`), `queueHold?` (`stopped`, `failed`, `restarted`), `seq`: a snapshot folded from the log up to `seq` |
+| `thread.send` | `thread`, `input { text, attachments? }` (`attachments`: `{ name, mimeType, data (base64), width?, height? }`, at most 16 files / 4 MiB total decoded) | `turn`, `queued`, `entry?`. One turn runs per thread; a message sent during a turn joins the thread's queue (`entry` names it) and starts after the turns before it. Sending resumes a held queue. See [the queue](03-kernel.md#the-queue). |
+| `thread.cancel` | `thread` | `{}`. Cancels the running turn; queued messages stay and the queue is held (`stopped`). Does nothing if no turn runs. |
 | `thread.respondApproval` | `approval`, `decision` | `{}`. The first answer wins; later answers fail with `conflict`. |
 | `thread.archive` | `thread` | `{}`. Sets `status` to `archived`; no thread event is appended (archiving is not thread content). Fails with `conflict` while a turn runs or waits; an archived thread refuses `thread.send`. |
 | `thread.unarchive` | `thread` | `thread`. Restores an archived thread back to active status and emits `thread.updated`. |
@@ -211,6 +211,25 @@ and both sides ignore fields they do not know.
 | `plugin.enable` | `plugin`, `grant` | `plugin`. `grant` must equal the plugin's requested permissions (they are granted as a whole), otherwise `conflict`. Compiles the component. |
 | `plugin.disable` | `plugin` | `plugin`. Cancels the plugin's running turns and unloads it. |
 | `plugin.uninstall` | `plugin`, `deleteData?` | `{}`. Disables it first; deletes its kv and data directory only if `deleteData` is true. |
+
+### Methods added in 0.7
+
+The thread queue ([03](03-kernel.md#the-queue), [ADR 0027](../decisions/0027-durable-queue-and-deferred-messages.md)).
+Entries are queued messages: `{ id, turn, input, from? }`. Every method takes `thread`; an
+entry that is not in that thread's queue gives `not_found`. Each change appends a
+`queue.*` event to the thread's log.
+
+| Method | Params | Result |
+|---|---|---|
+| `thread.queue.update` | `thread`, `entry`, `input` (as in `thread.send`) | `entry`: the entry after the change |
+| `thread.queue.remove` | `thread`, `entry` | `{}` |
+| `thread.queue.move` | `thread`, `entry`, `before?` | `{}`. Moves the entry before `before`, or to the end without it. |
+| `thread.queue.sendNow` | `thread`, `entry` | `turn`, `queued`, `entry?`. An idle thread starts the entry at once (`queued: false`); while a turn runs, that turn is cancelled and the entry runs next (`queued: true`), and the rest of the queue is held. A held queue stays held. |
+| `thread.queue.resume` | `thread` | `{}`. Clears the hold; an idle thread starts the first entry. |
+
+Also in 0.7: `thread.send` returns `entry`, `thread.get` returns `queue` and `queueHold`,
+`thread.cancel` holds the queue instead of dropping it, `turn.started` carries `entry`,
+and the `queue.*` thread events ([03](03-kernel.md#thread-events)).
 
 ### Methods added in 0.6
 

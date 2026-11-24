@@ -22,7 +22,7 @@ describe('connection', () => {
     expect(c.status).toBe('ready');
     expect(c.providers.map((p) => p.id)).toEqual(['a.b/c']);
     expect(c.workspaces.map((w) => w.id)).toEqual(['w1']);
-    expect(core.requests[0]).toMatchObject({ method: 'core.hello', params: { protocol: '0.6' } });
+    expect(core.requests[0]).toMatchObject({ method: 'core.hello', params: { protocol: '0.7' } });
   });
 
   it('fans one wire subscription out to every listener', async () => {

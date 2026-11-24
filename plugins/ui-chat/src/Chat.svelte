@@ -25,6 +25,7 @@
   } from './attachments';
   import BranchPicker from './BranchPicker.svelte';
   import PermissionModePicker from './PermissionModePicker.svelte';
+  import QueuePanel from './QueuePanel.svelte';
 
   let {
     ctx,
@@ -270,13 +271,17 @@
           </div>
         </article>
       {/each}
-      {#each view?.queued ?? [] as q, i (i)}
-        <div class="you queued"><span class="who">Queued</span><p>{q}</p></div>
-      {/each}
     </div>
   </div>
 
   <div class="composer-wrap">
+    <QueuePanel
+      queue={view?.queue ?? []}
+      hold={view?.queueHold}
+      {busy}
+      disabled={archived || !connReady}
+      run={(command, args) => run(command, { address, ...args })}
+    />
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <form
       class="composer-shell"
@@ -548,16 +553,6 @@
     background: var(--kk-surface-raised, Canvas);
     font-size: var(--kk-font-size-small, small);
     color: var(--kk-text-secondary, CanvasText);
-  }
-  .queued {
-    opacity: 0.72;
-    margin-bottom: 10px;
-  }
-  .who {
-    display: block;
-    margin-bottom: 2px;
-    font-size: var(--kk-font-size-small, small);
-    color: var(--kk-text-muted, GrayText);
   }
   .agent {
     display: flex;

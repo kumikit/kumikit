@@ -1,0 +1,18 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 24,
+      "time": "2026-11-15T10:00:24.000Z",
+      "kind": "queue.moved",
+      "data": {
+        "order": [
+          "01JCQE00000000000000000002",
+          "01JCQE00000000000000000001"
+        ]
+      }
+    }
+  }
+]

@@ -877,6 +877,27 @@ export class Kernel {
       const a = args as { address: ThreadAddress; text: string; attachments?: Attachment[] };
       await this.attempt('Cannot send', () => this.threads.send(a.address, a.text, a.attachments));
     });
+    type QueueArgs = { address: ThreadAddress; entry: string };
+    c.register({ id: 'thread.queue.update', title: 'Edit a queued message', when: 'never' }, async (args) => {
+      const a = args as QueueArgs & { text: string };
+      await this.attempt('Cannot edit the queued message', () => this.threads.queueUpdate(a.address, a.entry, a.text));
+    });
+    c.register({ id: 'thread.queue.remove', title: 'Remove a queued message', when: 'never' }, async (args) => {
+      const a = args as QueueArgs;
+      await this.attempt('Cannot remove the queued message', () => this.threads.queueRemove(a.address, a.entry));
+    });
+    c.register({ id: 'thread.queue.move', title: 'Reorder the queue', when: 'never' }, async (args) => {
+      const a = args as QueueArgs & { before?: string };
+      await this.attempt('Cannot reorder the queue', () => this.threads.queueMove(a.address, a.entry, a.before));
+    });
+    c.register({ id: 'thread.queue.sendNow', title: 'Send a queued message now', when: 'never' }, async (args) => {
+      const a = args as QueueArgs;
+      await this.attempt('Cannot send the queued message', () => this.threads.queueSendNow(a.address, a.entry));
+    });
+    c.register({ id: 'thread.queue.resume', title: 'Resume the queue', when: 'never' }, async (args) => {
+      const a = args as { address: ThreadAddress };
+      await this.attempt('Cannot resume the queue', () => this.threads.queueResume(a.address));
+    });
     c.register({ id: 'thread.update', title: 'Update thread settings', when: 'never' }, async (args) => {
       const a = args as {
         address: ThreadAddress;

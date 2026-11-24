@@ -6,10 +6,10 @@
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use ts_rs::TS;
 
-use crate::event::EventNotification;
+use crate::event::{EventNotification, QueueEntry, QueueHold};
 use crate::model::{
-    Approval, ApprovalId, Decision, PermissionMode, Thread, ThreadId, Timestamp, Turn, TurnId,
-    UserInput, Workspace, WorkspaceId,
+    Approval, ApprovalId, Decision, PermissionMode, QueueEntryId, Thread, ThreadId, Timestamp,
+    Turn, TurnId, UserInput, Workspace, WorkspaceId,
 };
 
 /// A request method: name, params and result.
@@ -132,8 +132,18 @@ methods! {
         ThreadGet = "thread.get" (ThreadRef) -> ThreadSnapshot;
         /// `thread.send`: a user message; starts or queues a turn.
         ThreadSend = "thread.send" (ThreadSendParams) -> ThreadSendResult;
-        /// `thread.cancel`: cancel the running turn and drop queued messages.
+        /// `thread.cancel`: cancel the running turn; queued messages are held.
         ThreadCancel = "thread.cancel" (ThreadRef) -> Empty;
+        /// `thread.queue.update`: replace a queued message's input.
+        ThreadQueueUpdate = "thread.queue.update" (QueueUpdateParams) -> QueueEntryResult;
+        /// `thread.queue.remove`: remove a queued message.
+        ThreadQueueRemove = "thread.queue.remove" (QueueEntryRef) -> Empty;
+        /// `thread.queue.move`: move a queued message before another, or to the end.
+        ThreadQueueMove = "thread.queue.move" (QueueMoveParams) -> Empty;
+        /// `thread.queue.sendNow`: start a queued message now, stopping the running turn.
+        ThreadQueueSendNow = "thread.queue.sendNow" (QueueEntryRef) -> ThreadSendResult;
+        /// `thread.queue.resume`: let a held queue start its entries again.
+        ThreadQueueResume = "thread.queue.resume" (ThreadRef) -> Empty;
         /// `thread.respondApproval`: answer a pending approval; the first answer wins.
         ThreadRespondApproval = "thread.respondApproval" (RespondApprovalParams) -> Empty;
         /// `thread.archive`: archive a thread.
@@ -964,6 +974,14 @@ pub struct ThreadSnapshot {
     pub turns: Vec<Turn>,
     /// Approvals still waiting for an answer.
     pub pending_approvals: Vec<Approval>,
+    /// Messages waiting in the queue, in order (since 0.7).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<QueueEntry>>", optional)]
+    pub queue: Vec<QueueEntry>,
+    /// Why the queue is held, if it is (since 0.7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub queue_hold: Option<QueueHold>,
     /// The last event this snapshot includes; subscribe with `after: seq` to follow on.
     pub seq: u64,
 }
@@ -978,7 +996,7 @@ pub struct ThreadSendParams {
     pub input: UserInput,
 }
 
-/// Result of `thread.send`.
+/// Result of `thread.send` and `thread.queue.sendNow`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadSendResult {
@@ -986,6 +1004,54 @@ pub struct ThreadSendResult {
     pub turn: TurnId,
     /// True if another turn is running and this one waits in the queue.
     pub queued: bool,
+    /// The queue entry, when the message was queued (since 0.7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub entry: Option<QueueEntryId>,
+}
+
+/// Params naming a queued message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueEntryRef {
+    /// The thread.
+    pub thread: ThreadId,
+    /// The entry.
+    pub entry: QueueEntryId,
+}
+
+/// Params of `thread.queue.update`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueUpdateParams {
+    /// The thread.
+    pub thread: ThreadId,
+    /// The entry.
+    pub entry: QueueEntryId,
+    /// The new message.
+    pub input: UserInput,
+}
+
+/// Result of `thread.queue.update`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueEntryResult {
+    /// The entry after the change.
+    pub entry: QueueEntry,
+}
+
+/// Params of `thread.queue.move`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueMoveParams {
+    /// The thread.
+    pub thread: ThreadId,
+    /// The entry to move.
+    pub entry: QueueEntryId,
+    /// The entry it goes before; absent moves it to the end.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub before: Option<QueueEntryId>,
 }
 
 /// Params of `thread.respondApproval`.

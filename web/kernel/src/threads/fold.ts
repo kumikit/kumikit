@@ -16,6 +16,7 @@ export function emptyView(address: ThreadAddress): ThreadView {
     turns: [],
     pendingApprovals: [],
     queued: [],
+    queue: [],
     live: false,
   };
 }
@@ -75,7 +76,8 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
   };
 
   let pending: Approval[] = view.pendingApprovals;
-  let queued = view.queued;
+  let queue = view.queue;
+  let queueHold = view.queueHold;
   let status = view.status;
   let seq = view.seq;
 
@@ -88,9 +90,36 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
           turn.attachments = e.data.input.attachments;
         }
         turns.push(turn);
-        if (queued[0] === e.data.input.text) queued = queued.slice(1);
+        const entry = e.data.entry;
+        if (entry !== undefined) queue = queue.filter((q) => q.id !== entry);
         break;
       }
+      case 'queue.added':
+        queue = e.data.front ? [e.data.entry, ...queue] : [...queue, e.data.entry];
+        break;
+      case 'queue.updated': {
+        const changed = e.data.entry;
+        queue = queue.map((q) => (q.id === changed.id ? changed : q));
+        break;
+      }
+      case 'queue.removed': {
+        const id = e.data.entry;
+        queue = queue.filter((q) => q.id !== id);
+        break;
+      }
+      case 'queue.moved': {
+        const byId = new Map(queue.map((q) => [q.id, q]));
+        const moved = e.data.order.flatMap((id) => byId.get(id) ?? []);
+        const listed = new Set(e.data.order);
+        queue = [...moved, ...queue.filter((q) => !listed.has(q.id))];
+        break;
+      }
+      case 'queue.held':
+        queueHold = e.data.reason;
+        break;
+      case 'queue.resumed':
+        queueHold = undefined;
+        break;
       case 'text.delta':
         withTurn(e.data.turn, (t) => {
           const i = t.items.length - 1;
@@ -212,5 +241,12 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
     }
     status = nextStatus(status, e, pending.length);
   }
-  return { ...view, turns, pendingApprovals: pending, queued, status, seq };
+  const next: ThreadView = { ...view, turns, pendingApprovals: pending, status, seq };
+  if (queue !== view.queue) {
+    next.queue = queue;
+    next.queued = queue.map((q) => q.input.text);
+  }
+  if (queueHold === undefined) delete next.queueHold;
+  else next.queueHold = queueHold;
+  return next;
 }

@@ -17,6 +17,7 @@ mod gateway;
 mod http;
 mod permission_wording;
 mod plugins;
+mod queue;
 mod registry;
 mod remote;
 mod schedules;

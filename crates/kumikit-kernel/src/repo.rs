@@ -2,9 +2,10 @@
 //! (writes on the writer thread, reads on the read pool).
 
 use kumikit_protocol::ThreadEvent;
+use kumikit_protocol::event::{MessageFrom, QueueEntry, QueueHold};
 use kumikit_protocol::model::{
-    ApprovalId, ApprovalStatus, PermissionMode, Thread, ThreadId, ThreadStatus, Timestamp, TurnId,
-    Workspace, WorkspaceId, WorkspaceKind,
+    ApprovalId, ApprovalStatus, PermissionMode, QueueEntryId, Thread, ThreadId, ThreadStatus,
+    Timestamp, TurnId, UserInput, Workspace, WorkspaceId, WorkspaceKind,
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::Value;
@@ -160,6 +161,10 @@ pub fn workspace_delete(conn: &Connection, id: &WorkspaceId) -> KernelResult<Vec
         }
     }
     let wid = id.as_str();
+    conn.execute(
+        "DELETE FROM queued_messages WHERE thread IN (SELECT id FROM threads WHERE workspace = ?1)",
+        [wid],
+    )?;
     conn.execute(
         "DELETE FROM approvals WHERE thread IN (SELECT id FROM threads WHERE workspace = ?1)",
         [wid],
@@ -353,6 +358,7 @@ pub fn thread_delete(conn: &Connection, id: &ThreadId) -> KernelResult<Thread> {
         )));
     }
     let tid = id.as_str();
+    conn.execute("DELETE FROM queued_messages WHERE thread = ?1", [tid])?;
     conn.execute("DELETE FROM approvals WHERE thread = ?1", [tid])?;
     conn.execute("DELETE FROM turns WHERE thread = ?1", [tid])?;
     conn.execute("DELETE FROM events WHERE thread = ?1", [tid])?;
@@ -438,9 +444,112 @@ pub fn append_event(
 
     match event {
         ThreadEvent::TurnStarted(e) => {
+            // A turn started from the queue takes its entry out in the same transaction.
+            if let Some(entry) = &e.entry {
+                let n = conn.execute(
+                    "DELETE FROM queued_messages WHERE id = ?1 AND thread = ?2",
+                    params![entry.as_str(), thread.as_str()],
+                )?;
+                if n == 0 {
+                    return Err(KernelError::Conflict(format!(
+                        "queued message {entry} is not in the queue"
+                    )));
+                }
+            }
             conn.execute(
                 "INSERT INTO turns (id, thread, started_seq, started) VALUES (?1, ?2, ?3, ?4)",
                 params![e.turn.as_str(), thread.as_str(), seq_i, time.0],
+            )?;
+        }
+        ThreadEvent::QueueAdded(e) => {
+            let position: i64 = if e.front {
+                conn.query_row(
+                    "SELECT coalesce(min(position), 1) - 1 FROM queued_messages WHERE thread = ?1",
+                    [thread.as_str()],
+                    |r| r.get(0),
+                )?
+            } else {
+                conn.query_row(
+                    "SELECT coalesce(max(position), -1) + 1 FROM queued_messages WHERE thread = ?1",
+                    [thread.as_str()],
+                    |r| r.get(0),
+                )?
+            };
+            let entry = &e.entry;
+            conn.execute(
+                "INSERT INTO queued_messages
+                     (id, thread, turn, position, input, sender, created, updated)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+                params![
+                    entry.id.as_str(),
+                    thread.as_str(),
+                    entry.turn.as_str(),
+                    position,
+                    serde_json::to_string(&entry.input)?,
+                    entry.from.as_ref().map(|f| f.plugin.as_str()),
+                    time.0
+                ],
+            )?;
+        }
+        ThreadEvent::QueueUpdated(e) => {
+            let n = conn.execute(
+                "UPDATE queued_messages SET input = ?3, updated = ?4 WHERE id = ?1 AND thread = ?2",
+                params![
+                    e.entry.id.as_str(),
+                    thread.as_str(),
+                    serde_json::to_string(&e.entry.input)?,
+                    time.0
+                ],
+            )?;
+            if n == 0 {
+                return Err(KernelError::NotFound(format!(
+                    "no queued message {}",
+                    e.entry.id
+                )));
+            }
+        }
+        ThreadEvent::QueueRemoved(e) => {
+            let n = conn.execute(
+                "DELETE FROM queued_messages WHERE id = ?1 AND thread = ?2",
+                params![e.entry.as_str(), thread.as_str()],
+            )?;
+            if n == 0 {
+                return Err(KernelError::NotFound(format!(
+                    "no queued message {}",
+                    e.entry
+                )));
+            }
+        }
+        ThreadEvent::QueueMoved(e) => {
+            let mut current: Vec<String> = queue_list(conn, thread)?
+                .into_iter()
+                .map(|q| q.id.0)
+                .collect();
+            let mut next: Vec<String> = e.order.iter().map(|q| q.0.clone()).collect();
+            current.sort_unstable();
+            next.sort_unstable();
+            if current != next {
+                return Err(KernelError::InvalidParams(
+                    "order must list every queued message once".into(),
+                ));
+            }
+            for (i, id) in e.order.iter().enumerate() {
+                conn.execute(
+                    "UPDATE queued_messages SET position = ?3 WHERE id = ?1 AND thread = ?2",
+                    params![id.as_str(), thread.as_str(), to_i64(i as u64)?],
+                )?;
+            }
+        }
+        ThreadEvent::QueueHeld(e) => {
+            conn.execute(
+                "UPDATE threads SET queue_hold = ?2 WHERE id = ?1",
+                params![thread.as_str(), e.reason.as_str()],
+            )?;
+        }
+        ThreadEvent::QueueResumed(_) => {
+            conn.execute(
+                "UPDATE threads SET queue_hold = NULL WHERE id = ?1",
+                [thread.as_str()],
             )?;
         }
         ThreadEvent::TurnEnded(e) => {
@@ -512,6 +621,62 @@ pub fn append_event(
         params![thread.as_str(), seq_i, status.as_str(), time.0],
     )?;
     Ok(seq)
+}
+
+/// A thread's queued messages, in the order they will run.
+pub fn queue_list(conn: &Connection, thread: &ThreadId) -> KernelResult<Vec<QueueEntry>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT id, turn, input, sender FROM queued_messages
+         WHERE thread = ?1 ORDER BY position, created, id",
+    )?;
+    let rows = stmt.query_map([thread.as_str()], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, Option<String>>(3)?,
+        ))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (id, turn, input, sender) = row?;
+        let input: UserInput = serde_json::from_str(&input)?;
+        out.push(QueueEntry {
+            id: QueueEntryId(id),
+            turn: TurnId(turn),
+            input,
+            from: sender.map(|plugin| MessageFrom { plugin }),
+        });
+    }
+    Ok(out)
+}
+
+/// Why a thread's queue is held, if it is.
+pub fn queue_hold(conn: &Connection, thread: &ThreadId) -> KernelResult<Option<QueueHold>> {
+    let hold: Option<Option<String>> = conn
+        .query_row(
+            "SELECT queue_hold FROM threads WHERE id = ?1",
+            [thread.as_str()],
+            |r| r.get(0),
+        )
+        .optional()?;
+    match hold {
+        None => Err(KernelError::NotFound(format!("no thread {thread}"))),
+        Some(None) => Ok(None),
+        Some(Some(h)) => QueueHold::parse(&h)
+            .map(Some)
+            .ok_or_else(|| StoreError::Corrupt(format!("unknown queue hold {h:?}")).into()),
+    }
+}
+
+/// Threads whose queue has messages and is not held.
+pub fn threads_with_open_queue(conn: &Connection) -> KernelResult<Vec<ThreadId>> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT q.thread FROM queued_messages q JOIN threads t ON t.id = q.thread
+         WHERE t.queue_hold IS NULL ORDER BY q.thread",
+    )?;
+    let rows = stmt.query_map([], |r| Ok(ThreadId(r.get(0)?)))?;
+    Ok(rows.collect::<Result<_, _>>()?)
 }
 
 /// Up to `limit` events with `seq > after`, in order.

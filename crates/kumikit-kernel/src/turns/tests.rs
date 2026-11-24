@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use kumikit_protocol::ErrorCode;
+use kumikit_protocol::event::QueueHold;
 use kumikit_protocol::model::ThreadStatus;
 use tokio::sync::Notify;
 
@@ -13,7 +14,7 @@ use crate::provider::{BoxFuture, Model, ProviderError, ProviderEvent, ProviderRe
 use crate::repo::StoredEvent;
 
 /// A fake provider; the message text picks the behavior:
-/// `echo <x>`, `approve`, `fail`, `plugin`, `block`, `late`.
+/// `echo <x>`, `approve`, `approve-fail`, `fail`, `plugin`, `block`, `late`.
 #[derive(Debug, Default)]
 struct Fake {
     decisions: Mutex<HashMap<ApprovalId, Decision>>,
@@ -91,6 +92,14 @@ impl Provider for Fake {
                     })
                     .await?;
                     Ok(())
+                }
+                "approve-fail" => {
+                    let id = sink
+                        .request_approval("tool", "run it", None)
+                        .await
+                        .map_err(|e| ProviderError::new(e.to_string()))?;
+                    self.wait_decision(&id).await;
+                    Err(ProviderError::new("boom"))
                 }
                 "fail" => Err(ProviderError::new("boom")),
                 "plugin" => {
@@ -189,6 +198,41 @@ impl Env {
                 }
             }
         }
+    }
+}
+
+impl Env {
+    /// Waits until the thread has no run (its last turn ended and nothing is next).
+    async fn idle(&self) {
+        for _ in 0..10_000 {
+            if !self.kernel.has_run(&self.thread) {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!("thread {} still runs", self.thread);
+    }
+
+    /// The queue's texts, in order, and its hold, from a snapshot.
+    async fn queue(&self) -> (Vec<String>, Option<QueueHold>) {
+        let snap = self.kernel.thread_get(&self.thread).await.unwrap();
+        let texts = snap.queue.into_iter().map(|q| q.input.text).collect();
+        (texts, snap.queue_hold)
+    }
+
+    /// Waits for `n` more `turn.ended` events after `after`; returns every event read
+    /// and the turns that ended, in order.
+    async fn ends(&self, after: u64, n: usize) -> (Vec<StoredEvent>, Vec<TurnId>) {
+        let mut all = Vec::new();
+        let mut ended = Vec::new();
+        let mut after = after;
+        while ended.len() < n {
+            let batch = self.until(after, "turn.ended").await;
+            after = batch.last().unwrap().seq;
+            ended.push(turn_ended(&batch).turn.clone());
+            all.extend(batch);
+        }
+        (all, ended)
     }
 }
 
@@ -310,24 +354,222 @@ async fn cancel_during_approval() {
 }
 
 #[tokio::test]
-async fn cancel_drops_the_queue() {
+async fn cancel_holds_the_queue_until_resume() {
     let e = env().await;
     e.send("block").await;
     e.until(0, "turn.started").await;
-    assert!(e.send("echo a").await.queued);
-    assert!(e.send("echo b").await.queued);
+    let a = e.send("echo a").await;
+    let b = e.send("echo b").await;
+    assert!(a.queued && a.entry.is_some());
     e.kernel.thread_cancel(&e.thread).await.unwrap();
-    let events = e.until(0, "turn.ended").await;
-    assert_eq!(turn_ended(&events).outcome, TurnOutcome::Cancelled);
-    // The run is gone once the turn ended and nothing was queued.
-    for _ in 0..1000 {
-        if !e.kernel.has_run(&e.thread) {
-            break;
-        }
-        tokio::task::yield_now().await;
-    }
-    assert!(!e.kernel.has_run(&e.thread));
+    let events = e.until(0, "queue.held").await;
+    assert_eq!(
+        kinds(&events),
+        [
+            "turn.started",
+            "queue.added",
+            "queue.added",
+            "turn.ended",
+            "queue.held"
+        ]
+    );
+    e.idle().await;
+    assert_eq!(
+        e.queue().await,
+        (
+            vec!["echo a".into(), "echo b".into()],
+            Some(QueueHold::Stopped)
+        )
+    );
     assert_eq!(e.kernel.thread_get(&e.thread).await.unwrap().turns.len(), 1);
+
+    e.kernel.queue_resume(&e.thread).await.unwrap();
+    let head = events.last().unwrap().seq;
+    let (events, ended) = e.ends(head, 2).await;
+    assert_eq!(ended, [a.turn, b.turn]);
+    assert_eq!(kinds(&events)[0], "queue.resumed");
+    let ThreadEvent::TurnStarted(started) = &events[1].event else {
+        panic!("{:?}", events[1])
+    };
+    assert_eq!(started.entry, a.entry, "turn.started names its queue entry");
+    e.idle().await;
+    assert_eq!(e.queue().await, (vec![], None));
+}
+
+#[tokio::test]
+async fn a_failed_turn_holds_the_queue() {
+    let e = env().await;
+    e.send("approve-fail").await;
+    let events = e.until(0, "approval.requested").await;
+    e.send("echo a").await;
+    let ThreadEvent::ApprovalRequested(req) = &events.last().unwrap().event else {
+        panic!()
+    };
+    e.kernel
+        .respond_approval(&req.approval.id, Decision::Allow, None)
+        .await
+        .unwrap();
+    let events = e.until(0, "queue.held").await;
+    assert_eq!(
+        turn_ended(&events[..events.len() - 1]).outcome,
+        TurnOutcome::Failed
+    );
+    e.idle().await;
+    assert_eq!(
+        e.queue().await,
+        (vec!["echo a".into()], Some(QueueHold::Failed))
+    );
+}
+
+#[tokio::test]
+async fn a_restart_holds_the_queue_and_keeps_it() {
+    let e = env().await;
+    e.send("block").await;
+    e.until(0, "turn.started").await;
+    let a = e.send("echo a").await;
+    e.kernel.close().await;
+
+    let kernel = Kernel::open(config(&e.dir)).await.unwrap();
+    let fake = Arc::new(Fake::default());
+    kernel.register_provider(fake).unwrap();
+    let e = Env { kernel, ..e };
+    let events = e.until(0, "queue.held").await;
+    assert_eq!(
+        kinds(&events),
+        ["turn.started", "queue.added", "turn.ended", "queue.held"]
+    );
+    assert_eq!(
+        e.queue().await,
+        (vec!["echo a".into()], Some(QueueHold::Restarted))
+    );
+
+    // The entry came back from the database, not from memory.
+    e.kernel.queue_resume(&e.thread).await.unwrap();
+    let (_, ended) = e.ends(events.last().unwrap().seq, 1).await;
+    assert_eq!(ended, [a.turn]);
+}
+
+#[tokio::test]
+async fn queued_messages_can_be_edited_moved_and_removed() {
+    let e = env().await;
+    e.send("block").await;
+    e.until(0, "turn.started").await;
+    let a = e.send("echo a").await.entry.unwrap();
+    let b = e.send("echo b").await.entry.unwrap();
+    let c = e.send("echo c").await.entry.unwrap();
+
+    let edited = e
+        .kernel
+        .queue_update(&e.thread, &b, UserInput::text("echo b2"))
+        .await
+        .unwrap();
+    assert_eq!(edited.input.text, "echo b2");
+    e.kernel.queue_move(&e.thread, &c, Some(&a)).await.unwrap();
+    e.kernel.queue_move(&e.thread, &c, Some(&c)).await.unwrap();
+    e.kernel.queue_remove(&e.thread, &a).await.unwrap();
+    assert_eq!(
+        e.queue().await,
+        (vec!["echo c".into(), "echo b2".into()], None)
+    );
+    e.kernel.queue_move(&e.thread, &c, None).await.unwrap();
+    assert_eq!(
+        e.queue().await,
+        (vec!["echo b2".into(), "echo c".into()], None)
+    );
+
+    let gone = QueueEntryId("nope".into());
+    for err in [
+        e.kernel.queue_remove(&e.thread, &a).await.unwrap_err(),
+        e.kernel.queue_remove(&e.thread, &gone).await.unwrap_err(),
+        e.kernel
+            .queue_move(&e.thread, &b, Some(&gone))
+            .await
+            .unwrap_err(),
+        e.kernel
+            .queue_update(&e.thread, &gone, UserInput::text("x"))
+            .await
+            .unwrap_err(),
+    ] {
+        assert_eq!(err.code(), ErrorCode::NotFound, "{err}");
+    }
+
+    // The table agrees with the fold.
+    let t = e.thread.clone();
+    let stored = e
+        .kernel
+        .inner
+        .store
+        .read(move |c| repo::queue_list(c, &t))
+        .await
+        .unwrap();
+    let ids: Vec<_> = stored.into_iter().map(|q| q.id).collect();
+    assert_eq!(ids, [b, c]);
+}
+
+#[tokio::test]
+async fn send_now_stops_the_running_turn_and_runs_that_entry() {
+    let e = env().await;
+    e.send("block").await;
+    e.until(0, "turn.started").await;
+    let a = e.send("echo a").await;
+    let b = e.send("echo b").await;
+    let now = e
+        .kernel
+        .queue_send_now(&e.thread, b.entry.as_ref().unwrap())
+        .await
+        .unwrap();
+    assert!(now.queued);
+    assert_eq!(now.turn, b.turn);
+    let (events, ended) = e.ends(0, 2).await;
+    assert_eq!(ended[1], b.turn);
+    assert_eq!(
+        kinds(&events)[3..],
+        [
+            "turn.ended",
+            "queue.held",
+            "turn.started",
+            "text.delta",
+            "text.done",
+            "turn.ended"
+        ]
+    );
+    e.idle().await;
+    assert_eq!(
+        e.queue().await,
+        (vec!["echo a".into()], Some(QueueHold::Stopped))
+    );
+
+    // Idle: send now starts it at once; the queue stays held.
+    let idle = e
+        .kernel
+        .queue_send_now(&e.thread, a.entry.as_ref().unwrap())
+        .await
+        .unwrap();
+    assert!(!idle.queued);
+    let (_, ended) = e.ends(events.last().unwrap().seq, 1).await;
+    assert_eq!(ended, [a.turn]);
+    e.idle().await;
+    assert_eq!(e.queue().await, (vec![], Some(QueueHold::Stopped)));
+}
+
+#[tokio::test]
+async fn sending_resumes_a_held_queue_after_the_new_message() {
+    let e = env().await;
+    e.send("block").await;
+    e.until(0, "turn.started").await;
+    let a = e.send("echo a").await;
+    e.kernel.thread_cancel(&e.thread).await.unwrap();
+    let held = e.until(0, "queue.held").await;
+    e.idle().await;
+
+    let fresh = e.send("echo fresh").await;
+    assert!(
+        !fresh.queued,
+        "an idle thread starts the new message at once"
+    );
+    let (events, ended) = e.ends(held.last().unwrap().seq, 2).await;
+    assert_eq!(ended, [fresh.turn, a.turn]);
+    assert_eq!(kinds(&events)[..2], ["queue.resumed", "turn.started"]);
 }
 
 #[tokio::test]

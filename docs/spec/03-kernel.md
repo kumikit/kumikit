@@ -43,7 +43,7 @@ Approval  { id, thread, turn, kind, summary, detail, status }
 
 | Kind | Data | Emitted by |
 |---|---|---|
-| `turn.started` | `turn`, `input` (`{ text }`; attachments are a later optional field), `from?` (`{ plugin }` when a plugin sent the message through the client interface) | kernel |
+| `turn.started` | `turn`, `input` (`{ text, attachments? }`), `from?` (`{ plugin }` when a plugin sent the message through the client interface), `entry?` (the queue entry it started; the entry leaves the queue with this event) | kernel |
 | `text.delta` | `turn`, `text` | provider |
 | `text.done` | `turn`, `text` (full message) | provider |
 | `reasoning.delta` | `turn`, `text` | provider |
@@ -56,6 +56,12 @@ Approval  { id, thread, turn, kind, summary, detail, status }
 | `usage` | `turn`, `inputTokens`, `outputTokens`, `cost?` | provider |
 | `turn.ended` | `turn`, `outcome` (`done`, `cancelled`, `failed`), `error?` | kernel |
 | `plugin.event` | `plugin`, `kind`, `data` | any plugin, namespaced |
+| `queue.added` | `entry` (`{ id, turn, input, from? }`), `front?` (true: it went to the front) | kernel |
+| `queue.updated` | `entry`, after the change | kernel |
+| `queue.removed` | `entry` (id), `reason` (`removed`) | kernel |
+| `queue.moved` | `order`: every entry id, in the new order | kernel |
+| `queue.held` | `reason` (`stopped`, `failed`, `restarted`) | kernel |
+| `queue.resumed` | — | kernel |
 
 Providers emit through the host; the kernel validates every event (a provider cannot emit
 `turn.started`, `turn.ended` or `approval.resolved`, events for another thread or turn,
@@ -64,13 +70,33 @@ approval and gets its id from the kernel; the answer can reach the provider befo
 call returns, so providers keep early answers.
 
 Turn rules:
-- One turn runs per thread. Messages sent during a turn wait in an in-memory queue (lost
-  if the core stops) and start in order when the turn ends.
+- One turn runs per thread. Messages sent during a turn join the thread's queue (below).
 - Cancelling a turn first resolves its pending approvals with `decision: "cancelled"`,
-  then emits `turn.ended { outcome: "cancelled" }`, and drops the queue.
+  then emits `turn.ended { outcome: "cancelled" }`, and holds the queue.
 - On startup the kernel ends every turn left open by a previous run: pending approvals
   are resolved as `cancelled`, then `turn.ended { outcome: "failed", error:
-  "core_restarted" }` is appended.
+  "core_restarted" }` is appended. A thread whose queue still has messages then gets
+  `queue.held { reason: "restarted" }`.
+
+### The queue
+
+Decided in [ADR 0027](../decisions/0027-durable-queue-and-deferred-messages.md).
+
+- A thread's queue holds the messages waiting for its running turn. It lives in the log
+  (`queue.*` events) and in a table derived from it in the same transaction, so it
+  survives restarts and every client sees the same queue.
+- Each entry has an id and the turn id it will run as. When a turn ends `done`, the first
+  entry starts: its `turn.started` carries `entry` and takes it out of the queue in the
+  same transaction.
+- A turn that ends `cancelled` or `failed` holds the rest of the queue
+  (`queue.held { reason }`); nothing starts until `thread.queue.resume`, `sendNow`, or a
+  new `thread.send` (which resumes the queue and, on an idle thread, runs first).
+- Clients edit, remove, reorder and send entries now with `thread.queue.*`
+  ([02](02-protocol.md#methods-added-in-07)). Queue changes do not change the thread's
+  status.
+- Deciding what runs next and every queue change happen one at a time per core, so a
+  message sent while a turn ends either joins the queue the dispatcher reads or starts
+  its own turn after `turn.ended`.
 
 `plugin.event` lets a plugin add its own event kinds without a protocol change. Clients
 that do not understand one skip it; a UI plugin can register a renderer for it.
