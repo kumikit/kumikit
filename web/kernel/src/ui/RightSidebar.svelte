@@ -40,15 +40,16 @@
     openEntries.find((e) => entryKey(e) === selectedKey || e.contribution.id === selectedKey) ?? openEntries[0],
   );
   const activeTab = $derived(kernel.activeTab);
+  const activeThread = $derived(kernel.activeThread);
   const scopeKey = $derived(
     active
-      ? `${activeTab?.connection ?? kernel.connection.id}/${activeTab?.workspace ?? ''}/${active.plugin}/${active.contribution.id}`
+      ? `${activeTab?.connection ?? kernel.connection.id}/${activeTab?.workspace ?? ''}/${activeThread?.thread ?? ''}/${active.plugin}/${active.contribution.id}`
       : '',
   );
   const panelProps = $derived.by(() => {
     void scopeKey;
     return untrack(() => ({
-      address: kernel.activeThread,
+      address: activeThread,
       connection: kernel.pluginConnection(activeTab?.connection),
     }));
   });

@@ -39,7 +39,14 @@ class OpenThread {
     private readonly connection: CoreConnection | undefined,
     private readonly schedule: Schedule,
   ) {
-    this.view = { ...emptyView(address), live: connection?.ready ?? false };
+    const thread =
+      (connection?.threads[address.workspace] ?? []).find((t) => t.id === address.thread) ??
+      connection?.sideThreads?.[address.thread];
+    this.view = {
+      ...emptyView(address),
+      ...(thread ? { thread, status: thread.status } : {}),
+      live: connection?.ready ?? false,
+    };
     this.#stop = connection?.subscribe(`thread:${address.thread}`, 0, (e) => this.#push(e)) ?? (() => {});
   }
 
