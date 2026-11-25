@@ -187,17 +187,18 @@ features that every provider and client gets:
 
 - A durable, editable message queue that is held, not dropped, after a stop, a failure or
   a restart.
-- Steering a running agent through a host input inbox (`kumikit:host@0.3.0`) and a `steer`
+- Steering a running agent through a host input inbox (`kumikit:turn@0.1.0`) and a `steer`
   model capability, falling back to the queue.
-- Switching provider in an idle thread with a bounded handoff of the conversation
-  (`kumikit:provider@0.3.0`), and per-turn provider attribution.
+- Switching provider in an idle thread with a bounded handoff of the conversation, and
+  per-turn provider attribution.
 - Deferred messages: send at a time, after another thread's turn, or after a command
   exits or succeeds (a build, CI); agent tools for them in a first-party `kumikit.threads`
-  plugin.
-- Forks, edit-and-resend, `/btw` side threads, provider slash commands, `@` mentions, turn
-  cards, per-turn changes, find in thread, usage-limit holds and opt-in turn checks.
+  plugin (`kumikit:threads@0.1.0`).
+- Forks, edit-and-resend, `/btw` side threads, provider slash commands and usage limits
+  (`kumikit:session@0.1.0`), `@` mentions, turn cards, per-turn changes, find in thread,
+  usage-limit holds and opt-in turn checks.
 
-**Status:** in progress (`feat/m7-threads`). Plan:
+**Status:** done. Plan:
 [M7 — Threads](../plans/2026-11-24-m7-threads.md).
 
 **Exit:** see the plan's exit criteria: queue held across restart; a steer lands mid-turn

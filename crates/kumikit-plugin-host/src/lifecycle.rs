@@ -13,7 +13,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -188,7 +188,12 @@ struct Session {
     instance: Instance,
     shared: Arc<SessionShared>,
     thread: ThreadId,
-    busy: Arc<AtomicBool>,
+    /// `0` when idle, otherwise the generation of the active `send` call.
+    busy_gen: Arc<AtomicU64>,
+    next_gen: AtomicU64,
+    /// Serializes turns on this session so a new turn never clears a cancelled turn's
+    /// `cancel_pending` flag or overwrites its `EventSink` before the guest winds down.
+    turn_lock: Arc<tokio::sync::Mutex<()>>,
     last_used: Mutex<Instant>,
 }
 
@@ -1069,7 +1074,7 @@ impl PluginHost {
             for run in runs.values_mut() {
                 run.sessions.retain(|_, s| {
                     let used = *lock(&s.last_used);
-                    let idle = !s.busy.load(Ordering::Acquire)
+                    let idle = s.busy_gen.load(Ordering::Acquire) == 0
                         && now.saturating_duration_since(used) >= idle_after;
                     if idle {
                         dropped.push((Some(s.thread.clone()), s.instance.clone()));
@@ -1279,7 +1284,9 @@ impl Provider for WasmProvider {
                 instance,
                 shared,
                 thread,
-                busy: Arc::new(AtomicBool::new(false)),
+                busy_gen: Arc::new(AtomicU64::new(0)),
+                next_gen: AtomicU64::new(1),
+                turn_lock: Arc::new(tokio::sync::Mutex::new(())),
                 last_used: Mutex::new(host.now()),
             });
             {
@@ -1323,17 +1330,26 @@ impl Provider for WasmProvider {
                 materialize_attachments(data_dir, turn_id, input.text, input.attachments).await?
             };
             *lock(&s.last_used) = host.now();
-            s.busy.store(true, Ordering::Release);
-            s.shared.begin_turn(sink);
             // Run the call as its own task: if the kernel drops this future (cancel), the
-            // guest still finishes, or is discarded after the grace period.
+            // guest still finishes, or is discarded after the grace period. Serialize with
+            // `turn_lock` so a rapid retry after cancel waits for the cancelled guest call
+            // to unwind before calling `begin_turn` (which clears `cancel_pending`).
             let task = {
                 let s = Arc::clone(&s);
                 let host = host.clone();
                 tokio::spawn(async move {
+                    let _guard = s.turn_lock.lock().await;
+                    let turn_gen = s.next_gen.fetch_add(1, Ordering::Relaxed);
+                    s.busy_gen.store(turn_gen, Ordering::Release);
+                    s.shared.begin_turn(sink);
                     let r = s.instance.send(session, wit::UserInput { text }).await;
                     s.shared.end_turn();
-                    s.busy.store(false, Ordering::Release);
+                    let _ = s.busy_gen.compare_exchange(
+                        turn_gen,
+                        0,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    );
                     *lock(&s.last_used) = host.now();
                     r
                 })
@@ -1364,12 +1380,13 @@ impl Provider for WasmProvider {
             let Some(s) = host.session(&self.spec.backend, &session) else {
                 return;
             };
+            let cancelled_gen = s.busy_gen.load(Ordering::Acquire);
             s.shared.cancel();
             let grace = host.inner.config.cancel_grace;
             let backend = self.spec.backend.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(grace).await;
-                if !s.busy.load(Ordering::Acquire) {
+                if cancelled_gen == 0 || s.busy_gen.load(Ordering::Acquire) != cancelled_gen {
                     return;
                 }
                 tracing::warn!(plugin = %backend, "turn did not stop after cancel; discarding its instance");
@@ -1394,7 +1411,7 @@ impl Provider for WasmProvider {
                 .get_mut(&self.spec.backend)
                 .and_then(|r| r.sessions.remove(&session));
             let Some(s) = removed else { return };
-            if s.busy.load(Ordering::Acquire) {
+            if s.busy_gen.load(Ordering::Acquire) != 0 {
                 // Mid-turn (the core is stopping, say): calls would queue behind the
                 // running `send`. Cancel the turn and kill the session's processes.
                 s.shared.cancel();

@@ -14,6 +14,7 @@ mod commands;
 mod defer;
 mod exit_m4;
 mod exit_m5;
+mod exit_m7;
 mod fork_and_side;
 mod gateway;
 mod handoff;

@@ -82,6 +82,17 @@ is about the code.
   with the `x-secret` fields removed, and fills defaults on read.
 - **Time and ids are injected** (`KernelConfig { clock, ids }`); tests use `StepClock`
   and `SequentialIds`.
+- **Durable queue and deferred messages** (`turns.rs`, `defer.rs`): queue dispatch runs
+  under one kernel-wide async mutex (`dispatch`) so `turn.ended` removes the running entry
+  before deciding whether to start the next one. `defer_tick(now)` holds every deferred
+  timing rule (including `limit_resumes` for `limited` threads) so kernel tests step time
+  deterministically. `defer.rs` uses `BoxFuture` where `fire_deferred` and `dispatch_next`
+  recurse across turns.
+- **Forks leave `turns` rows alone** (`repo::thread_fork_copy`): `turns.id` is a global
+  primary key queried only by `open_turns` (`WHERE ended IS NULL`). Forking copies the
+  finished events into `events` (storing each event's unwrapped `data` JSON object) without
+  inserting duplicate `turns` rows, so repeated forks of the same thread never collide on
+  the primary key.
 
 ## Plugin host (`crates/kumikit-plugin-host`)
 
@@ -132,6 +143,10 @@ is about the code.
   linker adds Kumikit's interfaces one by one (`add_base_imports`) next to wasmtime-wasi's.
 - **`wit/kumikit-host@0.2.0/deps/io.wit`** is WASI's `wasi:io@0.2.12`, copied from
   wasmtime-wasi; the published-WIT hash covers `deps/` too.
+- **Additive WIT packages (`kumikit:turn@0.1.0`, `kumikit:threads@0.1.0`,
+  `kumikit:session@0.1.0`):** new host capabilities are added as separate WIT packages
+  imported alongside `0.2.0` rather than modifying published packages in place. Each has its
+  own hash entry in `wit/PUBLISHED`.
 - **Schedules** (`kumikit-kernel/src/schedule/`): `schedule_tick(now)` holds every timing
   rule and takes the time as an argument, so kernel tests use explicit times and install
   the fake runner with `set_schedule_runner` (without spawning the wall-clock task, which

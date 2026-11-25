@@ -13,21 +13,27 @@ spec, not here.
 ## Status
 
 M0 (protocol and kernel), M1 (plugin host), M2 (client), M3 (multiple cores), M4
-(ecosystem) and M5 (plugins) are built: `kumikit serve`, the kernel, WASM plugins (WIT
-0.2.0 and `kumikit:tool@0.1.0`) with permissions, secrets, settings, plugin methods, core
+(ecosystem), M5 (plugins), M6 (UI design and usability) and M7 (threads: durable queue,
+steering, handoff, deferred messages, forks, side threads, composer/transcript polish,
+usage limits and turn checks) are built: `kumikit serve`, the kernel, WASM plugins (WIT
+0.2.0 plus `kumikit:tool@0.1.0`, `kumikit:turn@0.1.0`, `kumikit:threads@0.1.0` and
+`kumikit:session@0.1.0`) with permissions, secrets, settings, plugin methods, core
 commands, outgoing HTTP, client interface, schedules and MCP tool gateway, provider-acp,
-`kumikit plugin`, the desktop app (Tauri shell, Svelte UI kernel, UI SDK 0.1.2, ui-chat,
+`kumikit plugin`, the desktop app (Tauri shell, Svelte UI kernel, UI SDK 0.1.5, ui-chat,
 ui-settings, theme-default), remote cores over TLS with pairing and device tokens or
 through SSH, the browser client served by a core, signed packages, plugin registries with
 installs by id, updates and lockfiles, sandboxed UI panels, `kumikit theme check`, plugin
 templates, and the first-party plugin repositories (`kumikit-plugin-agents`,
-`kumikit-plugin-git`, `kumikit-plugin-github`, `kumikit-plugin-schedules`)
+`kumikit-plugin-git`, `kumikit-plugin-github`, `kumikit-plugin-schedules`,
+`kumikit-plugin-threads`)
 ([M0 plan](docs/plans/2026-11-15-m0-protocol-and-kernel.md),
 [M1 plan](docs/plans/2026-11-15-m1-plugin-host.md),
 [M2 plan](docs/plans/2026-11-16-m2-client.md),
 [M3 plan](docs/plans/2026-11-17-m3-multiple-cores.md),
 [M4 plan](docs/plans/2026-11-18-m4-ecosystem.md),
-[M5 plan](docs/plans/2026-11-19-m5-plugins.md)). Build in milestone order
+[M5 plan](docs/plans/2026-11-19-m5-plugins.md),
+[M6 plan](docs/plans/2026-11-22-m6-ui-design.md),
+[M7 plan](docs/plans/2026-11-24-m7-threads.md)). Build in milestone order
 ([roadmap](docs/spec/12-roadmap.md)); do not start a later milestone's code before the
 earlier one's exit criteria pass.
 
