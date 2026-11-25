@@ -973,6 +973,18 @@ pub fn queue_hold(conn: &Connection, thread: &ThreadId) -> KernelResult<Option<Q
     }
 }
 
+/// Number of ready (non-deferred) queued messages on unheld threads across all workspaces.
+pub fn count_ready_unheld_queue(conn: &Connection) -> KernelResult<u32> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM queued_messages q
+         JOIN threads t ON t.id = q.thread
+         WHERE t.queue_hold IS NULL AND q.trigger_json IS NULL",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(u32::try_from(count).unwrap_or(u32::MAX))
+}
+
 /// Threads whose queue has ready messages or command triggers and is not held.
 pub fn threads_with_open_queue(conn: &Connection) -> KernelResult<Vec<ThreadId>> {
     let mut stmt = conn.prepare(

@@ -19,7 +19,7 @@ A small, pluggable framework for working with coding agents.
 The name comes from *kumiko*, Japanese woodwork in which a lattice is assembled from many
 small pieces without nails.
 
-> **Status:** early, pre-1.0 (`v0.1.0-m7`). Milestones M0–M7 are built: the core,
+> **Status:** early, pre-1.0 (`v0.1.0-m8`). Milestones M0–M8 are built: the core,
 > WebAssembly plugins (WIT 0.2.0, `kumikit:tool@0.1.0`, `kumikit:turn@0.1.0`,
 > `kumikit:threads@0.1.0`, `kumikit:session@0.1.0` and the MCP tool gateway), schedules,
 > durable queues, steering, provider handoff, deferred messages, forks and side threads,
@@ -43,6 +43,14 @@ Plugin registries are contacted only when you browse or search them, install or 
 from them, import a lockfile or check for updates: a core contacts them for core plugins,
 the desktop app for UI plugins and themes. Nothing is checked in the background, and the
 first-run screen asks before it shows the registry's starter pack.
+
+Application update checks (`Settings → Updates` and `kumikit update`) contact GitHub
+(`raw.githubusercontent.com` and `github.com`) only when you ask, or periodically if you
+explicitly opt into **Automatic updates** (off by default). Every release manifest is
+verified against Kumikit's pinned Ed25519 public key before downloading, and automatic
+updates install only after all agents are idle. SSH remote core sync downloads the matching
+signed archive locally only when you confirm (or opt into SSH auto-sync) and streams it
+over your existing `ssh` connection.
 
 A core listens on the network only when you start it with `kumikit serve --listen`; it
 never turns that on by itself. The desktop app connects only to cores you added, over TLS

@@ -122,6 +122,8 @@ jobs:
           key: release-${{ matrix.target }}
 
       - name: Build production binaries (kumikit, kumikit-registry, fake-acp-agent)
+        env:
+          KUMIKIT_RELEASE_VERSION: ${{ steps.tag.outputs.tag }}
         run: |
           cargo build --locked --release \
             -p kumikit-core \
@@ -159,6 +161,8 @@ jobs:
           pack_dir stage/registry "dist/kumikit-registry-${TAG}-${TARGET}.${EXT}"
 
       - name: Build test-kit WASM plugins and test-hooks core
+        env:
+          KUMIKIT_RELEASE_VERSION: ${{ steps.tag.outputs.tag }}
         run: |
           cargo build --locked --release --target wasm32-wasip2 \
             -p kumikit-provider-acp \
@@ -222,7 +226,7 @@ jobs:
             bin_ext: ''
           - os: macos-latest
             target: aarch64-apple-darwin
-            bundles: dmg
+            bundles: app,dmg
             bin_ext: ''
           - os: windows-latest
             target: x86_64-pc-windows-msvc
@@ -280,6 +284,7 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           BIN_EXT: ${{ matrix.bin_ext }}
+          KUMIKIT_RELEASE_VERSION: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
           cargo build --locked --release -p kumikit-core
@@ -292,6 +297,7 @@ jobs:
         # linuxdeploy is itself an AppImage; run it without FUSE.
         env:
           APPIMAGE_EXTRACT_AND_RUN: '1'
+          KUMIKIT_RELEASE_VERSION: ${{ steps.tag.outputs.tag }}
 
       - if: runner.os == 'Linux'
         name: AppImage repack and smoke test
@@ -316,6 +322,8 @@ jobs:
             cp target/release/bundle/appimage/*.AppImage "dist-installers/Kumikit-${TAG}-x86_64.AppImage"
           elif [ "$RUNNER_OS" = "macOS" ]; then
             cp target/release/bundle/dmg/*.dmg "dist-installers/Kumikit-${TAG}-aarch64.dmg"
+            app_name=$(basename target/release/bundle/macos/*.app)
+            tar -C target/release/bundle/macos -czf "dist-installers/Kumikit-${TAG}-aarch64.app.tar.gz" "$app_name"
           elif [ "$RUNNER_OS" = "Windows" ]; then
             cp target/release/bundle/nsis/*-setup.exe "dist-installers/Kumikit-${TAG}-x86_64-setup.exe"
           fi
@@ -353,11 +361,27 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      - name: Generate and sign release.json
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          KUMIKIT_SIGNING_KEY: ${{ secrets.KUMIKIT_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p tools
+          tar -xzf "release-assets/kumikit-registry-${TAG}-x86_64-unknown-linux-gnu.tar.gz" -C tools
+          ./tools/kumikit-registry release-manifest \
+            --tag "$TAG" \
+            --assets-dir release-assets \
+            --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}" \
+            --notes-url "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}" \
+            --out-dir release-assets
+          ls -la release-assets/release.json*
+
       - name: Generate SHA256SUMS.txt
         run: |
           set -euo pipefail
           cd release-assets
-          LC_ALL=C sha256sum *.tar.gz *.zip *.deb *.rpm *.AppImage *.dmg *.exe > SHA256SUMS.txt
+          LC_ALL=C sha256sum *.tar.gz *.zip *.deb *.rpm *.AppImage *.dmg *.exe release.json* > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Attest build provenance
@@ -371,6 +395,7 @@ jobs:
             release-assets/*.AppImage
             release-assets/*.dmg
             release-assets/*.exe
+            release-assets/release.json
             release-assets/SHA256SUMS.txt
 
       - name: Create or update GitHub Release
@@ -382,15 +407,16 @@ jobs:
           notes=$(printf '%s\n' \
             "Desktop installers, CLI, registry tool, and plugin test kit archives for \`${TAG}\`." \
             "" \
-            "### Desktop installers (unsigned)" \
+            "### Desktop installers (unsigned OS packages; Ed25519-signed release manifest)" \
             "- **Linux (x86_64):** \`Kumikit-${TAG}-x86_64.deb\`, \`Kumikit-${TAG}-x86_64.rpm\`, \`Kumikit-${TAG}-x86_64.AppImage\`" \
-            "- **macOS (Apple Silicon):** \`Kumikit-${TAG}-aarch64.dmg\`" \
+            "- **macOS (Apple Silicon):** \`Kumikit-${TAG}-aarch64.dmg\`, \`Kumikit-${TAG}-aarch64.app.tar.gz\`" \
             "- **Windows (x86_64):** \`Kumikit-${TAG}-x86_64-setup.exe\`" \
             "" \
             "### CLI, registry tool, and plugin test kit" \
             "- \`kumikit-${TAG}-<target>\`: production \`kumikit\` core and CLI binary" \
             "- \`kumikit-registry-${TAG}-<target>\`: \`kumikit-registry\` checker and index builder" \
             "- \`kumikit-test-kit-${TAG}-<target>\`: prebuilt \`KUMIKIT_DIR\` bundle for plugin e2e tests and UI builds" \
+            "- \`release.json\` & \`release.json.sig\`: Ed25519-signed release manifest for desktop/CLI updates and SSH remote sync" \
             "- \`SHA256SUMS.txt\`: SHA-256 checksums for every asset (also attested via GitHub build provenance)" \
             "" \
             "### Use in GitHub Actions" \
@@ -413,3 +439,21 @@ jobs:
               --notes "$notes" \
               $extra_flags
           fi
+
+      - name: Publish signed release manifest branch
+        if: hashFiles('release-assets/release.json.sig') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          cp release-assets/release.json release-assets/release.json.sig "$work/"
+          cd "$work"
+          git init -b release-manifest
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add release.json release.json.sig
+          git commit -m "chore: publish signed release manifest for ${TAG}"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin release-manifest

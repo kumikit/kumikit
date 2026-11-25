@@ -44,7 +44,8 @@ pub struct CommandError {
 }
 
 impl CommandError {
-    fn new(code: &'static str, message: impl Into<String>) -> Self {
+    /// Creates a command error with a stable code and user-facing message.
+    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
         CommandError {
             code,
             message: message.into(),
@@ -106,6 +107,19 @@ pub struct SshRequest {
     /// The remote command; `kumikit bridge` by default.
     #[serde(default)]
     pub command: Option<String>,
+    /// Automatically keep matching `kumikit` synced on this SSH host.
+    #[serde(default)]
+    pub auto_sync: bool,
+}
+
+/// `profile_update_ssh`'s request.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshUpdateRequest {
+    /// The SSH profile's name.
+    pub name: String,
+    /// Whether to automatically keep matching `kumikit` synced on this SSH host.
+    pub auto_sync: bool,
 }
 
 /// `profile_remove`'s answer.
@@ -141,6 +155,7 @@ impl Connections {
             name: LOCAL.into(),
             label: "This computer".into(),
             kind: "local",
+            auto_sync: None,
         }];
         all.extend(self.profiles.list()?.iter().map(Profile::info));
         Ok(all)
@@ -193,11 +208,20 @@ impl Connections {
             kind: Kind::Ssh {
                 destination: req.destination,
                 command,
+                auto_sync: req.auto_sync,
             },
         };
         let info = profile.info();
         self.profiles.add(profile)?;
         Ok(info)
+    }
+
+    /// `profile_update_ssh`: updates an SSH profile's `auto_sync` preference.
+    pub fn update_ssh(&self, req: SshUpdateRequest) -> Result<ProfileInfo, CommandError> {
+        let updated = self
+            .profiles
+            .update_ssh(&req.name, None, Some(req.auto_sync))?;
+        Ok(updated.info())
     }
 
     /// `profile_remove`: revokes this device on the core if it answers within 2 s, then
@@ -264,6 +288,7 @@ impl Connections {
             Kind::Ssh {
                 destination,
                 command,
+                ..
             } => {
                 let run = command.as_deref().unwrap_or(ssh::DEFAULT_COMMAND);
                 let started = ssh::spawn(&self.ssh, &destination, run)

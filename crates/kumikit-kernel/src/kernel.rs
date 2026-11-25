@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use kumikit_protocol::event::{ApprovalResolved, QueueHeld, QueueHold, ThreadChange, TurnEnded};
 use kumikit_protocol::local::{Platform, default_home_dir};
-use kumikit_protocol::methods::{CoreConfigResult, ThreadSnapshot};
+use kumikit_protocol::methods::{CoreActivityResult, CoreConfigResult, ThreadSnapshot};
 use kumikit_protocol::model::{
     ApprovalId, PermissionMode, Resolution, Thread, ThreadId, ThreadStatus, Timestamp, TurnOutcome,
     Workspace, WorkspaceId,
@@ -207,7 +207,25 @@ impl Kernel {
         self.inner.clock.now()
     }
 
-    // ---- core config ----
+    // ---- core config & activity ----
+
+    /// Summarises live agent turns and ready unheld queued messages across all workspaces.
+    pub async fn activity(&self) -> KernelResult<CoreActivityResult> {
+        let active_turns = {
+            let runs = self.inner.runs.lock().unwrap_or_else(|p| p.into_inner());
+            u32::try_from(runs.len()).unwrap_or(u32::MAX)
+        };
+        let ready_queued = self
+            .inner
+            .store
+            .read(repo::count_ready_unheld_queue)
+            .await?;
+        Ok(CoreActivityResult {
+            active_turns,
+            ready_queued,
+            idle: active_turns == 0 && ready_queued == 0,
+        })
+    }
 
     /// Reads core-level configuration (active and default Kumikit home directory).
     pub async fn core_config(&self) -> KernelResult<CoreConfigResult> {

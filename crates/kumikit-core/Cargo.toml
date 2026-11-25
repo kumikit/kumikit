@@ -47,7 +47,7 @@ kumikit-assets.workspace = true
 kumikit-kernel.workspace = true
 kumikit-plugin-host.workspace = true
 kumikit-protocol.workspace = true
-kumikit-registry.workspace = true
+kumikit-registry = { workspace = true, features = ["archive"] }
 kumikit-theme = { path = "../kumikit-theme" }
 semver = "1.0.28"
 jiff = { version = "0.2.46", default-features = false, features = ["std"] }
@@ -66,10 +66,13 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std", "registry"] }
 
 [dev-dependencies]
+flate2 = "1"
+kumikit-package.workspace = true
 kumikit-test-plugins.workspace = true
 kumikit-test-registry-fixture = { path = "../../test-plugins/registry-fixture" }
 kumikit-registry-tool = { path = "../kumikit-registry-tool" }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+tar = "0.4.46"
 tempfile = "3.27.0"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "process", "io-util", "time", "net"] }
 

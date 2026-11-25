@@ -282,6 +282,33 @@ All take `--socket` (and the device commands `--data-dir`).
   permissions (and trust, on the client) are shown together and confirmed once, then the
   entries that were enabled are enabled.
 
+## Application updates
+
+Kumikit publishes a signed `release.json` manifest (with a sibling `release.json.sig` in the
+`kumikit-signature 1` Ed25519 format) alongside every release
+([ADR 0031](../decisions/0031-signed-release-manifest-and-updates.md)).
+
+- **Verification.** Clients and the `kumikit update` CLI verify `release.json.sig` against the
+  pinned Kumikit release public key (overridable via `KUMIKIT_UPDATE_KEY`) before reading any
+  asset URL or SHA-256 hash, and verify every downloaded installer or archive against its hash in
+  the signed manifest.
+- **Desktop app (Settings → Updates).** Displays the build-stamped current version, checks for
+  updates on demand, and downloads/installs verified updates (in-place on Linux AppImage, macOS
+  `.app`, and Windows NSIS; downloads the verified package for system-managed `.deb`/`.rpm`
+  installs). An opt-in **Automatic updates** setting (off by default) periodically checks and
+  downloads updates in the background, waiting until `core.activity` reports `idle: true`
+  (zero active turns and zero unpaused ready queued messages) before shutting down the local core
+  and installing.
+- **Core CLI (`kumikit update`).** `kumikit update [--check] [--yes] [--wait-idle] [--force]`
+  checks for and installs a newer signed `kumikit` binary on headless and TLS-paired machines,
+  refusing to interrupt active agents unless `--force` is passed (or waiting until idle with
+  `--wait-idle`).
+- **SSH remote sync.** When connecting over SSH to a machine where `kumikit` is missing or on a
+  different version ([ADR 0032](../decisions/0032-ssh-remote-core-sync.md)), the desktop app can
+  download and verify the matching `kumikit` archive locally and stream it over `ssh` into
+  `~/.local/bin/kumikit`, checking remote `core.activity` before restarting an older running core.
+  Prompted by default, with optional per-profile or global auto-sync.
+
 ## Versioning
 
 Plugins use semver. `api` in the manifest is a range over the kernel plugin API version.

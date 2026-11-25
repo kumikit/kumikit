@@ -70,6 +70,28 @@
       <SlotHost plugin={entry.plugin} contribution={entry.contribution} props={{}} slots={kernel.slots} />
     {/each}
 
+    {#if kernel.updates.phase === 'waiting_idle'}
+      <button
+        type="button"
+        class="conn-btn"
+        title="An update is downloaded and will install once all agents are idle"
+        onclick={() => (kernel.main = { kind: 'settings', page: 'updates' })}
+      >
+        <span class="kk-status awaiting_approval" aria-hidden="true"></span>
+        <span>Update waiting for idle</span>
+      </button>
+    {:else if kernel.updates.phase === 'available' || kernel.updates.phase === 'ready'}
+      <button
+        type="button"
+        class="conn-btn"
+        title="Open Settings → Updates"
+        onclick={() => (kernel.main = { kind: 'settings', page: 'updates' })}
+      >
+        <span class="kk-status ready" aria-hidden="true"></span>
+        <span>Update v{kernel.updates.downloaded?.version ?? kernel.updates.checkResult?.latestVersion}</span>
+      </button>
+    {/if}
+
     {#if kernel.paneCount > 1}
       <span class="meta" title="Active split panes">{kernel.paneCount} panes</span>
     {/if}

@@ -7,6 +7,7 @@ import type { AuthTokenResult } from "./AuthTokenResult";
 import type { CommandListResult } from "./CommandListResult";
 import type { CommandResult } from "./CommandResult";
 import type { CommandRunParams } from "./CommandRunParams";
+import type { CoreActivityResult } from "./CoreActivityResult";
 import type { CoreConfigResult } from "./CoreConfigResult";
 import type { CoreConfigSetParams } from "./CoreConfigSetParams";
 import type { DeviceListResult } from "./DeviceListResult";
@@ -51,6 +52,7 @@ import type { SecretSetParams } from "./SecretSetParams";
 import type { SettingsGetResult } from "./SettingsGetResult";
 import type { SettingsSchemaResult } from "./SettingsSchemaResult";
 import type { SettingsSetParams } from "./SettingsSetParams";
+import type { ShutdownParams } from "./ShutdownParams";
 import type { SubscribeParams } from "./SubscribeParams";
 import type { SubscribeResult } from "./SubscribeResult";
 import type { ThreadCreateParams } from "./ThreadCreateParams";
@@ -82,7 +84,7 @@ import type { WorktreeDeleteParams } from "./WorktreeDeleteParams";
 import type { WorktreeListResult } from "./WorktreeListResult";
 
 /** Protocol version spoken by this package, `MAJOR.MINOR`. */
-export const PROTOCOL_VERSION = "0.9";
+export const PROTOCOL_VERSION = "0.10";
 
 /** Every request method with its params and result types. */
 export type Methods = {
@@ -96,7 +98,8 @@ export type Methods = {
   "core.config.set": { params: CoreConfigSetParams; result: CoreConfigResult };
   "core.worktrees.list": { params: Empty; result: WorktreeListResult };
   "core.worktrees.delete": { params: WorktreeDeleteParams; result: Empty };
-  "core.shutdown": { params: Empty; result: Empty };
+  "core.activity": { params: Empty; result: CoreActivityResult };
+  "core.shutdown": { params: ShutdownParams; result: Empty };
   "provider.list": { params: Empty; result: ProviderListResult };
   "provider.models": { params: ProviderModelsParams; result: ProviderModelsResult };
   "workspace.list": { params: Empty; result: WorkspaceListResult };

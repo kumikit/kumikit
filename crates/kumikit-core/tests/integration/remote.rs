@@ -92,7 +92,7 @@ impl Remote {
     async fn hello(&mut self) -> Value {
         self.call(
             "core.hello",
-            json!({"protocol":"0.9", "client": {"name": "t", "version": "0"}}),
+            json!({"protocol":"0.10", "client": {"name": "t", "version": "0"}}),
         )
         .await
     }
@@ -149,7 +149,7 @@ async fn without_listen_the_core_is_local_only() {
         let hello = c
             .call(
                 "core.hello",
-                json!({"protocol":"0.9", "client": {"name": "t", "version": "0"}}),
+                json!({"protocol":"0.10", "client": {"name": "t", "version": "0"}}),
             )
             .await;
         assert!(

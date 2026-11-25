@@ -206,6 +206,28 @@ on Claude Code; a Claude Code thread hands off to an ACP agent with its history;
 wake-up fires when a build command succeeds; edit-and-resend forks; all existing checks
 pass.
 
+## M8 — Application updates and SSH remote sync
+
+Signed, idle-safe application updates and matching remote core installation over SSH:
+
+- Unified Ed25519-signed `release.json` manifest for desktop installers and core archives
+  ([ADR 0031](../decisions/0031-signed-release-manifest-and-updates.md)), with build-time
+  release version stamping.
+- Settings → Updates page displaying current version, update availability, manual install, and
+  opt-in automatic updates that wait until all agents are idle (`core.activity` and
+  `core.shutdown { ifIdle: true }`, protocol `0.10`).
+- `kumikit update` CLI subcommand for headless and TLS-paired cores.
+- Verified client-side download and SSH streaming installation of matching `kumikit` binaries
+  into `~/.local/bin/kumikit`, prompted by default with optional per-profile or global auto-sync
+  ([ADR 0032](../decisions/0032-ssh-remote-core-sync.md)).
+
+**Status:** built. Plan:
+[M8 — Application updates and SSH remote sync](../plans/2026-11-25-m8-updates-and-remote-sync.md).
+
+**Exit:** see the plan's exit criteria: signed update check, download, idle-gated auto-install,
+`kumikit update` CLI, and SSH matching core install all pass deterministic tests alongside all
+existing workspace checks.
+
 ## Open questions
 
 | Question | Decide by |

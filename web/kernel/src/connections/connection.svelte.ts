@@ -63,6 +63,8 @@ export class CoreConnection {
   /** What the user calls this core. */
   readonly label: string;
   readonly kind: ProfileInfo['kind'];
+  /** For SSH profiles: whether matching `kumikit` is synced automatically on mismatch. */
+  autoSync = $state<boolean>(false);
   status = $state<ConnectionStatus>('connecting');
   /** Why the last attempt failed, in plain words. */
   error = $state<string | undefined>();
@@ -95,6 +97,7 @@ export class CoreConnection {
     this.id = id;
     this.label = options.profile?.label ?? 'This computer';
     this.kind = options.profile?.kind ?? 'local';
+    this.autoSync = options.profile?.autoSync === true;
     this.#platform = platform;
     this.#timers = options.timers ?? realTimers;
     this.#client = options.client ?? { name: 'kumikit-desktop', version: '0.1.0' };

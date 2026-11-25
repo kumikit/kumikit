@@ -2,7 +2,8 @@
  * `test.use({ remote: true })` the relay also runs a second core with remote access behind
  * a cuttable network (M3). */
 import { type ChildProcess, spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -35,6 +36,12 @@ export interface Kumikit {
   remote: Remote;
   /** The fixture registry (only with `test.use({ registry: true })`). */
   registry: Registry;
+  /** Signed release fixture (only with `test.use({ updates: true })`). */
+  updates: {
+    appimagePath: string;
+    newPayload: string;
+    readAppimage(): string;
+  };
 }
 
 /** A fixture registry on loopback (test-plugins/registry-fixture), publisher "acme" with a
@@ -123,11 +130,76 @@ export interface Remote {
   rotate(): Promise<void>;
 }
 
-function startRelay(work: string, remote: boolean, registry?: string): Promise<{ child: ChildProcess; url: string }> {
+function createSignedReleaseFixture(work: string): {
+  env: Record<string, string>;
+  appimagePath: string;
+  newPayload: string;
+} {
+  const dir = join(work, 'release-fixture');
+  mkdirSync(dir, { recursive: true });
+  const appimagePath = join(dir, 'Kumikit.AppImage');
+  writeFileSync(appimagePath, 'old-appimage-v0.1.0-m7.4');
+
+  const newPayload = 'verified-new-appimage-v0.1.0-m8';
+  const assetPath = join(dir, 'Kumikit-v0.1.0-m8-x86_64.AppImage');
+  writeFileSync(assetPath, newPayload);
+  const assetSha = createHash('sha256').update(newPayload).digest('hex');
+
+  const manifest = {
+    format: 1,
+    version: '0.1.0-m8',
+    tag: 'v0.1.0-m8',
+    publishedAt: '2026-11-25T00:00:00Z',
+    notesUrl: 'https://github.com/kumikit/kumikit/releases/tag/v0.1.0-m8',
+    notes: 'Signed updates and SSH remote sync.',
+    core: {},
+    desktop: {
+      'linux-x86_64-appimage': {
+        url: `file://${assetPath}`,
+        sha256: assetSha,
+        size: Buffer.byteLength(newPayload),
+        format: 'appimage',
+      },
+    },
+  };
+  const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2) + '\n');
+  const manifestPath = join(dir, 'release.json');
+  writeFileSync(manifestPath, manifestBytes);
+
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  const rawPub = publicKey.export({ type: 'spki', format: 'der' }).subarray(-32);
+  const keyId = `ed25519:${rawPub.toString('base64url')}`;
+  const manifestSha = createHash('sha256').update(manifestBytes).digest('hex');
+  const signedPrefix = `kumikit-signature 1\nkey ${keyId}\nfile ${manifestSha} release.json\n`;
+  const sig = sign(null, Buffer.from(signedPrefix), privateKey).toString('base64url');
+  writeFileSync(join(dir, 'release.json.sig'), `${signedPrefix}sig ${sig}\n`);
+
+  return {
+    appimagePath,
+    newPayload,
+    env: {
+      KUMIKIT_UPDATE_URL: `file://${manifestPath}`,
+      KUMIKIT_UPDATE_KEY: keyId,
+      KUMIKIT_UPDATE_INSTALL_KIND: `appimage:${appimagePath}`,
+      KUMIKIT_TEST_APP_VERSION: '0.1.0-m7.4',
+    },
+  };
+}
+
+function startRelay(
+  work: string,
+  remote: boolean,
+  registry?: string,
+  extraEnv?: Record<string, string>,
+): Promise<{ child: ChildProcess; url: string }> {
   const exe = join(TARGET, 'debug', process.platform === 'win32' ? 'kumikit-web-relay.exe' : 'kumikit-web-relay');
   const args = ['--ui', join(BUNDLE, 'ui-browser-test'), '--ui-plugins', join(BUNDLE, 'ui-plugins'), '--core-plugins', join(BUNDLE, 'core-plugins'), '--work', work];
   if (remote) args.push('--remote');
-  const env = registry ? { ...process.env, KUMIKIT_DEFAULT_REGISTRY: registry } : process.env;
+  const env = {
+    ...process.env,
+    ...(registry ? { KUMIKIT_DEFAULT_REGISTRY: registry } : {}),
+    ...(extraEnv ?? {}),
+  };
   const child = spawn(exe, args, { stdio: ['pipe', 'pipe', 'inherit'], env });
   return new Promise((ok, fail) => {
     const lines = createInterface({ input: child.stdout! });
@@ -156,10 +228,11 @@ function manifest(n: number, transcript: string, options: ProviderOptions): stri
   ].join('\n');
 }
 
-export const test = base.extend<{ kk: Kumikit; remote: boolean; registry: boolean }>({
+export const test = base.extend<{ kk: Kumikit; remote: boolean; registry: boolean; updates: boolean }>({
   remote: [false, { option: true }],
   registry: [false, { option: true }],
-  kk: async ({ remote, registry: withRegistry }, use) => {
+  updates: [false, { option: true }],
+  kk: async ({ remote, registry: withRegistry, updates: withUpdates }, use) => {
     // Short: Unix socket paths are limited to about 104 bytes.
     const work = mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'kke-'));
     const project = join(work, 'proj');
@@ -167,7 +240,8 @@ export const test = base.extend<{ kk: Kumikit; remote: boolean; registry: boolea
     const remoteProject = join(work, 'rproj');
     mkdirSync(remoteProject);
     const fixture = withRegistry ? await startRegistry(join(work, 'reg')) : undefined;
-    const { child, url } = await startRelay(join(work, 'w'), remote, fixture?.registry.url);
+    const upd = withUpdates ? createSignedReleaseFixture(work) : undefined;
+    const { child, url } = await startRelay(join(work, 'w'), remote, fixture?.registry.url, upd?.env);
     const send = (path: string, body?: unknown) =>
       fetch(url + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: body === undefined ? null : JSON.stringify(body) });
     const post = async (path: string, body?: unknown) => {
@@ -206,6 +280,14 @@ export const test = base.extend<{ kk: Kumikit; remote: boolean; registry: boolea
       get registry(): Registry {
         if (!fixture) throw new Error('use test.use({ registry: true }) for a registry');
         return fixture.registry;
+      },
+      get updates() {
+        if (!upd) throw new Error('use test.use({ updates: true }) for signed updates');
+        return {
+          appimagePath: upd.appimagePath,
+          newPayload: upd.newPayload,
+          readAppimage: () => readFileSync(upd.appimagePath, 'utf8'),
+        };
       },
     });
     // Closing stdin stops the relay and its cores, and the registry.

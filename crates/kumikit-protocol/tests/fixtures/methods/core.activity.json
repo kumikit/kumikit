@@ -1,0 +1,17 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 29,
+    "method": "core.activity",
+    "params": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 29,
+    "result": {
+      "activeTurns": 0,
+      "readyQueued": 0,
+      "idle": true
+    }
+  }
+]

@@ -9,5 +9,18 @@
     "jsonrpc": "2.0",
     "id": 30,
     "result": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 31,
+    "method": "core.shutdown",
+    "params": {
+      "ifIdle": true
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 31,
+    "result": {}
   }
 ]

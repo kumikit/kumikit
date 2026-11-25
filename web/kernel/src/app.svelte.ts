@@ -42,6 +42,7 @@ import { SettingsStore, type TabSpec } from './settings/settings.svelte';
 import { SlotRegistry } from './slots/registry.svelte';
 import { ThemeEngine, variantKey } from './theme/engine.svelte';
 import { ThreadStore } from './threads/store.svelte';
+import { UpdateManager } from './updates/updates.svelte';
 
 export type Tone = 'info' | 'success' | 'warning' | 'danger';
 
@@ -102,6 +103,7 @@ export class Kernel {
   readonly clientPlugins: ClientPlugins;
   readonly corePlugins: CorePlugins;
   readonly registries: Registries;
+  readonly updates: UpdateManager;
   main = $state.raw<MainView>({ kind: 'tab' });
   /** Core plugins' commands for the active tab's core. */
   readonly coreCommands: CoreCommands;
@@ -130,6 +132,10 @@ export class Kernel {
     this.clientPlugins = new ClientPlugins(this);
     this.corePlugins = new CorePlugins(this);
     this.registries = new Registries(this);
+    this.updates = new UpdateManager(this.platform, this.settings, () => this.connections[0], {
+      ...(this.#timers ? { timers: this.#timers } : {}),
+      notify: (m, t) => this.notify(m, t),
+    });
     this.coreCommands = new CoreCommands(this);
     this.#registerCommands();
     this.coreCommands.watch();
@@ -155,7 +161,8 @@ export class Kernel {
     for (const leaf of allLeaves(this.layoutRoot)) {
       for (const tab of leaf.tabs) this.#watch(tab.connection, tab.workspace);
     }
-    await Promise.all([home, plugins]);
+    const updates = this.updates.start();
+    await Promise.all([home, plugins, updates]);
   }
 
   /** Updates the constructed stylesheet carrying sidebar widths and split ratios (CSP-safe). */
@@ -184,10 +191,49 @@ export class Kernel {
   }
 
   #add(profile: ProfileInfo): CoreConnection {
-    const c = new CoreConnection(profile.name, this.platform, this.#options({ label: profile.label, kind: profile.kind }));
+    const prof: Omit<ProfileInfo, 'name'> = {
+      label: profile.label,
+      kind: profile.kind,
+      ...(profile.autoSync !== undefined ? { autoSync: profile.autoSync } : {}),
+    };
+    const c = new CoreConnection(profile.name, this.platform, this.#options(prof));
     this.connections = [...this.connections, c];
-    void c.start();
+    void c.start().then(() => this.#maybeAutoSyncSsh(c));
     return c;
+  }
+
+  /** Tracks which SSH connections already triggered an automatic sync attempt in this session. */
+  #sshAutoSynced = new Set<string>();
+
+  async #maybeAutoSyncSsh(c: CoreConnection): Promise<void> {
+    if (c.kind !== 'ssh' || c.status !== 'mismatch') return;
+    if (!this.settings.value.autoSyncSsh && !c.autoSync) return;
+    if (!this.platform.profiles.syncSsh || this.#sshAutoSynced.has(c.id)) return;
+    this.#sshAutoSynced.add(c.id);
+    this.notify(`Installing matching Kumikit on ${c.label} over SSH…`, 'info');
+    try {
+      const res = await this.platform.profiles.syncSsh({ profile: c.id, ifIdle: true });
+      this.notify(`Installed Kumikit ${res.installedVersion} on ${c.label}. Reconnecting…`, 'success');
+      c.reconnectNow();
+    } catch (e) {
+      this.notify(
+        `Cannot auto-sync ${c.label}: ${e instanceof Error ? e.message : String(e)}`,
+        'warning',
+      );
+    }
+  }
+
+  /** Updates an SSH profile's per-host auto-sync setting. */
+  async setCoreAutoSync(name: string, autoSync: boolean): Promise<boolean> {
+    if (!this.platform.profiles.updateSsh) return false;
+    const c = this.connectionFor(name);
+    if (!c || c.kind !== 'ssh') return false;
+    const updated = await this.attempt('Cannot update SSH core setting', () =>
+      this.platform.profiles.updateSsh!({ name, autoSync }),
+    );
+    if (!updated) return false;
+    c.autoSync = updated.autoSync === true;
+    return true;
   }
 
   #options(profile: Omit<ProfileInfo, 'name'>): ConstructorParameters<typeof CoreConnection>[2] {
@@ -984,6 +1030,12 @@ export class Kernel {
       const workspace = a?.address?.workspace ?? a?.workspace ?? this.activeTab?.workspace ?? '';
       return this.pickAttachments(connection, workspace, a?.worktreePath);
     });
+    if (this.updates.supported) {
+      c.register({ id: 'app.updates.check', title: 'Check for updates' }, () => {
+        this.main = { kind: 'settings', page: 'updates' };
+        void this.updates.checkNow();
+      });
+    }
   }
 
   /** One command per theme variant; called when the installed themes change. */

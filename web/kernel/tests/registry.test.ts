@@ -88,7 +88,7 @@ const PERMS = { spawn: ['agent'], network: [], files: 'none', secrets: [], tools
 function setup() {
   const core = new FakeCore();
   core.handle('core.hello', () => ({
-    protocol: '0.9',
+    protocol: '0.10',
     core: { version: '0', name: 'fake', os: 'linux' },
     plugins: [],
     capabilities: ['threads', 'plugins', 'registry'],

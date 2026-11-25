@@ -25,6 +25,10 @@ pub struct Profile {
     pub kind: Kind,
 }
 
+fn is_false(v: &bool) -> bool {
+    !*v
+}
+
 /// How a profile reaches its core.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
@@ -46,6 +50,9 @@ pub enum Kind {
         /// The remote command; `kumikit bridge` when absent.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         command: Option<String>,
+        /// Automatically download and install matching `kumikit` over SSH when missing or mismatched.
+        #[serde(default, rename = "autoSync", skip_serializing_if = "is_false")]
+        auto_sync: bool,
     },
 }
 
@@ -59,6 +66,9 @@ pub struct ProfileInfo {
     pub label: String,
     /// `local`, `tls` or `ssh`.
     pub kind: &'static str,
+    /// Present for `ssh` profiles: whether matching `kumikit` is synced automatically.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_sync: Option<bool>,
 }
 
 impl Profile {
@@ -70,6 +80,10 @@ impl Profile {
             kind: match self.kind {
                 Kind::Tls { .. } => "tls",
                 Kind::Ssh { .. } => "ssh",
+            },
+            auto_sync: match self.kind {
+                Kind::Ssh { auto_sync, .. } => Some(auto_sync),
+                Kind::Tls { .. } => None,
             },
         }
     }
@@ -179,6 +193,39 @@ impl Profiles {
         Ok(removed)
     }
 
+    /// Updates an SSH profile's optional command and/or `auto_sync` flag.
+    pub fn update_ssh(
+        &self,
+        name: &str,
+        command: Option<Option<String>>,
+        auto_sync: Option<bool>,
+    ) -> Result<Profile, ProfileError> {
+        let _guard = self.write.lock().unwrap_or_else(|p| p.into_inner());
+        let mut all = self.list()?;
+        let profile = all
+            .iter_mut()
+            .find(|p| p.name == name)
+            .ok_or_else(|| ProfileError::Unknown(name.to_owned()))?;
+        match &mut profile.kind {
+            Kind::Ssh {
+                command: cur_cmd,
+                auto_sync: cur_sync,
+                ..
+            } => {
+                if let Some(next_cmd) = command {
+                    *cur_cmd = next_cmd;
+                }
+                if let Some(next_sync) = auto_sync {
+                    *cur_sync = next_sync;
+                }
+            }
+            Kind::Tls { .. } => return Err(ProfileError::Unknown(name.to_owned())),
+        }
+        let updated = profile.clone();
+        self.save(&all)?;
+        Ok(updated)
+    }
+
     fn save(&self, all: &[Profile]) -> Result<(), ProfileError> {
         let bytes = serde_json::to_vec_pretty(all).map_err(io::Error::other)?;
         write_private(&self.path, &bytes)?;
@@ -247,6 +294,7 @@ mod tests {
             kind: Kind::Ssh {
                 destination: "me@vm-3".into(),
                 command: None,
+                auto_sync: false,
             },
         })
         .unwrap();

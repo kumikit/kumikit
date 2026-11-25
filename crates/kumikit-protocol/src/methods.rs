@@ -100,8 +100,11 @@ methods! {
         CoreWorktreesList = "core.worktrees.list" (Empty) -> WorktreeListResult;
         /// `core.worktrees.delete`: removes a managed Git worktree directory under `<homeDir>/worktrees/`.
         CoreWorktreesDelete = "core.worktrees.delete" (WorktreeDeleteParams) -> Empty;
-        /// `core.shutdown`: stop the core; running turns end as on any stop.
-        CoreShutdown = "core.shutdown" (Empty) -> Empty;
+        /// `core.activity`: summarises live agent turns and ready queued messages across
+        /// all workspaces so updaters can wait for idle before stopping the core (since 0.10).
+        CoreActivity = "core.activity" (Empty) -> CoreActivityResult;
+        /// `core.shutdown`: stop the core; with `ifIdle: true`, refuses while agents are busy.
+        CoreShutdown = "core.shutdown" (ShutdownParams) -> Empty;
         /// `provider.list`: available providers, from manifests, without activating any.
         ProviderList = "provider.list" (Empty) -> ProviderListResult;
         /// `provider.models`: a provider's models; activates its plugin.
@@ -242,6 +245,30 @@ pub struct ClientInfo {
     pub name: String,
     /// Program version.
     pub version: String,
+}
+
+/// Result of `core.activity`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreActivityResult {
+    /// Turns currently running or awaiting approval across all workspaces (including side
+    /// threads and scheduled turns).
+    pub active_turns: u32,
+    /// Unpaused, ready queued messages waiting to start across all workspaces.
+    pub ready_queued: u32,
+    /// True when no turns are active and no ready queued messages are waiting.
+    pub idle: bool,
+}
+
+/// Params of `core.shutdown`.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ShutdownParams {
+    /// When true, fail with `conflict` instead of shutting down if any turn is active or
+    /// any unpaused queued message is ready to start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub if_idle: Option<bool>,
 }
 
 /// Params of `auth.pair`.

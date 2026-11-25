@@ -46,6 +46,30 @@ enum Command {
         #[arg(short, long)]
         output: PathBuf,
     },
+    /// Build (and optionally Ed25519-sign) release.json from staged release assets.
+    ReleaseManifest {
+        /// Git release tag (for example `v0.1.0-m8`).
+        #[arg(long)]
+        tag: String,
+        /// Directory containing staged release archives and installers.
+        #[arg(long)]
+        assets_dir: PathBuf,
+        /// Base download URL for assets (for example `https://github.com/kumikit/kumikit/releases/download/v0.1.0-m8`).
+        #[arg(long)]
+        base_url: String,
+        /// Release notes URL (defaults to `https://github.com/kumikit/kumikit/releases/tag/<tag>`).
+        #[arg(long)]
+        notes_url: Option<String>,
+        /// Optional short release summary.
+        #[arg(long)]
+        notes: Option<String>,
+        /// Directory where `release.json` (and `release.json.sig` when signed) are written.
+        #[arg(long)]
+        out_dir: PathBuf,
+        /// Path to a PKCS#8 Ed25519 private key PEM file (falls back to `KUMIKIT_SIGNING_KEY`).
+        #[arg(long)]
+        key: Option<PathBuf>,
+    },
 }
 
 #[allow(clippy::print_stdout, clippy::print_stderr)]
@@ -101,6 +125,71 @@ fn main() -> Result<ExitCode> {
                     Ok(ExitCode::FAILURE)
                 }
             }
+        }
+        Command::ReleaseManifest {
+            tag,
+            assets_dir,
+            base_url,
+            notes_url,
+            notes,
+            out_dir,
+            key,
+        } => {
+            let published_at = time::OffsetDateTime::now_utc()
+                .format(&time::format_description::well_known::Rfc3339)
+                .context("cannot format the time")?;
+            let notes_url = notes_url.unwrap_or_else(|| {
+                format!("https://github.com/kumikit/kumikit/releases/tag/{tag}")
+            });
+            let manifest = kumikit_registry::release::build_manifest_from_dir(
+                &tag,
+                &assets_dir,
+                &base_url,
+                &published_at,
+                &notes_url,
+                notes,
+            )?;
+            std::fs::create_dir_all(&out_dir)
+                .with_context(|| format!("cannot create {}", out_dir.display()))?;
+            let key_pem = match key {
+                Some(path) => Some(
+                    std::fs::read_to_string(&path)
+                        .with_context(|| format!("cannot read key {}", path.display()))?,
+                ),
+                None => std::env::var("KUMIKIT_SIGNING_KEY")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty()),
+            };
+            let manifest_path = out_dir.join(kumikit_registry::release::RELEASE_MANIFEST_NAME);
+            if let Some(pem) = key_pem {
+                let signing_key = kumikit_package::signature::SigningKey::from_pem(&pem)
+                    .context("invalid Ed25519 signing key")?;
+                let (json, sig) =
+                    kumikit_registry::release::sign_manifest(&manifest, &signing_key)?;
+                kumikit_registry::release::verify_release_bytes(&json, &sig, signing_key.public())?;
+                std::fs::write(&manifest_path, &json)?;
+                let sig_path = out_dir.join("release.json.sig");
+                std::fs::write(&sig_path, &sig)?;
+                println!(
+                    "wrote {} and {} (signed by {}; {} core, {} desktop assets)",
+                    manifest_path.display(),
+                    sig_path.display(),
+                    signing_key.public(),
+                    manifest.core.len(),
+                    manifest.desktop.len()
+                );
+            } else {
+                let mut json = serde_json::to_vec_pretty(&manifest)?;
+                json.push(b'\n');
+                std::fs::write(&manifest_path, &json)?;
+                println!(
+                    "wrote {} (unsigned; {} core, {} desktop assets)",
+                    manifest_path.display(),
+                    manifest.core.len(),
+                    manifest.desktop.len()
+                );
+            }
+            Ok(ExitCode::SUCCESS)
         }
     }
 }

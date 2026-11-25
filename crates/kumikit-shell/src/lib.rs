@@ -13,7 +13,9 @@ pub mod profiles;
 pub mod remote;
 pub mod secrets;
 pub mod ssh;
+pub mod ssh_sync;
 pub mod store;
 #[cfg(feature = "test-hooks")]
 pub mod test_hooks;
 pub mod transport;
+pub mod updater;

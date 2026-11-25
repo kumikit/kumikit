@@ -9,8 +9,10 @@ pub mod client;
 pub mod confusable;
 pub mod fetch;
 pub mod index;
+pub mod release;
 pub mod resolve;
 
 pub use client::{Freshness, RegistryClient, RegistryError, RegistryList};
 pub use fetch::{FetchError, Fetched, Fetcher, Limits};
 pub use index::Index;
+pub use release::{ReleaseAsset, ReleaseClient, ReleaseError, ReleaseManifest, UpdateCheck};
