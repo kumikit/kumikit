@@ -1126,7 +1126,7 @@
       </div>
     {/if}
     {#if (view?.pendingApprovals.length ?? 0) > 0}
-      <div class="approval-bar" role="region" aria-label="Pending approvals">
+      <div class="approval-bar" role="group" aria-label="Pending approvals">
         <div class="approval-bar-head">
           <span>
             {view!.pendingApprovals.length} pending {view!.pendingApprovals.length === 1 ? 'approval' : 'approvals'}

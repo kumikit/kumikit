@@ -1329,19 +1329,23 @@ impl Provider for WasmProvider {
                 let turn_id = sink.turn().as_str().to_owned();
                 materialize_attachments(data_dir, turn_id, input.text, input.attachments).await?
             };
+            // Serialize turns on this session so a rapid retry after cancel waits for the
+            // cancelled guest call to unwind before calling `begin_turn` (which clears
+            // `cancel_pending`). Acquire the lock and mark the turn active BEFORE spawning
+            // so an immediate `cancel()` never races ahead of `begin_turn` or sees
+            // `busy_gen == 0`.
+            let guard = Arc::clone(&s.turn_lock).lock_owned().await;
             *lock(&s.last_used) = host.now();
+            let turn_gen = s.next_gen.fetch_add(1, Ordering::Relaxed);
+            s.busy_gen.store(turn_gen, Ordering::Release);
+            s.shared.begin_turn(sink);
             // Run the call as its own task: if the kernel drops this future (cancel), the
-            // guest still finishes, or is discarded after the grace period. Serialize with
-            // `turn_lock` so a rapid retry after cancel waits for the cancelled guest call
-            // to unwind before calling `begin_turn` (which clears `cancel_pending`).
+            // guest still finishes, or is discarded after the grace period.
             let task = {
                 let s = Arc::clone(&s);
                 let host = host.clone();
                 tokio::spawn(async move {
-                    let _guard = s.turn_lock.lock().await;
-                    let turn_gen = s.next_gen.fetch_add(1, Ordering::Relaxed);
-                    s.busy_gen.store(turn_gen, Ordering::Release);
-                    s.shared.begin_turn(sink);
+                    let _guard = guard;
                     let r = s.instance.send(session, wit::UserInput { text }).await;
                     s.shared.end_turn();
                     let _ = s.busy_gen.compare_exchange(

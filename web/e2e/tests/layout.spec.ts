@@ -136,12 +136,20 @@ test('sidebars resize and collapse, splits start new threads, and right inspecto
   await mod(page, 'b');
   await expect(page.getByRole('complementary', { name: 'Workspace sidebar' })).toBeVisible();
 
-  // Open the right inspector dock from the top bar; close its tab, then re-open via dropdown.
+  // Open the right inspector dock from the top bar; open Inspector test via dropdown, verify deduplication, close, and re-open.
   await page.getByRole('button', { name: 'Toggle right inspector' }).click();
   const inspector = page.getByRole('complementary', { name: 'Inspector' });
   await expect(inspector).toBeVisible();
+  await inspector.getByRole('button', { name: 'Open UI plugin in inspector' }).click();
+  await inspector.getByRole('menuitem', { name: /Inspector test/ }).click();
+  await expect(inspector.getByRole('group', { name: 'Inspector panels' }).getByRole('button', { name: 'Inspector test', exact: true })).toBeVisible();
   const frame = page.frameLocator('iframe[title="Inspector test"]');
   await expect(frame.locator('#out[data-ready="1"]')).toBeVisible({ timeout: 15_000 });
+
+  // Selecting an already-open plugin from the menu focuses it without creating a duplicate tab.
+  await inspector.getByRole('button', { name: 'Open UI plugin in inspector' }).click();
+  await inspector.getByRole('menuitem', { name: /Inspector test/ }).click();
+  await expect(inspector.getByRole('group', { name: 'Inspector panels' }).getByRole('button', { name: 'Inspector test', exact: true })).toHaveCount(1);
 
   await inspector.getByRole('button', { name: 'Close Inspector test' }).click();
   await expect(inspector.getByRole('group', { name: 'Inspector panels' }).getByRole('button', { name: 'Inspector test', exact: true })).toHaveCount(0);
@@ -149,10 +157,6 @@ test('sidebars resize and collapse, splits start new threads, and right inspecto
   await inspector.getByRole('menuitem', { name: /Inspector test/ }).click();
   await expect(inspector.getByRole('group', { name: 'Inspector panels' }).getByRole('button', { name: 'Inspector test', exact: true })).toBeVisible();
   await expect(frame.locator('#out[data-ready="1"]')).toBeVisible({ timeout: 15_000 });
-  // Selecting an already-open plugin from the menu focuses it without creating a duplicate tab.
-  await inspector.getByRole('button', { name: 'Open UI plugin in inspector' }).click();
-  await inspector.getByRole('menuitem', { name: /Inspector test/ }).click();
-  await expect(inspector.getByRole('group', { name: 'Inspector panels' }).getByRole('button', { name: 'Inspector test', exact: true })).toHaveCount(1);
 
   // Split right (horizontal): the new pane starts a fresh draft thread (inline composer),
   // rather than duplicating the existing thread transcript.

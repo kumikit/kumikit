@@ -131,7 +131,6 @@ async function flow(b) {
     async () => (await b.text(await b.wait(`${CORE} li`, 'test.recorded7'))).includes('Enabled'),
     'test.recorded7 enabled',
   );
-  await b.click(await b.wait('button', 'Close'));
 
   step('opening workspace and running turn 1');
   pick(project);

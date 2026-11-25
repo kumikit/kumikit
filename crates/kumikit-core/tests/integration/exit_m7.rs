@@ -437,6 +437,9 @@ providers = [
             t2.iter().any(|e| e["kind"] == "limit.reached"),
             "expected limit.reached in {t2:?}"
         );
+        // `queue.held` is appended right after `turn.ended` by `finish_run`.
+        let held = c.events_until("queue.held").await;
+        assert_eq!(held.last().unwrap()["data"]["reason"], "limited");
         let snap = c.call("thread.get", json!({ "thread": thread })).await;
         assert_eq!(snap["thread"]["status"], "limited", "{snap}");
         assert_eq!(snap["queueHold"], "limited", "{snap}");
