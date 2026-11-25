@@ -32,10 +32,12 @@
     ctx,
     address,
     connection,
+    sideFor,
   }: {
     ctx: PluginContext;
     address: ThreadAddress;
     connection?: Connection;
+    sideFor?: ThreadAddress;
   } = $props();
 
   let view = $state.raw<ThreadView | undefined>();
@@ -43,6 +45,7 @@
   const connReady = $derived(activeConn ? activeConn.ready : (view?.live ?? true));
   let text = $state('');
   let attachments = $state.raw<PendingAttachment[]>([]);
+  let forkNote = $state<string | undefined>();
   let dragging = $state(false);
   let armedCancel = $state(false);
   let models = $state.raw<ModelInfo[]>([]);
@@ -72,6 +75,61 @@
   });
 
   $effect(() => ctx.threads.watch(address, (v) => (view = v)));
+
+  // Restore any preloaded edit-fork draft (text, attachments, calm notice) saved for this thread.
+  $effect(() => {
+    const key = `preload:${address.thread}`;
+    const raw = ctx.storage?.get(key);
+    if (!raw) {
+      forkNote = undefined;
+      return;
+    }
+    ctx.storage?.delete(key);
+    try {
+      const parsed = JSON.parse(raw) as {
+        text?: string;
+        attachments?: import('@kumikit/protocol').Attachment[];
+        note?: string;
+      };
+      if (typeof parsed.text === 'string') text = parsed.text;
+      if (Array.isArray(parsed.attachments) && parsed.attachments.length > 0) {
+        attachments = parsed.attachments.map((att, i) => {
+          const item: PendingAttachment = {
+            ...att,
+            id: `fork-att-${i}-${Date.now()}`,
+            size: Math.floor((att.data.length * 3) / 4),
+          };
+          const url = attachmentImageUrl(att);
+          if (url) item.previewUrl = url;
+          return item;
+        });
+      }
+      forkNote = parsed.note;
+    } catch {
+      // Ignore malformed preload payload.
+    }
+  });
+
+  // Allow side threads or accessories to insert text into this thread's composer.
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ address?: ThreadAddress; text: string }>).detail;
+      if (!detail?.text) return;
+      if (
+        detail.address &&
+        (detail.address.connection !== address.connection ||
+          detail.address.workspace !== address.workspace ||
+          detail.address.thread !== address.thread)
+      ) {
+        return;
+      }
+      text = text ? `${text}\n\n${detail.text}` : detail.text;
+      textarea?.focus();
+    };
+    window.addEventListener('kumikit:composer-insert', handler);
+    return () => window.removeEventListener('kumikit:composer-insert', handler);
+  });
 
   // Load available providers so the user can hand off to another agent when idle.
   $effect(() => {
@@ -289,10 +347,93 @@
     void run('thread.defer', args);
   }
 
+  function assistantText(turn: import('@kumikit/ui-sdk').TurnView): string {
+    return turn.items
+      .filter((it): it is Extract<typeof it, { kind: 'message' }> => it.kind === 'message')
+      .map((it) => it.text)
+      .join('\n\n')
+      .trim();
+  }
+
+  async function forkFrom(turnId?: string) {
+    await run('thread.fork', turnId ? { address, atTurn: turnId, open: true } : { address, open: true });
+  }
+
+  async function editTurn(turn: import('@kumikit/ui-sdk').TurnView) {
+    const forked = (await run('thread.fork', {
+      address,
+      beforeTurn: turn.id,
+      open: false,
+    })) as import('@kumikit/protocol').Thread | undefined;
+    if (!forked) return;
+    ctx.storage?.set(
+      `preload:${forked.id}`,
+      JSON.stringify({
+        text: turn.input,
+        attachments: turn.attachments ?? [],
+        note: 'Editing opened a fork before that prompt. Workspace files were not rewound.',
+      }),
+    );
+    await run('thread.open', {
+      address: { connection: address.connection, workspace: address.workspace, thread: forked.id },
+    });
+  }
+
+  async function openBtw(question: string) {
+    const conn = activeConn;
+    if (!conn?.ready) return;
+    let sideId: string | undefined;
+    try {
+      const listed = await conn.call('thread.list', { workspace: address.workspace, includeSide: true });
+      sideId = (listed?.threads ?? []).find((t) => t.side && t.parent === address.thread)?.id;
+    } catch {
+      // Fall through to creating a fresh side thread.
+    }
+    if (!sideId) {
+      const created = await conn.call('thread.create', {
+        workspace: address.workspace,
+        parent: address.thread,
+        side: true,
+        title: 'Side thread',
+      });
+      sideId = created.thread.id;
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('kumikit:side-thread-opened', { detail: { parent: address, side: sideId } }));
+    }
+    await run('inspector.open', { tab: `${ctx.id}/side` });
+    if (question.trim()) {
+      await run('thread.send', {
+        address: { connection: address.connection, workspace: address.workspace, thread: sideId },
+        text: question.trim(),
+      });
+    }
+  }
+
+  function copyText(content: string) {
+    if (!content) return;
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      void navigator.clipboard.writeText(content).then(
+        () => ctx.notify('Copied to clipboard.', 'info'),
+        () => {},
+      );
+    }
+  }
+
   function send() {
     const message = text.trim();
     const pending = attachments;
     if ((!message && pending.length === 0) || archived) return;
+    if (message === '/fork') {
+      text = '';
+      void forkFrom();
+      return;
+    }
+    if (message === '/btw' || message.startsWith('/btw ')) {
+      text = '';
+      void openBtw(message.slice(4).trim());
+      return;
+    }
     if (message.startsWith('/later')) {
       const parsed = parseLaterCommand(message);
       if (!parsed) {
@@ -410,6 +551,19 @@
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div class="log" tabindex="0" bind:this={log} onscroll={onScroll} role="log" aria-live="polite" aria-relevant="additions" aria-label="Transcript">
     <div class="column">
+      {#if view?.thread?.forkedFrom}
+        <div class="fork-banner" role="note">
+          Forked from an earlier thread{#if forkNote} · {forkNote}{/if}
+          {#if forkNote}
+            <button type="button" class="turn-action" onclick={() => (forkNote = undefined)}>Dismiss</button>
+          {/if}
+        </div>
+      {:else if forkNote}
+        <div class="fork-banner" role="note">
+          {forkNote}
+          <button type="button" class="turn-action" onclick={() => (forkNote = undefined)}>Dismiss</button>
+        </div>
+      {/if}
       {#if view && view.turns.length === 0}
         <div class="empty-state">
           <p class="empty-title">How can I help with this workspace?</p>
@@ -463,6 +617,28 @@
               {#if turn.input}
                 <p>{turn.input}</p>
               {/if}
+              {#if !sideFor && !archived}
+                <div class="turn-actions user-actions">
+                  <button
+                    type="button"
+                    class="turn-action"
+                    aria-label="Edit prompt in fork"
+                    title="Fork before this message and edit it"
+                    onclick={() => void editTurn(turn)}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    class="turn-action"
+                    aria-label="Fork from turn"
+                    title="Fork thread after this turn"
+                    onclick={() => void forkFrom(turn.id)}
+                  >
+                    Fork
+                  </button>
+                </div>
+              {/if}
             </div>
             <div class="agent">
               {#if turn.provider}
@@ -478,6 +654,25 @@
               {/if}
               {#if turn.outcome && turn.outcome !== 'done'}
                 <p class="outcome {turn.outcome}">{outcomeText[turn.outcome]}{turn.error ? `: ${turn.error}` : ''}</p>
+              {/if}
+              {#if turn.ended}
+                {@const reply = assistantText(turn)}
+                <div class="turn-actions">
+                  {#if reply}
+                    <button type="button" class="turn-action" onclick={() => copyText(reply)}>Copy</button>
+                  {/if}
+                  {#if sideFor && reply}
+                    <button
+                      type="button"
+                      class="turn-action primary"
+                      onclick={() => void run('composer.insert', { address: sideFor, text: reply })}
+                    >
+                      Insert into main
+                    </button>
+                  {:else if !sideFor && !archived}
+                    <button type="button" class="turn-action" onclick={() => void forkFrom(turn.id)}>Fork from here</button>
+                  {/if}
+                </div>
               {/if}
               {#if turn.usage}
                 <p class="usage">{turn.usage.inputTokens} in · {turn.usage.outputTokens} out{turn.usage.cost !== undefined ? ` · $${turn.usage.cost.toFixed(4)}` : ''}</p>
@@ -1270,6 +1465,47 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .fork-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-medium, 0);
+    background: var(--kk-surface-raised, Canvas);
+    color: var(--kk-text-secondary, CanvasText);
+    font-size: var(--kk-font-size-small, small);
+  }
+  .turn-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .user-actions {
+    justify-content: flex-end;
+    margin-top: 4px;
+  }
+  .turn-action {
+    padding: 2px 8px;
+    border: 1px solid var(--kk-border-subtle, ButtonBorder);
+    border-radius: var(--kk-radius-small, 0);
+    background: transparent;
+    color: var(--kk-text-muted, GrayText);
+    font: inherit;
+    font-size: var(--kk-font-size-small, small);
+    cursor: pointer;
+  }
+  .turn-action:hover {
+    background: var(--kk-surface-hover, ButtonFace);
+    color: var(--kk-text-primary, CanvasText);
+  }
+  .turn-action.primary {
+    border-color: var(--kk-accent, Highlight);
+    color: var(--kk-accent, Highlight);
   }
   @media (prefers-reduced-motion: reduce) {
     .log {

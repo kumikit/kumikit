@@ -126,6 +126,8 @@ methods! {
         ThreadList = "thread.list" (ThreadListParams) -> ThreadListResult;
         /// `thread.create`: a new thread.
         ThreadCreate = "thread.create" (ThreadCreateParams) -> ThreadCreateResult;
+        /// `thread.fork`: copy a thread's history up to a turn into a new thread (since 0.9).
+        ThreadFork = "thread.fork" (ThreadForkParams) -> ThreadCreateResult;
         /// `thread.update`: updates a thread's model, permission mode, or title.
         ThreadUpdate = "thread.update" (ThreadUpdateParams) -> ThreadUpdateResult;
         /// `thread.get`: a snapshot folded from the log.
@@ -892,6 +894,9 @@ pub struct ThreadListParams {
     /// Include archived threads (default false).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub include_archived: Option<bool>,
+    /// Include side threads (default false; since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_side: Option<bool>,
 }
 
 /// Result of `thread.list`.
@@ -924,6 +929,30 @@ pub struct ThreadCreateParams {
     /// Optional linked Git worktree path for this thread (keeps the thread under `workspace`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree_path: Option<String>,
+    /// Parent thread id for a linked side thread (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<ThreadId>,
+    /// True when creating a side thread hidden from the main sidebar list (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side: Option<bool>,
+}
+
+/// Params of `thread.fork` (since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadForkParams {
+    /// Source thread to fork.
+    pub thread: ThreadId,
+    /// Copy events up to and including this turn (mutually exclusive with `beforeTurn`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at_turn: Option<TurnId>,
+    /// Copy events strictly before this turn (mutually exclusive with `atTurn`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_turn: Option<TurnId>,
+    /// Optional title for the new thread.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 /// Result of `thread.create`.

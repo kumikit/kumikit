@@ -237,6 +237,18 @@ impl TitleSource {
     }
 }
 
+/// Where a forked thread branched from (since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadForkInfo {
+    /// Source thread id.
+    pub thread: ThreadId,
+    /// Turn at or before which the fork was cut, if specified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<TurnId>,
+}
+
 /// A conversation with an agent inside a workspace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -262,6 +274,15 @@ pub struct Thread {
     /// Linked Git worktree directory this thread runs in; absent means the workspace root.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree_path: Option<String>,
+    /// Source thread/turn when created via `thread.fork` (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from: Option<ThreadForkInfo>,
+    /// Parent thread id for a linked side thread (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<ThreadId>,
+    /// True when this is a side thread hidden from the main sidebar list (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side: Option<bool>,
     /// Current status.
     pub status: ThreadStatus,
     /// When it was created.
@@ -518,6 +539,9 @@ mod tests {
             model: "m".into(),
             permission_mode: None,
             worktree_path: None,
+            forked_from: None,
+            parent: None,
+            side: None,
             status: ThreadStatus::AwaitingApproval,
             created: Timestamp("t0".into()),
             updated: Timestamp("t1".into()),

@@ -72,6 +72,8 @@ export class CoreConnection {
   workspaces = $state.raw<Workspace[]>([]);
   /** Threads per workspace id, most recently updated first. */
   threads = $state.raw<Record<string, Thread[]>>({});
+  /** Side threads indexed by thread id (hidden from the main sidebar list). */
+  sideThreads = $state.raw<Record<string, Thread>>({});
   /** The version a mismatched core speaks, if it said. */
   coreProtocol = $state<string | undefined>();
 
@@ -377,6 +379,12 @@ export class CoreConnection {
   /** Keeps the newer copy of a thread (by `updated`), so a list and live events can
    * arrive in either order (02-protocol, Workspace topic). */
   #mergeThread(thread: Thread): void {
+    if (thread.side) {
+      const old = this.sideThreads[thread.id];
+      if (old && old.updated > thread.updated) return;
+      this.sideThreads = { ...this.sideThreads, [thread.id]: thread };
+      return;
+    }
     const list = this.threads[thread.workspace] ?? [];
     const old = list.find((t) => t.id === thread.id);
     if (old && old.updated > thread.updated) return;

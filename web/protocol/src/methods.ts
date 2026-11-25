@@ -56,6 +56,7 @@ import type { SubscribeResult } from "./SubscribeResult";
 import type { ThreadCreateParams } from "./ThreadCreateParams";
 import type { ThreadCreateResult } from "./ThreadCreateResult";
 import type { ThreadDeferParams } from "./ThreadDeferParams";
+import type { ThreadForkParams } from "./ThreadForkParams";
 import type { ThreadListParams } from "./ThreadListParams";
 import type { ThreadListResult } from "./ThreadListResult";
 import type { ThreadRef } from "./ThreadRef";
@@ -106,6 +107,7 @@ export type Methods = {
   "workspace.git.worktreeCreate": { params: WorkspaceWorktreeCreateParams; result: WorkspaceWorktreeCreateResult };
   "thread.list": { params: ThreadListParams; result: ThreadListResult };
   "thread.create": { params: ThreadCreateParams; result: ThreadCreateResult };
+  "thread.fork": { params: ThreadForkParams; result: ThreadCreateResult };
   "thread.update": { params: ThreadUpdateParams; result: ThreadUpdateResult };
   "thread.get": { params: ThreadRef; result: ThreadSnapshot };
   "thread.send": { params: ThreadSendParams; result: ThreadSendResult };

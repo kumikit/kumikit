@@ -13,6 +13,9 @@ pub const MAX_HANDOFF_MESSAGES: usize = 200;
 /// Maximum JSON-encoded bytes for `messages` in a handoff context (64 KiB, ADR 0029).
 pub const MAX_HANDOFF_BYTES: usize = 64 * 1024;
 
+/// Maximum bytes of unseen parent-thread context attached to a side-thread turn (24 KiB).
+pub const MAX_SIDE_PARENT_BYTES: usize = 24 * 1024;
+
 /// Fixed prompt sent to the outgoing provider in `summary` handoff mode.
 pub const SUMMARY_PROMPT: &str = "Write a concise handoff note for another coding agent taking over this conversation. Cover: (1) the user's goal, (2) key decisions made, (3) current state of the work, (4) open items or next steps, and (5) relevant files. Plain text or markdown only; do not run tools or edit files.";
 
@@ -320,6 +323,76 @@ pub fn prepend(rendered: &str, user_text: &str) -> String {
     } else {
         format!("{rendered}\n\n{user_text}")
     }
+}
+
+/// Builds bounded main-thread context for a side thread from parent events with
+/// `seq > after_seq`, capped at [`MAX_SIDE_PARENT_BYTES`] (24 KiB). Returns
+/// `(rendered_preamble, last_seq)` when there are new messages to share.
+pub fn build_side_parent_context(
+    parent_events: &[StoredEvent],
+    after_seq: u64,
+) -> Option<(String, u64)> {
+    let slice: Vec<StoredEvent> = parent_events
+        .iter()
+        .filter(|e| e.seq > after_seq)
+        .cloned()
+        .collect();
+    let last_seq = slice.last().map(|e| e.seq)?;
+    let mut ctx = build_context(
+        &slice,
+        ProviderModel {
+            provider: String::new(),
+            model: String::new(),
+        },
+        None,
+        false,
+        None,
+    );
+    if ctx.messages.is_empty() {
+        return None;
+    }
+    let mut truncated = ctx.truncated;
+    while encoded_len(&ctx.messages) > MAX_SIDE_PARENT_BYTES {
+        if ctx.messages.len() > 1 {
+            ctx.messages.remove(0);
+            truncated = true;
+        } else if let Some(only) = ctx.messages.first_mut() {
+            let over =
+                encoded_len(std::slice::from_ref(only)).saturating_sub(MAX_SIDE_PARENT_BYTES);
+            let cut = over.saturating_add(16).min(only.text.len());
+            let mut start = cut;
+            while start < only.text.len() && !only.text.is_char_boundary(start) {
+                start += 1;
+            }
+            only.text.drain(..start);
+            truncated = true;
+            if encoded_len(std::slice::from_ref(only)) > MAX_SIDE_PARENT_BYTES {
+                only.text.clear();
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    let mut out = String::from("[Main thread context]\n");
+    if truncated {
+        out.push_str("(Earlier main-thread messages were omitted to stay within 24 KiB.)\n");
+    }
+    for msg in &ctx.messages {
+        let label = match msg.role {
+            HandoffRole::User => "User",
+            HandoffRole::Assistant => "Assistant",
+        };
+        out.push_str("\n### ");
+        out.push_str(label);
+        out.push('\n');
+        out.push_str(&msg.text);
+        if !msg.text.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    out.push_str("\n[End of main thread context — answer the side question below]");
+    Some((out, last_seq))
 }
 
 #[cfg(test)]

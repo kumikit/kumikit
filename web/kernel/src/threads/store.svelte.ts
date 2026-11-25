@@ -55,7 +55,9 @@ class OpenThread {
     this.#scheduled = false;
     const batch = this.#queue;
     this.#queue = [];
-    const thread = (this.connection?.threads[this.address.workspace] ?? []).find((t) => t.id === this.address.thread);
+    const thread =
+      (this.connection?.threads[this.address.workspace] ?? []).find((t) => t.id === this.address.thread) ??
+      this.connection?.sideThreads?.[this.address.thread];
     let next = foldEvents(this.view, batch);
     const live = this.connection?.ready ?? false;
     if (next.live !== live || next.thread !== thread) {
@@ -216,6 +218,23 @@ export class ThreadStore {
     const { thread } = await conn.call('thread.update', params);
     conn.noteThread(thread);
     this.refresh(address.connection);
+    return thread;
+  }
+
+  /** Forks a thread up to `atTurn` or strictly before `beforeTurn`. */
+  async fork(
+    address: ThreadAddress,
+    opts: { atTurn?: string; beforeTurn?: string; title?: string } = {},
+  ): Promise<Thread> {
+    const conn = this.#connection(address);
+    const params: { thread: string; atTurn?: string; beforeTurn?: string; title?: string } = {
+      thread: address.thread,
+    };
+    if (opts.atTurn !== undefined) params.atTurn = opts.atTurn;
+    if (opts.beforeTurn !== undefined) params.beforeTurn = opts.beforeTurn;
+    if (opts.title !== undefined) params.title = opts.title;
+    const { thread } = await conn.call('thread.fork', params);
+    conn.noteThread(thread);
     return thread;
   }
 

@@ -946,6 +946,38 @@ export class Kernel {
       if (a.handoff !== undefined) patch.handoff = a.handoff;
       await this.attempt('Cannot update thread', () => this.threads.update(a.address, patch));
     });
+    c.register({ id: 'thread.open', title: 'Open a thread', when: 'never' }, (args) => {
+      const a = args as { address: ThreadAddress };
+      this.openTab(a.address.connection, a.address.workspace, a.address.thread);
+    });
+    c.register({ id: 'thread.fork', title: 'Fork a thread', when: 'never' }, async (args) => {
+      const a = args as {
+        address: ThreadAddress;
+        atTurn?: string;
+        beforeTurn?: string;
+        title?: string;
+        open?: boolean;
+      };
+      const opts: { atTurn?: string; beforeTurn?: string; title?: string } = {};
+      if (a.atTurn !== undefined) opts.atTurn = a.atTurn;
+      if (a.beforeTurn !== undefined) opts.beforeTurn = a.beforeTurn;
+      if (a.title !== undefined) opts.title = a.title;
+      const forked = await this.attempt('Cannot fork thread', () => this.threads.fork(a.address, opts));
+      if (forked && a.open !== false) {
+        this.openTab(a.address.connection, a.address.workspace, forked.id);
+      }
+      return forked;
+    });
+    c.register({ id: 'inspector.open', title: 'Open inspector panel', when: 'never' }, (args) => {
+      const a = args as { tab: string };
+      if (a?.tab) this.openInspectorPlugin(a.tab);
+    });
+    c.register({ id: 'composer.insert', title: 'Insert text into composer', when: 'never' }, (args) => {
+      const a = args as { address?: ThreadAddress; text: string };
+      if (typeof window !== 'undefined' && a?.text) {
+        window.dispatchEvent(new CustomEvent('kumikit:composer-insert', { detail: a }));
+      }
+    });
     c.register({ id: 'attachment.pick', title: 'Attach files', when: 'never' }, async (args) => {
       const a = args as { address?: ThreadAddress; connection?: string; workspace?: string; worktreePath?: string } | undefined;
       const connection = a?.address?.connection ?? a?.connection ?? this.activeTab?.connection ?? this.connection.id;

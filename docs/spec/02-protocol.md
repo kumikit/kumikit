@@ -222,8 +222,16 @@ Provider switching and bounded conversation handoff ([03](03-kernel.md#thread-ev
   default, or `summary`).
 - `thread.defer { thread, input, trigger }` → `{ entry }` queues a deferred message waiting
   on `at`, `after_turn`, `after_command`, or `poll_command` ([ADR 0027](../decisions/0027-durable-queue-and-deferred-messages.md)).
+- `thread.fork { thread, atTurn?, beforeTurn?, title? }` → `{ thread }` copies events up to
+  `atTurn` (inclusive), strictly before `beforeTurn`, or up to the latest completed turn
+  into a new thread with `forkedFrom` set, an empty queue, and a pending handoff so its
+  first turn receives bounded history.
+- `thread.create` accepts `parent?` and `side?` (hidden from default `thread.list` unless
+  `includeSide: true`); each turn on a side thread receives unseen parent-thread context
+  (capped at 24 KiB) without touching the parent's queue or running turn.
 - `QueueEntry` gains `trigger?`; `MessageFrom` gains `deferred?`; `QueueRemoval` gains
-  `condition_not_met`; `Thread` gains `titleSource?` (`auto`, `agent`, `user`).
+  `condition_not_met`; `Thread` gains `titleSource?` (`auto`, `agent`, `user`),
+  `forkedFrom?`, `parent?`, and `side?`.
 - `turn.started` and `Turn` carry `provider?`, `model?` and `purpose?` (`handoff_summary`).
 - New thread events: `thread.switched` and `handoff.delivered`.
 

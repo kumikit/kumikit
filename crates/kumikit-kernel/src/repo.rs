@@ -4,8 +4,9 @@
 use kumikit_protocol::ThreadEvent;
 use kumikit_protocol::event::{MessageFrom, QueueEntry, QueueHold, QueueTrigger};
 use kumikit_protocol::model::{
-    ApprovalId, ApprovalStatus, PermissionMode, QueueEntryId, Thread, ThreadId, ThreadStatus,
-    Timestamp, TitleSource, TurnId, TurnPurpose, UserInput, Workspace, WorkspaceId, WorkspaceKind,
+    ApprovalId, ApprovalStatus, PermissionMode, QueueEntryId, Thread, ThreadForkInfo, ThreadId,
+    ThreadStatus, Timestamp, TitleSource, TurnId, TurnPurpose, UserInput, Workspace, WorkspaceId,
+    WorkspaceKind,
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::Value;
@@ -37,6 +38,8 @@ pub struct ThreadRow {
     pub provider_session: Option<String>,
     /// Pending handoff waiting for the next completed turn, if any.
     pub pending_handoff: Option<PendingHandoff>,
+    /// Last parent-thread event seq already shared with this side thread.
+    pub parent_seen_seq: u64,
 }
 
 impl ThreadRow {
@@ -151,7 +154,7 @@ pub fn workspace_delete(conn: &Connection, id: &WorkspaceId) -> KernelResult<Vec
     if workspace_get(conn, id)?.is_none() {
         return Err(KernelError::NotFound(format!("no workspace {id}")));
     }
-    let rows = thread_list(conn, id, true)?;
+    let rows = thread_list(conn, id, true, true)?;
     for row in &rows {
         if matches!(
             row.thread.status,
@@ -199,7 +202,7 @@ pub fn workspace_list(conn: &Connection) -> KernelResult<Vec<Workspace>> {
     Ok(out)
 }
 
-const THREAD_COLUMNS: &str = "id, workspace, title, title_source, provider, model, permission_mode, worktree_path, status, archived, created, updated, head, provider_session, pending_handoff";
+const THREAD_COLUMNS: &str = "id, workspace, title, title_source, provider, model, permission_mode, worktree_path, forked_from_json, parent_thread, side, parent_seen_seq, status, archived, created, updated, head, provider_session, pending_handoff";
 
 #[allow(clippy::type_complexity)]
 fn thread_from_row(
@@ -209,12 +212,18 @@ fn thread_from_row(
     String,
     Option<String>,
     Option<String>,
+    Option<String>,
+    i64,
     i64,
     Option<String>,
 )> {
     let status: String = row.get("status")?;
     let permission_mode: Option<String> = row.get("permission_mode")?;
     let title_source: Option<String> = row.get("title_source")?;
+    let forked_from_json: Option<String> = row.get("forked_from_json")?;
+    let parent_thread: Option<String> = row.get("parent_thread")?;
+    let side_flag: i64 = row.get("side")?;
+    let parent_seen_seq: i64 = row.get("parent_seen_seq")?;
     let head: i64 = row.get("head")?;
     let pending_handoff: Option<String> = row.get("pending_handoff")?;
     Ok((
@@ -228,6 +237,9 @@ fn thread_from_row(
                 model: row.get("model")?,
                 permission_mode: None,
                 worktree_path: row.get("worktree_path")?,
+                forked_from: None,
+                parent: parent_thread.map(ThreadId),
+                side: (side_flag != 0).then_some(true),
                 status: ThreadStatus::Idle,
                 created: Timestamp(row.get("created")?),
                 updated: Timestamp(row.get("updated")?),
@@ -236,21 +248,36 @@ fn thread_from_row(
             head: 0,
             provider_session: row.get("provider_session")?,
             pending_handoff: None,
+            parent_seen_seq: 0,
         },
         status,
         permission_mode,
         title_source,
+        forked_from_json,
+        parent_seen_seq,
         head,
         pending_handoff,
     ))
 }
 
+#[allow(clippy::type_complexity)]
 fn finish_thread(
-    (mut row, status, permission_mode, title_source, head, pending_handoff): (
+    (
+        mut row,
+        status,
+        permission_mode,
+        title_source,
+        forked_from_json,
+        parent_seen_seq,
+        head,
+        pending_handoff,
+    ): (
         ThreadRow,
         String,
         Option<String>,
         Option<String>,
+        Option<String>,
+        i64,
         i64,
         Option<String>,
     ),
@@ -271,19 +298,29 @@ fn finish_thread(
                 .ok_or_else(|| StoreError::Corrupt(format!("unknown title source {s:?}")))?,
         ),
     };
+    row.thread.forked_from = match forked_from_json {
+        None => None,
+        Some(raw) => Some(serde_json::from_str::<ThreadForkInfo>(&raw)?),
+    };
     row.pending_handoff = match pending_handoff {
         None => None,
         Some(raw) => Some(serde_json::from_str(&raw)?),
     };
+    row.parent_seen_seq = to_u64(parent_seen_seq)?;
     row.head = to_u64(head)?;
     Ok(row)
 }
 
 /// Inserts a new thread (status `idle`, head 0).
 pub fn thread_insert(conn: &Connection, t: &Thread) -> KernelResult<()> {
+    let forked_json = t
+        .forked_from
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
     conn.execute(
-        "INSERT INTO threads (id, workspace, title, provider, model, permission_mode, worktree_path, status, created, updated)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO threads (id, workspace, title, provider, model, permission_mode, worktree_path, forked_from_json, parent_thread, side, status, created, updated)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             t.id.as_str(),
             t.workspace.as_str(),
@@ -292,11 +329,63 @@ pub fn thread_insert(conn: &Connection, t: &Thread) -> KernelResult<()> {
             t.model,
             t.permission_mode.map(PermissionMode::as_str),
             t.worktree_path,
+            forked_json,
+            t.parent.as_ref().map(ThreadId::as_str),
+            i64::from(t.side.unwrap_or(false)),
             t.status.as_str(),
             t.created.0,
             t.updated.0
         ],
     )?;
+    Ok(())
+}
+
+/// Updates the parent-thread event sequence cursor already shared with a side thread.
+pub fn thread_set_parent_seen_seq(conn: &Connection, id: &ThreadId, seq: u64) -> KernelResult<()> {
+    conn.execute(
+        "UPDATE threads SET parent_seen_seq = ?2 WHERE id = ?1",
+        params![id.as_str(), to_i64(seq)?],
+    )?;
+    Ok(())
+}
+
+/// Inserts a forked thread with copied events (re-sequenced 1..=N) and optional pending
+/// handoff so its first turn receives bounded conversation history. Copied turns are
+/// already finished, so they live in the forked event log without colliding with the
+/// source thread's `turns` primary keys.
+pub fn thread_fork_copy(
+    conn: &Connection,
+    thread: &Thread,
+    copied: &[StoredEvent],
+    pending_handoff: Option<&PendingHandoff>,
+) -> KernelResult<()> {
+    thread_insert(conn, thread)?;
+    let mut next_seq: u64 = 0;
+    for ev in copied {
+        next_seq += 1;
+        let mut value = serde_json::to_value(&ev.event)?;
+        let data = value
+            .get_mut("data")
+            .map(Value::take)
+            .unwrap_or(Value::Null);
+        conn.execute(
+            "INSERT INTO events (thread, seq, time, kind, data) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                thread.id.as_str(),
+                to_i64(next_seq)?,
+                ev.time.0,
+                ev.event.kind(),
+                data.to_string(),
+            ],
+        )?;
+    }
+    conn.execute(
+        "UPDATE threads SET head = ?2 WHERE id = ?1",
+        params![thread.id.as_str(), to_i64(next_seq)?],
+    )?;
+    if let Some(h) = pending_handoff {
+        thread_set_pending_handoff(conn, &thread.id, Some(h))?;
+    }
     Ok(())
 }
 
@@ -376,19 +465,21 @@ pub fn thread_require(conn: &Connection, id: &ThreadId) -> KernelResult<ThreadRo
     thread_get(conn, id)?.ok_or_else(|| KernelError::NotFound(format!("no thread {id}")))
 }
 
-/// Threads of a workspace, most recently updated first.
+/// Threads of a workspace, most recently updated first. Side threads are excluded unless
+/// `include_side` is true.
 pub fn thread_list(
     conn: &Connection,
     workspace: &WorkspaceId,
     include_archived: bool,
+    include_side: bool,
 ) -> KernelResult<Vec<ThreadRow>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {THREAD_COLUMNS} FROM threads
-         WHERE workspace = ?1 AND (?2 OR archived = 0)
+         WHERE workspace = ?1 AND (?2 OR archived = 0) AND (?3 OR side = 0)
          ORDER BY updated DESC, id DESC"
     ))?;
     let rows = stmt.query_map(
-        params![workspace.as_str(), include_archived],
+        params![workspace.as_str(), include_archived, include_side],
         thread_from_row,
     )?;
     let mut out = Vec::new();

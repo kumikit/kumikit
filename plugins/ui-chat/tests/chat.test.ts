@@ -463,3 +463,88 @@ describe('deferred messages UI', () => {
     unmount(c);
   });
 });
+
+describe('forks, edit-and-resend, and side threads', () => {
+  it('edits a sent prompt by forking beforeTurn, saving preload draft, and opening the fork', async () => {
+    const viewWithTurn: ThreadView = {
+      ...base,
+      turns: [
+        {
+          id: 'u1',
+          input: 'original prompt',
+          started: '2026-11-15T10:00:00Z',
+          ended: '2026-11-15T10:00:02Z',
+          outcome: 'done',
+          items: [{ kind: 'message', text: 'reply one', done: true }],
+        },
+      ],
+    };
+    const stored = new Map<string, string>();
+    const ran: [string, unknown][] = [];
+    const { ctx } = fakeCtx(viewWithTurn);
+    ctx.storage = {
+      get: (k) => stored.get(k),
+      set: (k, v) => {
+        stored.set(k, v);
+      },
+      delete: (k) => {
+        stored.delete(k);
+      },
+    };
+    ctx.commands = {
+      register: () => () => {},
+      run: async (cmd, args) => {
+        ran.push([cmd, args]);
+        if (cmd === 'thread.fork') return { id: 'th-fork' };
+        return undefined;
+      },
+    };
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address } });
+    flushSync();
+
+    const editBtn = target.querySelector<HTMLButtonElement>('button[aria-label="Edit prompt in fork"]')!;
+    editBtn.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(ran[0]).toEqual(['thread.fork', { address, beforeTurn: 'u1', open: false }]);
+    expect(ran[1]).toEqual(['thread.open', { address: { ...address, thread: 'th-fork' } }]);
+    const preload = JSON.parse(stored.get('preload:th-fork')!);
+    expect(preload.text).toBe('original prompt');
+    expect(preload.note).toContain('not rewound');
+    unmount(c);
+  });
+
+  it('offers Insert into main in side-thread mode and /btw opens side inspector', async () => {
+    const parent: ThreadAddress = { connection: 'local', workspace: 'w', thread: 'main-th' };
+    const sideView: ThreadView = {
+      ...base,
+      address: { connection: 'local', workspace: 'w', thread: 'side-th' },
+      turns: [
+        {
+          id: 's1',
+          input: 'side q',
+          started: '2026-11-15T10:00:00Z',
+          ended: '2026-11-15T10:00:01Z',
+          outcome: 'done',
+          items: [{ kind: 'message', text: 'useful side answer', done: true }],
+        },
+      ],
+    };
+    const { ctx, ran } = fakeCtx(sideView);
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address: sideView.address, sideFor: parent } });
+    flushSync();
+
+    const insertBtn = Array.from(target.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Insert into main'),
+    )!;
+    expect(insertBtn).toBeTruthy();
+    insertBtn.click();
+    flushSync();
+
+    expect(ran).toEqual([['composer.insert', { address: parent, text: 'useful side answer' }]]);
+    unmount(c);
+  });
+});

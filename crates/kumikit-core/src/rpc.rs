@@ -549,7 +549,11 @@ impl Conn {
             m::ThreadList::NAME => {
                 let p = parse::<m::ThreadList>(params)?;
                 let threads = k
-                    .thread_list(&p.workspace, p.include_archived.unwrap_or(false))
+                    .thread_list_opts(
+                        &p.workspace,
+                        p.include_archived.unwrap_or(false),
+                        p.include_side.unwrap_or(false),
+                    )
                     .await
                     .map_err(kernel_err)?;
                 reply::<m::ThreadList>(ThreadListResult { threads })
@@ -557,17 +561,27 @@ impl Conn {
             m::ThreadCreate::NAME => {
                 let p = parse::<m::ThreadCreate>(params)?;
                 let thread = k
-                    .thread_create_with_worktree(
+                    .thread_create_opts(
                         &p.workspace,
                         p.provider,
                         p.model,
                         p.title,
                         p.permission_mode,
                         p.worktree_path,
+                        p.parent,
+                        p.side.unwrap_or(false),
                     )
                     .await
                     .map_err(kernel_err)?;
                 reply::<m::ThreadCreate>(ThreadCreateResult { thread })
+            }
+            m::ThreadFork::NAME => {
+                let p = parse::<m::ThreadFork>(params)?;
+                let thread = k
+                    .thread_fork(&p.thread, p.at_turn, p.before_turn, p.title)
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::ThreadFork>(ThreadCreateResult { thread })
             }
             m::ThreadUpdate::NAME => {
                 let p = parse::<m::ThreadUpdate>(params)?;

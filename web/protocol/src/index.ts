@@ -123,6 +123,8 @@ export type * from "./ThreadCreateParams";
 export type * from "./ThreadCreateResult";
 export type * from "./ThreadDeferParams";
 export type * from "./ThreadEvent";
+export type * from "./ThreadForkInfo";
+export type * from "./ThreadForkParams";
 export type * from "./ThreadId";
 export type * from "./ThreadListParams";
 export type * from "./ThreadListResult";

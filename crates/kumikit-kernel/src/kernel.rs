@@ -444,7 +444,7 @@ impl Kernel {
     /// removing any managed worktrees under `<homeDir>/worktrees/` exclusively referenced
     /// by those threads. Fails with `conflict` if any thread has a running or waiting turn.
     pub async fn workspace_delete(&self, id: &WorkspaceId) -> KernelResult<()> {
-        let threads = self.thread_list(id, true).await?;
+        let threads = self.thread_list_opts(id, true, true).await?;
         for t in &threads {
             if self.has_run(&t.id) {
                 return Err(KernelError::Conflict(format!(
@@ -525,7 +525,7 @@ impl Kernel {
             .await
     }
 
-    /// Creates a thread, optionally pinned to a linked Git worktree path.
+    #[cfg(test)]
     pub(crate) async fn thread_insert_with_worktree(
         &self,
         workspace: &WorkspaceId,
@@ -534,6 +534,32 @@ impl Kernel {
         title: Option<String>,
         permission_mode: Option<PermissionMode>,
         worktree_path: Option<String>,
+    ) -> KernelResult<Thread> {
+        self.thread_insert_opts(
+            workspace,
+            provider,
+            model,
+            title,
+            permission_mode,
+            worktree_path,
+            None,
+            false,
+        )
+        .await
+    }
+
+    /// Creates a thread with full options (worktree, parent, side flag).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn thread_insert_opts(
+        &self,
+        workspace: &WorkspaceId,
+        provider: String,
+        model: String,
+        title: Option<String>,
+        permission_mode: Option<PermissionMode>,
+        worktree_path: Option<String>,
+        parent: Option<ThreadId>,
+        side: bool,
     ) -> KernelResult<Thread> {
         let now = self.now();
         let permission_mode = permission_mode.filter(|m| *m != PermissionMode::Standard);
@@ -554,6 +580,9 @@ impl Kernel {
             model,
             permission_mode,
             worktree_path,
+            forked_from: None,
+            parent,
+            side: side.then_some(true),
             status: ThreadStatus::Idle,
             created: now.clone(),
             updated: now,
@@ -639,11 +668,22 @@ impl Kernel {
         Ok(changed)
     }
 
-    /// Threads of a workspace, most recently updated first.
+    /// Threads of a workspace, most recently updated first (hides side threads by default).
     pub async fn thread_list(
         &self,
         workspace: &WorkspaceId,
         include_archived: bool,
+    ) -> KernelResult<Vec<Thread>> {
+        self.thread_list_opts(workspace, include_archived, false)
+            .await
+    }
+
+    /// Threads of a workspace with optional archived and side-thread inclusion.
+    pub async fn thread_list_opts(
+        &self,
+        workspace: &WorkspaceId,
+        include_archived: bool,
+        include_side: bool,
     ) -> KernelResult<Vec<Thread>> {
         let ws = workspace.clone();
         self.inner
@@ -652,7 +692,7 @@ impl Kernel {
                 if repo::workspace_get(c, &ws)?.is_none() {
                     return Err(KernelError::NotFound(format!("no workspace {ws}")));
                 }
-                Ok(repo::thread_list(c, &ws, include_archived)?
+                Ok(repo::thread_list(c, &ws, include_archived, include_side)?
                     .iter()
                     .map(repo::ThreadRow::public)
                     .collect())

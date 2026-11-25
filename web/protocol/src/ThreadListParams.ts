@@ -12,4 +12,8 @@ workspace: WorkspaceId,
 /**
  * Include archived threads (default false).
  */
-includeArchived?: boolean, };
+includeArchived?: boolean, 
+/**
+ * Include side threads (default false; since 0.9).
+ */
+includeSide?: boolean, };
