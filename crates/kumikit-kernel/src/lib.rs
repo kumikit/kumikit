@@ -2,12 +2,14 @@
 //! See `docs/spec/03-kernel.md`.
 
 pub mod clock;
+pub mod defer;
 pub mod devices;
 pub mod error;
 pub mod fold;
 pub mod gateway;
 mod git;
 pub mod grants;
+pub mod handoff;
 mod kernel;
 pub mod plugins;
 pub mod process;

@@ -10,7 +10,7 @@
 pub use kumikit_plugin::http;
 pub use kumikit_plugin::{
     CallContext, Child, CommandResult, Error, ErrorCode, ExitStatus, Plugin, SpawnRequest,
-    WorkspaceRef, kv, log, process, secrets, settings,
+    WorkspaceRef, client, kv, log, process, secrets, settings, threads, turn,
 };
 
 /// Generated bindings for the tool world. Interfaces it shares with the base world are the

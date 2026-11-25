@@ -7,8 +7,8 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use crate::model::{
-    Approval, ApprovalId, QueueEntryId, Resolution, Thread, Timestamp, TurnId, TurnOutcome,
-    UserInput,
+    Approval, ApprovalId, HandoffMode, ProviderModel, QueueEntryId, Resolution, SlashCommand,
+    Thread, ThreadId, Timestamp, TurnId, TurnOutcome, TurnPurpose, UserInput,
 };
 
 /// `turn.started`: the kernel started a turn for a user message.
@@ -27,14 +27,42 @@ pub struct TurnStarted {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub entry: Option<QueueEntryId>,
+    /// Qualified provider id running this turn (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub provider: Option<String>,
+    /// Model id running this turn (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub model: Option<String>,
+    /// Special purpose, when started by the kernel (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub purpose: Option<TurnPurpose>,
 }
 
-/// Who sent a message that a plugin sent for a user (a bot, a schedule).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+/// Who sent a message (a plugin, and/or a deferred entry whose trigger fired).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageFrom {
-    /// The plugin.
-    pub plugin: String,
+    /// The plugin that sent it, if a plugin did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub plugin: Option<String>,
+    /// The deferred queue entry whose trigger fired (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub deferred: Option<QueueEntryId>,
+}
+
+impl MessageFrom {
+    /// A message sent by a plugin.
+    pub fn plugin(plugin: impl Into<String>) -> Self {
+        MessageFrom {
+            plugin: Some(plugin.into()),
+            deferred: None,
+        }
+    }
 }
 
 /// `text.delta`, `text.done` and `reasoning.delta`: a piece of text in a turn.
@@ -185,6 +213,58 @@ pub struct PluginEvent {
     pub data: Value,
 }
 
+/// Condition a deferred queue entry waits for before joining the ready queue (ADR 0027,
+/// since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum QueueTrigger {
+    /// Fire once at or after `time` (RFC 3339).
+    At {
+        /// Target time.
+        time: Timestamp,
+    },
+    /// Fire when `thread`'s running or next turn ends.
+    #[serde(rename_all = "camelCase")]
+    AfterTurn {
+        /// The thread to wait on.
+        thread: ThreadId,
+        /// Fire only when that turn ends `done`.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        only_on_success: bool,
+    },
+    /// Run `argv` under the process supervisor; fire on exit with exit code and output tail.
+    #[serde(rename_all = "camelCase")]
+    AfterCommand {
+        /// Bare program name (`argv[0]`) and its arguments.
+        argv: Vec<String>,
+        /// Optional working directory inside the thread's workspace or worktree.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        cwd: Option<String>,
+        /// Maximum wall time in seconds before the command is killed.
+        timeout_s: u32,
+        /// Fire only when the command exits non-zero or times out (for post-turn checks; since 0.9).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        only_on_failure: bool,
+    },
+    /// Poll `argv` every `everyS` seconds until it exits 0 or `maxTries` attempts finish.
+    #[serde(rename_all = "camelCase")]
+    PollCommand {
+        /// Bare program name (`argv[0]`) and its arguments.
+        argv: Vec<String>,
+        /// Optional working directory inside the thread's workspace or worktree.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        cwd: Option<String>,
+        /// Seconds between runs (minimum 5).
+        every_s: u32,
+        /// Maximum attempts before firing with the last failure.
+        max_tries: u32,
+    },
+}
+
 /// A message waiting in a thread's queue (`docs/spec/03-kernel.md#the-queue`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -195,10 +275,14 @@ pub struct QueueEntry {
     pub turn: TurnId,
     /// The message.
     pub input: UserInput,
-    /// Who sent it, when a plugin did.
+    /// Who sent it, when a plugin or deferred trigger did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub from: Option<MessageFrom>,
+    /// Condition this entry waits on before becoming ready to run (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub trigger: Option<QueueTrigger>,
 }
 
 /// Why a thread's queue waits instead of starting its next entry.
@@ -211,6 +295,8 @@ pub enum QueueHold {
     Failed,
     /// The core restarted with messages in the queue.
     Restarted,
+    /// The provider hit a rate or usage limit (since 0.9).
+    Limited,
 }
 
 impl QueueHold {
@@ -220,6 +306,7 @@ impl QueueHold {
             QueueHold::Stopped => "stopped",
             QueueHold::Failed => "failed",
             QueueHold::Restarted => "restarted",
+            QueueHold::Limited => "limited",
         }
     }
 
@@ -229,6 +316,7 @@ impl QueueHold {
             "stopped" => Some(QueueHold::Stopped),
             "failed" => Some(QueueHold::Failed),
             "restarted" => Some(QueueHold::Restarted),
+            "limited" => Some(QueueHold::Limited),
             _ => None,
         }
     }
@@ -240,6 +328,8 @@ impl QueueHold {
 pub enum QueueRemoval {
     /// A client or plugin removed it.
     Removed,
+    /// A deferred trigger's condition was not met (for example `onlyOnSuccess` on a failed turn).
+    ConditionNotMet,
 }
 
 /// Why a message joined the queue other than by `thread.send` during a turn.
@@ -276,6 +366,41 @@ pub struct InputSteered {
     pub turn: TurnId,
     /// The message.
     pub input: UserInput,
+}
+
+/// `thread.switched`: the thread switched to another provider (ADR 0029, since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadSwitched {
+    /// The outgoing provider and model.
+    pub from: ProviderModel,
+    /// The incoming provider and model.
+    pub to: ProviderModel,
+    /// Requested handoff mode.
+    pub handoff: HandoffMode,
+    /// True when `summary` mode fell back to `transcript` because the summary turn failed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub summary_failed: bool,
+}
+
+/// `handoff.delivered`: the bounded earlier conversation was delivered to the new
+/// provider on a completed turn (ADR 0029, since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffDelivered {
+    /// The turn that carried the handoff context.
+    pub turn: TurnId,
+    /// The outgoing provider and model.
+    pub from: ProviderModel,
+    /// The incoming provider and model.
+    pub to: ProviderModel,
+    /// Number of earlier user/assistant messages included.
+    pub messages: u32,
+    /// True when older messages were omitted to stay within the 200-message / 64 KiB cap.
+    pub truncated: bool,
+    /// The exact context preamble carried forward, for disclosure in the UI.
+    pub rendered: String,
 }
 
 /// `queue.updated`: a queued message was edited.
@@ -380,11 +505,43 @@ pub enum ThreadEvent {
     /// `input.steered`
     #[serde(rename = "input.steered")]
     InputSteered(InputSteered),
+    /// `thread.switched`
+    #[serde(rename = "thread.switched")]
+    ThreadSwitched(ThreadSwitched),
+    /// `handoff.delivered`
+    #[serde(rename = "handoff.delivered")]
+    HandoffDelivered(HandoffDelivered),
+    /// `commands.available`: slash commands reported by the agent provider (since 0.9).
+    #[serde(rename = "commands.available")]
+    CommandsAvailable(CommandsAvailable),
+    /// `limit.reached`: the provider hit a rate or usage limit (since 0.9).
+    #[serde(rename = "limit.reached")]
+    LimitReached(LimitReached),
+}
+
+/// `commands.available`: the slash commands offered by the thread's provider (since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandsAvailable {
+    /// Available slash commands, in display order.
+    pub commands: Vec<SlashCommand>,
+}
+
+/// `limit.reached`: the provider hit a usage or rate limit (since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct LimitReached {
+    /// When the limit is expected to reset, if the provider reported one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_at: Option<Timestamp>,
+    /// Human-readable message from the provider.
+    pub message: String,
 }
 
 impl ThreadEvent {
     /// Every kind string, in spec table order.
-    pub const KINDS: [&'static str; 20] = [
+    pub const KINDS: [&'static str; 24] = [
         "turn.started",
         "text.delta",
         "text.done",
@@ -405,6 +562,10 @@ impl ThreadEvent {
         "queue.held",
         "queue.resumed",
         "input.steered",
+        "thread.switched",
+        "handoff.delivered",
+        "commands.available",
+        "limit.reached",
     ];
 
     /// This event's kind string.
@@ -430,6 +591,10 @@ impl ThreadEvent {
             ThreadEvent::QueueHeld(_) => "queue.held",
             ThreadEvent::QueueResumed(_) => "queue.resumed",
             ThreadEvent::InputSteered(_) => "input.steered",
+            ThreadEvent::ThreadSwitched(_) => "thread.switched",
+            ThreadEvent::HandoffDelivered(_) => "handoff.delivered",
+            ThreadEvent::CommandsAvailable(_) => "commands.available",
+            ThreadEvent::LimitReached(_) => "limit.reached",
         }
     }
 
@@ -448,6 +613,7 @@ impl ThreadEvent {
             ThreadEvent::Usage(e) => Some(&e.turn),
             ThreadEvent::TurnEnded(e) => Some(&e.turn),
             ThreadEvent::InputSteered(e) => Some(&e.turn),
+            ThreadEvent::HandoffDelivered(e) => Some(&e.turn),
             ThreadEvent::ApprovalResolved(_)
             | ThreadEvent::PluginEvent(_)
             | ThreadEvent::QueueAdded(_)
@@ -455,7 +621,10 @@ impl ThreadEvent {
             | ThreadEvent::QueueRemoved(_)
             | ThreadEvent::QueueMoved(_)
             | ThreadEvent::QueueHeld(_)
-            | ThreadEvent::QueueResumed(_) => None,
+            | ThreadEvent::QueueResumed(_)
+            | ThreadEvent::ThreadSwitched(_)
+            | ThreadEvent::CommandsAvailable(_)
+            | ThreadEvent::LimitReached(_) => None,
         }
     }
 }

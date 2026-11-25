@@ -2,16 +2,18 @@
 //! (writes on the writer thread, reads on the read pool).
 
 use kumikit_protocol::ThreadEvent;
-use kumikit_protocol::event::{MessageFrom, QueueEntry, QueueHold};
+use kumikit_protocol::event::{MessageFrom, QueueEntry, QueueHold, QueueTrigger};
 use kumikit_protocol::model::{
-    ApprovalId, ApprovalStatus, PermissionMode, QueueEntryId, Thread, ThreadId, ThreadStatus,
-    Timestamp, TurnId, UserInput, Workspace, WorkspaceId, WorkspaceKind,
+    ApprovalId, ApprovalStatus, PermissionMode, QueueEntryId, Thread, ThreadForkInfo, ThreadId,
+    ThreadStatus, Timestamp, TitleSource, TurnId, TurnPurpose, UserInput, Workspace, WorkspaceId,
+    WorkspaceKind,
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::Value;
 
 use crate::error::{KernelError, KernelResult};
 use crate::fold::next_status;
+use crate::handoff::PendingHandoff;
 use crate::store::StoreError;
 
 /// A workspace row.
@@ -34,6 +36,10 @@ pub struct ThreadRow {
     pub head: u64,
     /// The provider's own session id, if it has one.
     pub provider_session: Option<String>,
+    /// Pending handoff waiting for the next completed turn, if any.
+    pub pending_handoff: Option<PendingHandoff>,
+    /// Last parent-thread event seq already shared with this side thread.
+    pub parent_seen_seq: u64,
 }
 
 impl ThreadRow {
@@ -148,7 +154,7 @@ pub fn workspace_delete(conn: &Connection, id: &WorkspaceId) -> KernelResult<Vec
     if workspace_get(conn, id)?.is_none() {
         return Err(KernelError::NotFound(format!("no workspace {id}")));
     }
-    let rows = thread_list(conn, id, true)?;
+    let rows = thread_list(conn, id, true, true)?;
     for row in &rows {
         if matches!(
             row.thread.status,
@@ -196,22 +202,44 @@ pub fn workspace_list(conn: &Connection) -> KernelResult<Vec<Workspace>> {
     Ok(out)
 }
 
-const THREAD_COLUMNS: &str = "id, workspace, title, provider, model, permission_mode, worktree_path, status, archived, created, updated, head, provider_session";
+const THREAD_COLUMNS: &str = "id, workspace, title, title_source, provider, model, permission_mode, worktree_path, forked_from_json, parent_thread, side, parent_seen_seq, status, archived, created, updated, head, provider_session, pending_handoff";
 
-fn thread_from_row(row: &Row<'_>) -> rusqlite::Result<(ThreadRow, String, Option<String>, i64)> {
+#[allow(clippy::type_complexity)]
+fn thread_from_row(
+    row: &Row<'_>,
+) -> rusqlite::Result<(
+    ThreadRow,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    i64,
+    i64,
+    Option<String>,
+)> {
     let status: String = row.get("status")?;
     let permission_mode: Option<String> = row.get("permission_mode")?;
+    let title_source: Option<String> = row.get("title_source")?;
+    let forked_from_json: Option<String> = row.get("forked_from_json")?;
+    let parent_thread: Option<String> = row.get("parent_thread")?;
+    let side_flag: i64 = row.get("side")?;
+    let parent_seen_seq: i64 = row.get("parent_seen_seq")?;
     let head: i64 = row.get("head")?;
+    let pending_handoff: Option<String> = row.get("pending_handoff")?;
     Ok((
         ThreadRow {
             thread: Thread {
                 id: ThreadId(row.get("id")?),
                 workspace: WorkspaceId(row.get("workspace")?),
                 title: row.get("title")?,
+                title_source: None,
                 provider: row.get("provider")?,
                 model: row.get("model")?,
                 permission_mode: None,
                 worktree_path: row.get("worktree_path")?,
+                forked_from: None,
+                parent: parent_thread.map(ThreadId),
+                side: (side_flag != 0).then_some(true),
                 status: ThreadStatus::Idle,
                 created: Timestamp(row.get("created")?),
                 updated: Timestamp(row.get("updated")?),
@@ -219,15 +247,40 @@ fn thread_from_row(row: &Row<'_>) -> rusqlite::Result<(ThreadRow, String, Option
             archived: row.get::<_, i64>("archived")? != 0,
             head: 0,
             provider_session: row.get("provider_session")?,
+            pending_handoff: None,
+            parent_seen_seq: 0,
         },
         status,
         permission_mode,
+        title_source,
+        forked_from_json,
+        parent_seen_seq,
         head,
+        pending_handoff,
     ))
 }
 
+#[allow(clippy::type_complexity)]
 fn finish_thread(
-    (mut row, status, permission_mode, head): (ThreadRow, String, Option<String>, i64),
+    (
+        mut row,
+        status,
+        permission_mode,
+        title_source,
+        forked_from_json,
+        parent_seen_seq,
+        head,
+        pending_handoff,
+    ): (
+        ThreadRow,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        i64,
+        i64,
+        Option<String>,
+    ),
 ) -> KernelResult<ThreadRow> {
     row.thread.status = ThreadStatus::parse(&status)
         .ok_or_else(|| StoreError::Corrupt(format!("unknown thread status {status:?}")))?;
@@ -238,15 +291,36 @@ fn finish_thread(
                 .ok_or_else(|| StoreError::Corrupt(format!("unknown permission mode {m:?}")))?,
         ),
     };
+    row.thread.title_source = match title_source {
+        None => None,
+        Some(s) => Some(
+            TitleSource::parse(&s)
+                .ok_or_else(|| StoreError::Corrupt(format!("unknown title source {s:?}")))?,
+        ),
+    };
+    row.thread.forked_from = match forked_from_json {
+        None => None,
+        Some(raw) => Some(serde_json::from_str::<ThreadForkInfo>(&raw)?),
+    };
+    row.pending_handoff = match pending_handoff {
+        None => None,
+        Some(raw) => Some(serde_json::from_str(&raw)?),
+    };
+    row.parent_seen_seq = to_u64(parent_seen_seq)?;
     row.head = to_u64(head)?;
     Ok(row)
 }
 
 /// Inserts a new thread (status `idle`, head 0).
 pub fn thread_insert(conn: &Connection, t: &Thread) -> KernelResult<()> {
+    let forked_json = t
+        .forked_from
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
     conn.execute(
-        "INSERT INTO threads (id, workspace, title, provider, model, permission_mode, worktree_path, status, created, updated)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO threads (id, workspace, title, provider, model, permission_mode, worktree_path, forked_from_json, parent_thread, side, status, created, updated)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             t.id.as_str(),
             t.workspace.as_str(),
@@ -255,6 +329,9 @@ pub fn thread_insert(conn: &Connection, t: &Thread) -> KernelResult<()> {
             t.model,
             t.permission_mode.map(PermissionMode::as_str),
             t.worktree_path,
+            forked_json,
+            t.parent.as_ref().map(ThreadId::as_str),
+            i64::from(t.side.unwrap_or(false)),
             t.status.as_str(),
             t.created.0,
             t.updated.0
@@ -263,26 +340,112 @@ pub fn thread_insert(conn: &Connection, t: &Thread) -> KernelResult<()> {
     Ok(())
 }
 
-/// Updates a thread's model, permission mode, and/or title, bumping `updated`.
+/// Updates the parent-thread event sequence cursor already shared with a side thread.
+pub fn thread_set_parent_seen_seq(conn: &Connection, id: &ThreadId, seq: u64) -> KernelResult<()> {
+    conn.execute(
+        "UPDATE threads SET parent_seen_seq = ?2 WHERE id = ?1",
+        params![id.as_str(), to_i64(seq)?],
+    )?;
+    Ok(())
+}
+
+/// Inserts a forked thread with copied events (re-sequenced 1..=N) and optional pending
+/// handoff so its first turn receives bounded conversation history. Copied turns are
+/// already finished, so they live in the forked event log without colliding with the
+/// source thread's `turns` primary keys.
+pub fn thread_fork_copy(
+    conn: &Connection,
+    thread: &Thread,
+    copied: &[StoredEvent],
+    pending_handoff: Option<&PendingHandoff>,
+) -> KernelResult<()> {
+    thread_insert(conn, thread)?;
+    let mut next_seq: u64 = 0;
+    for ev in copied {
+        next_seq += 1;
+        let mut value = serde_json::to_value(&ev.event)?;
+        let data = value
+            .get_mut("data")
+            .map(Value::take)
+            .unwrap_or(Value::Null);
+        conn.execute(
+            "INSERT INTO events (thread, seq, time, kind, data) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                thread.id.as_str(),
+                to_i64(next_seq)?,
+                ev.time.0,
+                ev.event.kind(),
+                data.to_string(),
+            ],
+        )?;
+    }
+    conn.execute(
+        "UPDATE threads SET head = ?2 WHERE id = ?1",
+        params![thread.id.as_str(), to_i64(next_seq)?],
+    )?;
+    if let Some(h) = pending_handoff {
+        thread_set_pending_handoff(conn, &thread.id, Some(h))?;
+    }
+    Ok(())
+}
+
+/// Updates a thread's provider, model, permission mode, and/or title, bumping `updated`.
+/// When `clear_session` is true, `provider_session` is cleared. When `pending_handoff` is
+/// `Some(h)`, `pending_handoff` is replaced with `h`.
+#[allow(clippy::too_many_arguments)]
 pub fn thread_update(
     conn: &Connection,
     id: &ThreadId,
+    provider: &str,
     model: &str,
     permission_mode: Option<PermissionMode>,
     title: Option<&str>,
+    title_source: Option<TitleSource>,
     updated: &Timestamp,
+    clear_session: bool,
+    pending_handoff: Option<Option<&PendingHandoff>>,
 ) -> KernelResult<ThreadRow> {
     conn.execute(
-        "UPDATE threads SET model = ?2, permission_mode = ?3, title = ?4, updated = ?5 WHERE id = ?1",
+        "UPDATE threads
+         SET provider = ?2, model = ?3, permission_mode = ?4, title = ?5,
+             title_source = ?6, updated = ?7
+         WHERE id = ?1",
         params![
             id.as_str(),
+            provider,
             model,
             permission_mode.map(PermissionMode::as_str),
             title,
+            title_source.map(TitleSource::as_str),
             updated.0,
         ],
     )?;
+    if clear_session {
+        thread_clear_session(conn, id)?;
+    }
+    if let Some(handoff) = pending_handoff {
+        thread_set_pending_handoff(conn, id, handoff)?;
+    }
     thread_require(conn, id)
+}
+
+/// Sets a thread's title as `agent`-suggested unless `title_source == 'user'`. Returns
+/// `(updated, row)`.
+pub fn thread_suggest_title(
+    conn: &Connection,
+    id: &ThreadId,
+    title: &str,
+    updated: &Timestamp,
+) -> KernelResult<(bool, ThreadRow)> {
+    let row = thread_require(conn, id)?;
+    if row.thread.title_source == Some(TitleSource::User) {
+        return Ok((false, row));
+    }
+    conn.execute(
+        "UPDATE threads SET title = ?2, title_source = 'agent', updated = ?3 WHERE id = ?1",
+        params![id.as_str(), title, updated.0],
+    )?;
+    Ok((true, thread_require(conn, id)?))
 }
 
 /// The thread with this id, if any.
@@ -302,19 +465,21 @@ pub fn thread_require(conn: &Connection, id: &ThreadId) -> KernelResult<ThreadRo
     thread_get(conn, id)?.ok_or_else(|| KernelError::NotFound(format!("no thread {id}")))
 }
 
-/// Threads of a workspace, most recently updated first.
+/// Threads of a workspace, most recently updated first. Side threads are excluded unless
+/// `include_side` is true.
 pub fn thread_list(
     conn: &Connection,
     workspace: &WorkspaceId,
     include_archived: bool,
+    include_side: bool,
 ) -> KernelResult<Vec<ThreadRow>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {THREAD_COLUMNS} FROM threads
-         WHERE workspace = ?1 AND (?2 OR archived = 0)
+         WHERE workspace = ?1 AND (?2 OR archived = 0) AND (?3 OR side = 0)
          ORDER BY updated DESC, id DESC"
     ))?;
     let rows = stmt.query_map(
-        params![workspace.as_str(), include_archived],
+        params![workspace.as_str(), include_archived, include_side],
         thread_from_row,
     )?;
     let mut out = Vec::new();
@@ -409,6 +574,29 @@ pub fn thread_set_session(conn: &Connection, id: &ThreadId, session: &str) -> Ke
     Ok(())
 }
 
+/// Clears the stored provider session id for a thread.
+pub fn thread_clear_session(conn: &Connection, id: &ThreadId) -> KernelResult<()> {
+    conn.execute(
+        "UPDATE threads SET provider_session = NULL WHERE id = ?1",
+        [id.as_str()],
+    )?;
+    Ok(())
+}
+
+/// Sets or clears a thread's pending handoff metadata.
+pub fn thread_set_pending_handoff(
+    conn: &Connection,
+    id: &ThreadId,
+    pending: Option<&PendingHandoff>,
+) -> KernelResult<()> {
+    let encoded = pending.map(serde_json::to_string).transpose()?;
+    conn.execute(
+        "UPDATE threads SET pending_handoff = ?2 WHERE id = ?1",
+        params![id.as_str(), encoded],
+    )?;
+    Ok(())
+}
+
 /// Appends an event to a thread's log and updates the derived columns in the same
 /// transaction. Returns the new `seq`.
 pub fn append_event(
@@ -457,8 +645,17 @@ pub fn append_event(
                 }
             }
             conn.execute(
-                "INSERT INTO turns (id, thread, started_seq, started) VALUES (?1, ?2, ?3, ?4)",
-                params![e.turn.as_str(), thread.as_str(), seq_i, time.0],
+                "INSERT INTO turns (id, thread, started_seq, started, provider, model, purpose)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    e.turn.as_str(),
+                    thread.as_str(),
+                    seq_i,
+                    time.0,
+                    e.provider,
+                    e.model,
+                    e.purpose.map(TurnPurpose::as_str),
+                ],
             )?;
         }
         ThreadEvent::QueueAdded(e) => {
@@ -476,29 +673,82 @@ pub fn append_event(
                 )?
             };
             let entry = &e.entry;
+            let trigger_json = entry
+                .trigger
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?;
+            let next_at: Option<String> = match &entry.trigger {
+                Some(QueueTrigger::At { time }) => Some(time.0.clone()),
+                _ => None,
+            };
+            let wait_thread: Option<&str> = match &entry.trigger {
+                Some(QueueTrigger::AfterTurn { thread: target, .. }) => Some(target.as_str()),
+                _ => None,
+            };
+            let sender = entry.from.as_ref().and_then(|f| f.plugin.as_deref());
+            let deferred_entry = entry
+                .from
+                .as_ref()
+                .and_then(|f| f.deferred.as_ref())
+                .map(|d| d.as_str());
             conn.execute(
                 "INSERT INTO queued_messages
-                     (id, thread, turn, position, input, sender, created, updated)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+                     (id, thread, turn, position, input, sender, created, updated,
+                      trigger_json, next_at, wait_thread, deferred_entry)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     entry.id.as_str(),
                     thread.as_str(),
                     entry.turn.as_str(),
                     position,
                     serde_json::to_string(&entry.input)?,
-                    entry.from.as_ref().map(|f| f.plugin.as_str()),
-                    time.0
+                    sender,
+                    time.0,
+                    trigger_json,
+                    next_at,
+                    wait_thread,
+                    deferred_entry,
                 ],
             )?;
         }
         ThreadEvent::QueueUpdated(e) => {
+            let entry = &e.entry;
+            let trigger_json = entry
+                .trigger
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?;
+            let next_at: Option<String> = match &entry.trigger {
+                Some(QueueTrigger::At { time }) => Some(time.0.clone()),
+                _ => None,
+            };
+            let wait_thread: Option<&str> = match &entry.trigger {
+                Some(QueueTrigger::AfterTurn { thread: target, .. }) => Some(target.as_str()),
+                _ => None,
+            };
+            let sender = entry.from.as_ref().and_then(|f| f.plugin.as_deref());
+            let deferred_entry = entry
+                .from
+                .as_ref()
+                .and_then(|f| f.deferred.as_ref())
+                .map(|d| d.as_str());
             let n = conn.execute(
-                "UPDATE queued_messages SET input = ?3, updated = ?4 WHERE id = ?1 AND thread = ?2",
+                "UPDATE queued_messages
+                 SET input = ?3, updated = ?4, trigger_json = ?5,
+                     next_at = CASE WHEN ?5 IS NULL THEN NULL ELSE coalesce(?6, next_at) END,
+                     wait_thread = ?7, sender = ?8, deferred_entry = ?9
+                 WHERE id = ?1 AND thread = ?2",
                 params![
-                    e.entry.id.as_str(),
+                    entry.id.as_str(),
                     thread.as_str(),
-                    serde_json::to_string(&e.entry.input)?,
-                    time.0
+                    serde_json::to_string(&entry.input)?,
+                    time.0,
+                    trigger_json,
+                    next_at,
+                    wait_thread,
+                    sender,
+                    deferred_entry,
                 ],
             )?;
             if n == 0 {
@@ -623,10 +873,53 @@ pub fn append_event(
     Ok(seq)
 }
 
-/// A thread's queued messages, in the order they will run.
+/// A deferred queue row with its scheduling metadata.
+#[derive(Debug, Clone)]
+pub struct DeferredRow {
+    /// The thread it belongs to.
+    pub thread: ThreadId,
+    /// The queue entry.
+    pub entry: QueueEntry,
+    /// Next timer run, RFC 3339 UTC, if armed.
+    pub next_at: Option<String>,
+    /// Attempts completed so far (for `poll_command`).
+    pub attempts: u32,
+}
+
+fn parse_queue_entry(
+    id: String,
+    turn: String,
+    input: String,
+    sender: Option<String>,
+    deferred_entry: Option<String>,
+    trigger_json: Option<String>,
+) -> KernelResult<QueueEntry> {
+    let input: UserInput = serde_json::from_str(&input)?;
+    let trigger: Option<QueueTrigger> = trigger_json
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()?;
+    let from = if sender.is_some() || deferred_entry.is_some() {
+        Some(MessageFrom {
+            plugin: sender,
+            deferred: deferred_entry.map(QueueEntryId),
+        })
+    } else {
+        None
+    };
+    Ok(QueueEntry {
+        id: QueueEntryId(id),
+        turn: TurnId(turn),
+        input,
+        from,
+        trigger,
+    })
+}
+
+/// A thread's queued messages (both ready and waiting on a trigger), in order.
 pub fn queue_list(conn: &Connection, thread: &ThreadId) -> KernelResult<Vec<QueueEntry>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT id, turn, input, sender FROM queued_messages
+        "SELECT id, turn, input, sender, deferred_entry, trigger_json FROM queued_messages
          WHERE thread = ?1 ORDER BY position, created, id",
     )?;
     let rows = stmt.query_map([thread.as_str()], |r| {
@@ -635,20 +928,31 @@ pub fn queue_list(conn: &Connection, thread: &ThreadId) -> KernelResult<Vec<Queu
             r.get::<_, String>(1)?,
             r.get::<_, String>(2)?,
             r.get::<_, Option<String>>(3)?,
+            r.get::<_, Option<String>>(4)?,
+            r.get::<_, Option<String>>(5)?,
         ))
     })?;
     let mut out = Vec::new();
     for row in rows {
-        let (id, turn, input, sender) = row?;
-        let input: UserInput = serde_json::from_str(&input)?;
-        out.push(QueueEntry {
-            id: QueueEntryId(id),
-            turn: TurnId(turn),
+        let (id, turn, input, sender, deferred_entry, trigger_json) = row?;
+        out.push(parse_queue_entry(
+            id,
+            turn,
             input,
-            from: sender.map(|plugin| MessageFrom { plugin }),
-        });
+            sender,
+            deferred_entry,
+            trigger_json,
+        )?);
     }
     Ok(out)
+}
+
+/// A thread's ready-to-run queued messages (those without a pending trigger), in order.
+pub fn queue_ready_list(conn: &Connection, thread: &ThreadId) -> KernelResult<Vec<QueueEntry>> {
+    Ok(queue_list(conn, thread)?
+        .into_iter()
+        .filter(|q| q.trigger.is_none())
+        .collect())
 }
 
 /// Why a thread's queue is held, if it is.
@@ -669,14 +973,153 @@ pub fn queue_hold(conn: &Connection, thread: &ThreadId) -> KernelResult<Option<Q
     }
 }
 
-/// Threads whose queue has messages and is not held.
+/// Threads whose queue has ready messages or command triggers and is not held.
 pub fn threads_with_open_queue(conn: &Connection) -> KernelResult<Vec<ThreadId>> {
     let mut stmt = conn.prepare(
         "SELECT DISTINCT q.thread FROM queued_messages q JOIN threads t ON t.id = q.thread
-         WHERE t.queue_hold IS NULL ORDER BY q.thread",
+         WHERE t.queue_hold IS NULL
+           AND (q.trigger_json IS NULL
+                OR q.trigger_json LIKE '%\"after_command\"%'
+                OR q.trigger_json LIKE '%\"poll_command\"%')
+         ORDER BY q.thread",
     )?;
     let rows = stmt.query_map([], |r| Ok(ThreadId(r.get(0)?)))?;
     Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Clears `next_at` on `poll_command` entries at startup so interrupted commands wait for
+/// resume (ADR 0027).
+pub fn pause_command_triggers(conn: &Connection) -> KernelResult<()> {
+    conn.execute(
+        "UPDATE queued_messages SET next_at = NULL
+         WHERE trigger_json LIKE '%\"after_command\"%'
+            OR trigger_json LIKE '%\"poll_command\"%'",
+        [],
+    )?;
+    Ok(())
+}
+
+/// Earliest `next_at` among active (unheld) deferred entries.
+pub fn defer_earliest_at(conn: &Connection) -> KernelResult<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT min(q.next_at) FROM queued_messages q
+             JOIN threads t ON t.id = q.thread
+             WHERE q.next_at IS NOT NULL AND t.queue_hold IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten())
+}
+
+fn read_deferred_rows(
+    stmt: &mut rusqlite::Statement<'_>,
+    params: impl rusqlite::Params,
+) -> KernelResult<Vec<DeferredRow>> {
+    let rows = stmt.query_map(params, |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, Option<String>>(4)?,
+            r.get::<_, Option<String>>(5)?,
+            r.get::<_, Option<String>>(6)?,
+            r.get::<_, Option<String>>(7)?,
+            r.get::<_, i64>(8)?,
+        ))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (thread, id, turn, input, sender, deferred_entry, trigger_json, next_at, attempts) =
+            row?;
+        out.push(DeferredRow {
+            thread: ThreadId(thread),
+            entry: parse_queue_entry(id, turn, input, sender, deferred_entry, trigger_json)?,
+            next_at,
+            attempts: u32::try_from(attempts).unwrap_or(0),
+        });
+    }
+    Ok(out)
+}
+
+/// Deferred entries whose `next_at <= now` on unheld threads.
+pub fn defer_due(conn: &Connection, now: &str) -> KernelResult<Vec<DeferredRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT q.thread, q.id, q.turn, q.input, q.sender, q.deferred_entry,
+                q.trigger_json, q.next_at, q.attempts
+         FROM queued_messages q
+         JOIN threads t ON t.id = q.thread
+         WHERE q.next_at IS NOT NULL AND q.next_at <= ?1 AND t.queue_hold IS NULL
+         ORDER BY q.next_at, q.id",
+    )?;
+    read_deferred_rows(&mut stmt, [now])
+}
+
+/// Deferred entries waiting for `target`'s turn to end.
+pub fn defer_waiting_on_turn(
+    conn: &Connection,
+    target: &ThreadId,
+) -> KernelResult<Vec<DeferredRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT q.thread, q.id, q.turn, q.input, q.sender, q.deferred_entry,
+                q.trigger_json, q.next_at, q.attempts
+         FROM queued_messages q
+         WHERE q.wait_thread = ?1
+         ORDER BY q.created, q.id",
+    )?;
+    read_deferred_rows(&mut stmt, [target.as_str()])
+}
+
+/// All `(owner_thread, wait_thread)` edges for `after_turn` loop detection.
+pub fn defer_after_turn_edges(conn: &Connection) -> KernelResult<Vec<(ThreadId, ThreadId)>> {
+    let mut stmt = conn
+        .prepare("SELECT thread, wait_thread FROM queued_messages WHERE wait_thread IS NOT NULL")?;
+    let rows = stmt.query_map([], |r| Ok((ThreadId(r.get(0)?), ThreadId(r.get(1)?))))?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Number of pending plugin-set deferred entries on `thread`.
+pub fn defer_count_by_plugin(conn: &Connection, thread: &ThreadId) -> KernelResult<usize> {
+    let n: i64 = conn.query_row(
+        "SELECT count(*) FROM queued_messages
+         WHERE thread = ?1 AND trigger_json IS NOT NULL AND sender IS NOT NULL",
+        [thread.as_str()],
+        |r| r.get(0),
+    )?;
+    Ok(usize::try_from(n).unwrap_or(0))
+}
+
+/// Updates `next_at` and `attempts` for a deferred entry.
+pub fn defer_set_next_at(
+    conn: &Connection,
+    entry: &QueueEntryId,
+    next_at: Option<&str>,
+    attempts: u32,
+) -> KernelResult<()> {
+    conn.execute(
+        "UPDATE queued_messages SET next_at = ?2, attempts = ?3 WHERE id = ?1",
+        params![entry.as_str(), next_at, i64::from(attempts)],
+    )?;
+    Ok(())
+}
+
+/// Command-triggered deferred entries for `thread` (re-armed on `queue_resume`).
+pub fn defer_command_entries_for_thread(
+    conn: &Connection,
+    thread: &ThreadId,
+) -> KernelResult<Vec<DeferredRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT q.thread, q.id, q.turn, q.input, q.sender, q.deferred_entry,
+                q.trigger_json, q.next_at, q.attempts
+         FROM queued_messages q
+         WHERE q.thread = ?1
+           AND (q.trigger_json LIKE '%\"after_command\"%'
+                OR q.trigger_json LIKE '%\"poll_command\"%')
+         ORDER BY q.position, q.created, q.id",
+    )?;
+    read_deferred_rows(&mut stmt, [thread.as_str()])
 }
 
 /// Up to `limit` events with `seq > after`, in order.
@@ -710,6 +1153,19 @@ pub fn read_events(
             time: Timestamp(time),
             event,
         });
+    }
+    Ok(out)
+}
+
+/// Reads every event of `thread`, in sequence order.
+pub fn read_all_events(conn: &Connection, thread: &ThreadId) -> KernelResult<Vec<StoredEvent>> {
+    let mut out = Vec::new();
+    let mut after = 0;
+    loop {
+        let batch = read_events(conn, thread, after, 4096)?;
+        let Some(last) = batch.last() else { break };
+        after = last.seq;
+        out.extend(batch);
     }
     Ok(out)
 }

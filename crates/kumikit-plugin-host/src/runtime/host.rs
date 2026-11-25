@@ -39,6 +39,7 @@ pub(crate) fn kernel_err(e: KernelError) -> Error {
         KernelError::NotFound(m) => err(ErrorCode::NotFound, m),
         KernelError::InvalidParams(m) => err(ErrorCode::InvalidArgument, m),
         KernelError::Conflict(m) => err(ErrorCode::Conflict, m),
+        KernelError::PermissionDenied(m) => err(ErrorCode::PermissionDenied, m),
         KernelError::Io(m) => err(ErrorCode::Io, m),
         other => err(ErrorCode::Internal, other.to_string()),
     }
@@ -163,6 +164,8 @@ pub struct HostState {
     pub(crate) owner: OwnerId,
     pub(crate) session: Arc<SessionShared>,
     pub(crate) settings_schema: Option<PathBuf>,
+    /// Workspace of the calling thread during a gateway `tool.call`, if any.
+    pub(crate) call_workspace: Option<kumikit_protocol::model::WorkspaceId>,
 }
 
 impl std::fmt::Debug for HostState {
@@ -567,6 +570,44 @@ impl events::Host for HostState {
 }
 
 impl super::bindings::provider::kumikit::provider::types::Host for HostState {}
+
+impl super::bindings::session_events::kumikit::session::events::Host for HostState {
+    async fn emit_commands(
+        &mut self,
+        commands: Vec<super::bindings::session_events::kumikit::session::events::CommandInfo>,
+    ) -> Result<(), Error> {
+        let sink = self.turn_sink()?;
+        if self.session.take_cancel() {
+            return Err(cancelled());
+        }
+        let commands = commands
+            .into_iter()
+            .map(|c| kumikit_protocol::model::SlashCommand {
+                name: c.name,
+                description: c.description,
+                hint: c.hint,
+            })
+            .collect();
+        sink.emit(ProviderEvent::CommandsAvailable { commands })
+            .await
+            .map(|_| ())
+            .map_err(kernel_err)
+    }
+
+    async fn emit_limit(&mut self, reset_at: Option<String>, message: String) -> Result<(), Error> {
+        let sink = self.turn_sink()?;
+        if self.session.take_cancel() {
+            return Err(cancelled());
+        }
+        sink.emit(ProviderEvent::LimitReached {
+            reset_at: reset_at.map(kumikit_protocol::model::Timestamp),
+            message,
+        })
+        .await
+        .map(|_| ())
+        .map_err(kernel_err)
+    }
+}
 
 // ---- WASI stdout/stderr to the log ----
 

@@ -20,10 +20,18 @@ pub fn next_status(
         ThreadEvent::ApprovalRequested(_) => ThreadStatus::AwaitingApproval,
         ThreadEvent::ApprovalResolved(_) if pending_after == 0 => ThreadStatus::Running,
         ThreadEvent::ApprovalResolved(_) => ThreadStatus::AwaitingApproval,
-        ThreadEvent::TurnEnded(e) => match e.outcome {
-            TurnOutcome::Failed => ThreadStatus::Failed,
-            TurnOutcome::Done | TurnOutcome::Cancelled => ThreadStatus::Idle,
-        },
+        ThreadEvent::LimitReached(_) => ThreadStatus::Limited,
+        ThreadEvent::QueueResumed(_) if current == ThreadStatus::Limited => ThreadStatus::Idle,
+        ThreadEvent::TurnEnded(e) => {
+            if current == ThreadStatus::Limited {
+                ThreadStatus::Limited
+            } else {
+                match e.outcome {
+                    TurnOutcome::Failed => ThreadStatus::Failed,
+                    TurnOutcome::Done | TurnOutcome::Cancelled => ThreadStatus::Idle,
+                }
+            }
+        }
         _ => current,
     }
 }
@@ -84,6 +92,9 @@ impl Fold {
                     started: time.clone(),
                     ended: None,
                     outcome: None,
+                    provider: e.provider.clone(),
+                    model: e.model.clone(),
+                    purpose: e.purpose,
                 });
             }
             ThreadEvent::QueueAdded(e) if e.front => self.queue.insert(0, e.entry.clone()),
@@ -158,6 +169,9 @@ mod tests {
                 input: UserInput::text("hi"),
                 from: None,
                 entry: None,
+                provider: None,
+                model: None,
+                purpose: None,
             }),
             ThreadEvent::TextDelta(TurnText {
                 turn: "u".into(),
@@ -224,6 +238,7 @@ mod tests {
             turn: format!("t{id}").as_str().into(),
             input: UserInput::text(text),
             from: None,
+            trigger: None,
         };
         let mut f = Fold::new(ThreadId("th".into()));
         let events = [
@@ -278,6 +293,9 @@ mod tests {
                 input: UserInput::text("2"),
                 from: None,
                 entry: Some("b".into()),
+                provider: None,
+                model: None,
+                purpose: None,
             }),
         );
         assert_eq!(f.queue_hold, None);

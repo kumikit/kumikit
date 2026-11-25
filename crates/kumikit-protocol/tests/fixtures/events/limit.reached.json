@@ -1,0 +1,16 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 2,
+      "time": "2026-11-15T10:01:00.000Z",
+      "kind": "limit.reached",
+      "data": {
+        "resetAt": "2026-11-15T11:00:00.000Z",
+        "message": "Usage limit reached; resets at 11:00 UTC."
+      }
+    }
+  }
+]

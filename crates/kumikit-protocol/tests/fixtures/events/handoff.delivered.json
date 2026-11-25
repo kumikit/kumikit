@@ -1,0 +1,26 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 32,
+      "time": "2026-11-15T10:01:05.000Z",
+      "kind": "handoff.delivered",
+      "data": {
+        "turn": "01JCTU00000000000000000002",
+        "from": {
+          "provider": "test.example/a",
+          "model": "model-a"
+        },
+        "to": {
+          "provider": "test.example/b",
+          "model": "model-b"
+        },
+        "messages": 2,
+        "truncated": false,
+        "rendered": "Conversation carried forward from test.example/a (model-a):\n\nUser: hi\nAssistant: hello"
+      }
+    }
+  }
+]

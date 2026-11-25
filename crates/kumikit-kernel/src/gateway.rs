@@ -205,6 +205,20 @@ impl Kernel {
         summary: String,
         detail: Value,
     ) -> KernelResult<Resolution> {
+        self.request_kernel_approval(thread, turn, "tool", summary, detail)
+            .await
+    }
+
+    /// Asks for a kernel-owned approval of `kind` (`"tool"`, `"command"`, …) and waits
+    /// for its answer.
+    pub async fn request_kernel_approval(
+        &self,
+        thread: &ThreadId,
+        turn: &TurnId,
+        kind: &str,
+        summary: String,
+        detail: Value,
+    ) -> KernelResult<Resolution> {
         let id = ApprovalId(self.new_id());
         let (tx, rx) = oneshot::channel();
         lock(&self.gateway().waiters).insert(id.clone(), tx);
@@ -212,7 +226,7 @@ impl Kernel {
             id: id.clone(),
             thread: thread.clone(),
             turn: turn.clone(),
-            kind: "tool".into(),
+            kind: kind.to_owned(),
             summary,
             detail: Some(detail),
             status: ApprovalStatus::Pending,

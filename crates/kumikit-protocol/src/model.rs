@@ -135,6 +135,8 @@ pub enum ThreadStatus {
     AwaitingApproval,
     /// The last turn failed.
     Failed,
+    /// The provider reached a usage or rate limit (since 0.9).
+    Limited,
     /// Archived; hidden from `thread.list` by default.
     Archived,
 }
@@ -147,6 +149,7 @@ impl ThreadStatus {
             ThreadStatus::Running => "running",
             ThreadStatus::AwaitingApproval => "awaiting_approval",
             ThreadStatus::Failed => "failed",
+            ThreadStatus::Limited => "limited",
             ThreadStatus::Archived => "archived",
         }
     }
@@ -158,6 +161,7 @@ impl ThreadStatus {
             ThreadStatus::Running,
             ThreadStatus::AwaitingApproval,
             ThreadStatus::Failed,
+            ThreadStatus::Limited,
             ThreadStatus::Archived,
         ]
         .into_iter()
@@ -204,6 +208,66 @@ impl PermissionMode {
     }
 }
 
+/// Who set a thread's title (ADR 0030, since 0.9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum TitleSource {
+    /// Derived automatically from the first prompt.
+    Auto,
+    /// Suggested by an agent through `threads.title.suggest`.
+    Agent,
+    /// Explicitly renamed by the user.
+    User,
+}
+
+impl TitleSource {
+    /// The wire/storage string.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TitleSource::Auto => "auto",
+            TitleSource::Agent => "agent",
+            TitleSource::User => "user",
+        }
+    }
+
+    /// Parses the wire/storage string.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "auto" => Some(TitleSource::Auto),
+            "agent" => Some(TitleSource::Agent),
+            "user" => Some(TitleSource::User),
+            _ => None,
+        }
+    }
+}
+
+/// A slash command reported by an agent provider (since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct SlashCommand {
+    /// Command name without a leading `/`.
+    pub name: String,
+    /// Short human-readable description.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Optional argument hint shown in the composer menu.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+}
+
+/// Where a forked thread branched from (since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadForkInfo {
+    /// Source thread id.
+    pub thread: ThreadId,
+    /// Turn at or before which the fork was cut, if specified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<TurnId>,
+}
+
 /// A conversation with an agent inside a workspace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -216,6 +280,9 @@ pub struct Thread {
     /// Optional title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// Who set the title (`auto`, `agent`, or `user`; since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_source: Option<TitleSource>,
     /// Provider id.
     pub provider: String,
     /// Model id, as reported by the provider.
@@ -226,6 +293,15 @@ pub struct Thread {
     /// Linked Git worktree directory this thread runs in; absent means the workspace root.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree_path: Option<String>,
+    /// Source thread/turn when created via `thread.fork` (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from: Option<ThreadForkInfo>,
+    /// Parent thread id for a linked side thread (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<ThreadId>,
+    /// True when this is a side thread hidden from the main sidebar list (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side: Option<bool>,
     /// Current status.
     pub status: ThreadStatus,
     /// When it was created.
@@ -268,6 +344,52 @@ impl TurnOutcome {
     }
 }
 
+/// Why a special-purpose turn was started by the kernel (since 0.9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnPurpose {
+    /// A summary turn run on the outgoing provider before switching providers (ADR 0029).
+    HandoffSummary,
+}
+
+impl TurnPurpose {
+    /// The wire/storage string.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TurnPurpose::HandoffSummary => "handoff_summary",
+        }
+    }
+
+    /// Parses the wire/storage string.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "handoff_summary" => Some(TurnPurpose::HandoffSummary),
+            _ => None,
+        }
+    }
+}
+
+/// How conversation history is carried forward when switching providers (ADR 0029, since 0.9).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum HandoffMode {
+    /// Pass the bounded text transcript of earlier turns (default).
+    #[default]
+    Transcript,
+    /// Ask the outgoing provider for a handoff summary note, plus the bounded transcript.
+    Summary,
+}
+
+/// A provider and model pair (used in handoff events, since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModel {
+    /// Qualified provider id.
+    pub provider: String,
+    /// Model id.
+    pub model: String,
+}
+
 /// One user message and the agent's work on it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -277,6 +399,15 @@ pub struct Turn {
     pub id: TurnId,
     /// The thread it belongs to.
     pub thread: ThreadId,
+    /// Provider that ran this turn (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// Model that ran this turn (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Special purpose, when started by the kernel (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<TurnPurpose>,
     /// When it started.
     pub started: Timestamp,
     /// When it ended; absent while running.
@@ -422,10 +553,14 @@ mod tests {
             id: "th".into(),
             workspace: "ws".into(),
             title: None,
+            title_source: None,
             provider: "p".into(),
             model: "m".into(),
             permission_mode: None,
             worktree_path: None,
+            forked_from: None,
+            parent: None,
+            side: None,
             status: ThreadStatus::AwaitingApproval,
             created: Timestamp("t0".into()),
             updated: Timestamp("t1".into()),

@@ -3,4 +3,4 @@
 /**
  * Why an entry left the queue without starting a turn.
  */
-export type QueueRemoval = "removed";
+export type QueueRemoval = "removed" | "condition_not_met";

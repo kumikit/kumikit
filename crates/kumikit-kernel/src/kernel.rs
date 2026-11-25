@@ -105,6 +105,7 @@ pub(crate) struct Inner {
     pub(crate) secrets: SecretStore,
     pub(crate) supervisor: Supervisor,
     pub(crate) schedules: crate::schedule::State,
+    pub(crate) defer: crate::defer::State,
     pub(crate) gateway: crate::gateway::State,
     pub(crate) default_home_dir: PathBuf,
 }
@@ -146,6 +147,7 @@ impl Kernel {
                 secrets: SecretStore::new(config.secrets),
                 supervisor: Supervisor::new(config.supervisor),
                 schedules: Default::default(),
+                defer: Default::default(),
                 gateway: Default::default(),
                 default_home_dir: config.default_home_dir,
             }),
@@ -162,6 +164,7 @@ impl Kernel {
     /// database after queued writes.
     pub async fn close(&self) {
         self.stop_scheduler();
+        self.stop_defer_timer();
         self.stop_turns().await;
         self.inner.supervisor.shutdown().await;
         self.lock_heads().clear();
@@ -288,7 +291,9 @@ impl Kernel {
             )
             .await?;
         }
-        // Messages that were waiting when the core stopped wait for the user again.
+        // Messages that were waiting (and command triggers interrupted) when the core
+        // stopped wait for the user again.
+        self.inner.store.write(repo::pause_command_triggers).await?;
         let queued = self.inner.store.read(repo::threads_with_open_queue).await?;
         for thread in queued {
             self.append(
@@ -394,6 +399,28 @@ impl Kernel {
         self.inner.store.read(repo::workspace_list).await
     }
 
+    /// Lists workspace-relative file paths for `@` mentions, optionally scoped to a linked
+    /// worktree `path`. Skips common build/VCS directories and respects top-level `.gitignore`
+    /// patterns. Results are sorted and capped at `limit` (default 50, max 500).
+    pub async fn workspace_files_list(
+        &self,
+        workspace: &WorkspaceId,
+        worktree_path: Option<&str>,
+        query: Option<&str>,
+        limit: Option<u32>,
+    ) -> KernelResult<(Vec<String>, bool)> {
+        let ws = self.workspace_get(workspace).await?;
+        let root = match worktree_path.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(p) => PathBuf::from(canonical_dir(p).await?),
+            None => PathBuf::from(&ws.root),
+        };
+        let query = query.unwrap_or("").trim().to_ascii_lowercase();
+        let cap = usize::try_from(limit.unwrap_or(50).clamp(1, 500)).unwrap_or(50);
+        tokio::task::spawn_blocking(move || list_files_under(&root, &query, cap))
+            .await
+            .map_err(|e| StoreError::Task(e.to_string()))?
+    }
+
     /// An open workspace: `not_found` if there is none with this id, `conflict` if it is
     /// closed.
     pub async fn workspace_get(&self, id: &WorkspaceId) -> KernelResult<Workspace> {
@@ -439,7 +466,7 @@ impl Kernel {
     /// removing any managed worktrees under `<homeDir>/worktrees/` exclusively referenced
     /// by those threads. Fails with `conflict` if any thread has a running or waiting turn.
     pub async fn workspace_delete(&self, id: &WorkspaceId) -> KernelResult<()> {
-        let threads = self.thread_list(id, true).await?;
+        let threads = self.thread_list_opts(id, true, true).await?;
         for t in &threads {
             if self.has_run(&t.id) {
                 return Err(KernelError::Conflict(format!(
@@ -520,7 +547,7 @@ impl Kernel {
             .await
     }
 
-    /// Creates a thread, optionally pinned to a linked Git worktree path.
+    #[cfg(test)]
     pub(crate) async fn thread_insert_with_worktree(
         &self,
         workspace: &WorkspaceId,
@@ -529,6 +556,32 @@ impl Kernel {
         title: Option<String>,
         permission_mode: Option<PermissionMode>,
         worktree_path: Option<String>,
+    ) -> KernelResult<Thread> {
+        self.thread_insert_opts(
+            workspace,
+            provider,
+            model,
+            title,
+            permission_mode,
+            worktree_path,
+            None,
+            false,
+        )
+        .await
+    }
+
+    /// Creates a thread with full options (worktree, parent, side flag).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn thread_insert_opts(
+        &self,
+        workspace: &WorkspaceId,
+        provider: String,
+        model: String,
+        title: Option<String>,
+        permission_mode: Option<PermissionMode>,
+        worktree_path: Option<String>,
+        parent: Option<ThreadId>,
+        side: bool,
     ) -> KernelResult<Thread> {
         let now = self.now();
         let permission_mode = permission_mode.filter(|m| *m != PermissionMode::Standard);
@@ -544,10 +597,14 @@ impl Kernel {
             id: ThreadId(self.new_id()),
             workspace: workspace.clone(),
             title,
+            title_source: None,
             provider,
             model,
             permission_mode,
             worktree_path,
+            forked_from: None,
+            parent,
+            side: side.then_some(true),
             status: ThreadStatus::Idle,
             created: now.clone(),
             updated: now,
@@ -590,11 +647,65 @@ impl Kernel {
             .unwrap_or_default())
     }
 
-    /// Threads of a workspace, most recently updated first.
+    /// Reads up to `limit` (clamped to 200) events of `id` with `seq > after`.
+    pub async fn thread_read_events(
+        &self,
+        id: &ThreadId,
+        after: u64,
+        limit: usize,
+    ) -> KernelResult<Vec<StoredEvent>> {
+        let tid = id.clone();
+        let limit = limit.clamp(1, 200);
+        self.inner
+            .store
+            .read(move |c| {
+                repo::thread_require(c, &tid)?;
+                repo::read_events(c, &tid, after, limit)
+            })
+            .await
+    }
+
+    /// Sets a thread's title as agent-suggested unless the user explicitly renamed it
+    /// (`titleSource == user`, ADR 0030). Returns `true` when updated.
+    pub async fn thread_suggest_title(&self, id: &ThreadId, title: &str) -> KernelResult<bool> {
+        let trimmed = title.trim();
+        if trimmed.is_empty() || trimmed.len() > 200 {
+            return Err(KernelError::InvalidParams(
+                "suggested title must be 1..=200 bytes".into(),
+            ));
+        }
+        let tid = id.clone();
+        let t = trimmed.to_owned();
+        let updated = self.now();
+        let (changed, row) = self
+            .inner
+            .store
+            .write(move |c| repo::thread_suggest_title(c, &tid, &t, &updated))
+            .await?;
+        if changed {
+            self.announce(WorkspaceEvent::ThreadUpdated(ThreadChange {
+                thread: row.public(),
+            }));
+        }
+        Ok(changed)
+    }
+
+    /// Threads of a workspace, most recently updated first (hides side threads by default).
     pub async fn thread_list(
         &self,
         workspace: &WorkspaceId,
         include_archived: bool,
+    ) -> KernelResult<Vec<Thread>> {
+        self.thread_list_opts(workspace, include_archived, false)
+            .await
+    }
+
+    /// Threads of a workspace with optional archived and side-thread inclusion.
+    pub async fn thread_list_opts(
+        &self,
+        workspace: &WorkspaceId,
+        include_archived: bool,
+        include_side: bool,
     ) -> KernelResult<Vec<Thread>> {
         let ws = workspace.clone();
         self.inner
@@ -603,7 +714,7 @@ impl Kernel {
                 if repo::workspace_get(c, &ws)?.is_none() {
                     return Err(KernelError::NotFound(format!("no workspace {ws}")));
                 }
-                Ok(repo::thread_list(c, &ws, include_archived)?
+                Ok(repo::thread_list(c, &ws, include_archived, include_side)?
                     .iter()
                     .map(repo::ThreadRow::public)
                     .collect())
@@ -803,6 +914,8 @@ impl Kernel {
             ThreadEvent::TurnStarted(_)
                 | ThreadEvent::ApprovalRequested(_)
                 | ThreadEvent::ApprovalResolved(_)
+                | ThreadEvent::LimitReached(_)
+                | ThreadEvent::QueueResumed(_)
                 | ThreadEvent::TurnEnded(_)
         );
         let seq = self
@@ -965,6 +1078,107 @@ fn expand_tilde(path: &str) -> String {
         return Path::new(&home).join(rest).to_string_lossy().into_owned();
     }
     path.to_owned()
+}
+
+/// Lists workspace-relative paths under `root` for `@` file mentions. Skips VCS and
+/// build artifact directories and top-level `.gitignore` entries, matching `query_lower`
+/// case-insensitively up to `limit` paths.
+fn list_files_under(
+    root: &Path,
+    query_lower: &str,
+    limit: usize,
+) -> KernelResult<(Vec<String>, bool)> {
+    const SKIP_DIRS: &[&str] = &[
+        ".git",
+        "node_modules",
+        "target",
+        "dist",
+        "build",
+        ".svelte-kit",
+        ".next",
+        ".nuxt",
+        "__pycache__",
+        ".venv",
+        "venv",
+    ];
+    let ignored = load_simple_gitignore(root);
+    let mut stack = vec![root.to_path_buf()];
+    let mut matches = Vec::new();
+    let mut visited = 0usize;
+    const MAX_VISIT: usize = 20_000;
+
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut children: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|x| x.path())).collect();
+        children.sort();
+        for path in children {
+            visited += 1;
+            if visited > MAX_VISIT {
+                matches.sort();
+                matches.truncate(limit);
+                return Ok((matches, true));
+            }
+            let Ok(rel) = path.strip_prefix(root) else {
+                continue;
+            };
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            let is_dir = path.is_dir();
+            if is_dir && SKIP_DIRS.contains(&name) {
+                continue;
+            }
+            if is_ignored(&rel_str, name, is_dir, &ignored) {
+                continue;
+            }
+            if is_dir {
+                stack.push(path);
+            } else if query_lower.is_empty() || rel_str.to_ascii_lowercase().contains(query_lower) {
+                matches.push(rel_str);
+            }
+        }
+    }
+
+    matches.sort();
+    let truncated = matches.len() > limit;
+    matches.truncate(limit);
+    Ok((matches, truncated))
+}
+
+fn load_simple_gitignore(root: &Path) -> Vec<String> {
+    let Ok(raw) = std::fs::read_to_string(root.join(".gitignore")) else {
+        return Vec::new();
+    };
+    raw.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with('!'))
+        .map(|l| l.trim_start_matches('/').to_owned())
+        .collect()
+}
+
+fn is_ignored(rel: &str, name: &str, is_dir: bool, patterns: &[String]) -> bool {
+    for pat in patterns {
+        let dir_only = pat.ends_with('/');
+        let p = pat.trim_end_matches('/');
+        if dir_only && !is_dir {
+            continue;
+        }
+        if let Some(ext) = p.strip_prefix("*.") {
+            if name.ends_with(&format!(".{ext}")) {
+                return true;
+            }
+        } else if p.contains('/') {
+            if rel == p || rel.starts_with(&format!("{p}/")) {
+                return true;
+            }
+        } else if name == p {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]

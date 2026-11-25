@@ -6,8 +6,11 @@
 use std::collections::VecDeque;
 
 use kumikit_kernel::{Kernel, ThreadSubscription};
+use kumikit_protocol::event::QueueTrigger;
 use kumikit_protocol::methods::SteerStatus;
-use kumikit_protocol::model::{ApprovalId, Decision, ThreadId, UserInput, WorkspaceId};
+use kumikit_protocol::model::{
+    ApprovalId, Decision, QueueEntryId, ThreadId, UserInput, WorkspaceId,
+};
 use kumikit_protocol::{Topic, WorkspaceEvent};
 use tokio::sync::broadcast;
 use wasmtime::component::Resource;
@@ -15,6 +18,7 @@ use wasmtime_wasi::p2::DynPollable;
 
 use super::bindings::base::kumikit::host::client::{self, Event};
 use super::bindings::base::kumikit::host::types::{Error, ErrorCode};
+use super::bindings::threads_client::kumikit::threads::client as wit_threads_client;
 use super::bindings::turn_client::kumikit::turn::client as wit_turn_client;
 use super::host::{HostState, err, kernel_err};
 
@@ -124,6 +128,8 @@ struct Access {
     /// The plugin whose grants apply, recorded as the one acting.
     actor: String,
     grants: kumikit_kernel::grants::Grants,
+    /// Workspace of the calling thread during a gateway `tool.call`, if any.
+    call_workspace: Option<WorkspaceId>,
 }
 
 impl Access {
@@ -144,6 +150,14 @@ impl Access {
     }
 
     async fn may_act_in(&self, ws: &WorkspaceId) -> Result<bool, Error> {
+        // Tool calls with `workspaces = "linked"` may act in their calling thread's
+        // workspace automatically (ADR 0030) while staying isolated from other workspaces
+        // unless linked or granted `all`.
+        if self.grants.workspaces == kumikit_kernel::grants::WorkspacesGrant::Linked
+            && self.call_workspace.as_ref() == Some(ws)
+        {
+            return Ok(true);
+        }
         self.kernel
             .plugin_may_act_in(&self.actor, &self.grants, ws)
             .await
@@ -179,6 +193,7 @@ impl HostState {
             plugin: self.id.plugin.clone(),
             actor: self.id.grants_from.clone(),
             grants: self.id.grants.clone(),
+            call_workspace: self.call_workspace.clone(),
         }
     }
 }
@@ -387,6 +402,102 @@ impl wit_turn_client::Host for HostState {
             turn: r.turn.0,
             entry: r.entry.map(|e| e.0),
         })
+    }
+}
+
+impl wit_threads_client::Host for HostState {
+    async fn defer(
+        &mut self,
+        thread: String,
+        text: String,
+        trigger_json: String,
+    ) -> Result<String, Error> {
+        let a = self.access();
+        a.need("threads.defer")?;
+        let thread = ThreadId(thread);
+        a.need_thread("threads.defer", &thread).await?;
+        let trigger: QueueTrigger = serde_json::from_str(&trigger_json).map_err(|e| {
+            err(
+                ErrorCode::InvalidArgument,
+                format!("invalid trigger JSON: {e}"),
+            )
+        })?;
+        let entry = a
+            .kernel
+            .thread_defer_from(&thread, UserInput::text(text), trigger, a.actor, a.grants)
+            .await
+            .map_err(kernel_err)?;
+        serde_json::to_string(&entry).map_err(|e| err(ErrorCode::Internal, e.to_string()))
+    }
+
+    async fn list_queue(&mut self, thread: String) -> Result<String, Error> {
+        let a = self.access();
+        a.need("threads.queue")?;
+        let thread = ThreadId(thread);
+        a.need_thread("threads.queue", &thread).await?;
+        let snap = a.kernel.thread_get(&thread).await.map_err(kernel_err)?;
+        serde_json::to_string(&snap.queue).map_err(|e| err(ErrorCode::Internal, e.to_string()))
+    }
+
+    async fn remove_queued(&mut self, thread: String, entry: String) -> Result<(), Error> {
+        let a = self.access();
+        a.need("threads.queue")?;
+        let thread = ThreadId(thread);
+        a.need_thread("threads.queue", &thread).await?;
+        a.kernel
+            .queue_remove(&thread, &QueueEntryId(entry))
+            .await
+            .map_err(kernel_err)
+    }
+
+    async fn read_events(
+        &mut self,
+        thread: String,
+        after: u64,
+        limit: u32,
+    ) -> Result<String, Error> {
+        let a = self.access();
+        a.need("threads.read")?;
+        let thread = ThreadId(thread);
+        a.need_thread("threads.read", &thread).await?;
+        let events = a
+            .kernel
+            .thread_read_events(&thread, after, limit as usize)
+            .await
+            .map_err(kernel_err)?;
+        let out: Vec<serde_json::Value> = events
+            .into_iter()
+            .map(|e| {
+                let mut v = serde_json::to_value(&e.event).unwrap_or_default();
+                let kind = v
+                    .get("kind")
+                    .and_then(|k| k.as_str())
+                    .unwrap_or_default()
+                    .to_owned();
+                let data = v
+                    .get_mut("data")
+                    .map(serde_json::Value::take)
+                    .unwrap_or(serde_json::Value::Null);
+                serde_json::json!({
+                    "seq": e.seq,
+                    "time": e.time.0,
+                    "kind": kind,
+                    "data": data,
+                })
+            })
+            .collect();
+        serde_json::to_string(&out).map_err(|e| err(ErrorCode::Internal, e.to_string()))
+    }
+
+    async fn suggest_title(&mut self, thread: String, title: String) -> Result<bool, Error> {
+        let a = self.access();
+        a.need("threads.title.suggest")?;
+        let thread = ThreadId(thread);
+        a.need_thread("threads.title.suggest", &thread).await?;
+        a.kernel
+            .thread_suggest_title(&thread, &title)
+            .await
+            .map_err(kernel_err)
     }
 }
 

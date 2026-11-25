@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import Approval from '../src/Approval.svelte';
 import Chat from '../src/Chat.svelte';
+import Handoff from '../src/Handoff.svelte';
 import Steer from '../src/Steer.svelte';
 
 const address = { connection: 'local', workspace: 'w', thread: 't' };
@@ -321,6 +322,360 @@ describe('the steer renderer', () => {
     flushSync();
     expect(target.textContent).toContain('Steered');
     expect(target.textContent).toContain('use the existing helper');
+    unmount(c);
+  });
+});
+
+describe('the handoff renderer and provider switch', () => {
+  it('renders a collapsible handoff with the exact carried-forward context', () => {
+    const target = document.createElement('div');
+    const c = mount(Handoff, {
+      target,
+      props: {
+        item: {
+          kind: 'handoff',
+          from: { provider: 'p.a/a', model: 'm1' },
+          to: { provider: 'p.b/b', model: 'm2' },
+          messages: 4,
+          truncated: true,
+          rendered: '[Conversation handoff from p.a/a (m1)]\nUser: hi',
+        },
+      },
+    });
+    flushSync();
+    expect(target.textContent).toContain('Conversation carried forward from p.a/a (m1)');
+    expect(target.textContent).toContain('4 messages (trimmed)');
+    expect(target.querySelector('pre')?.textContent).toContain('User: hi');
+    unmount(c);
+  });
+
+  it('asks for handoff confirmation and sends provider and handoff mode on switch', async () => {
+    const viewWithTurn: ThreadView = {
+      ...base,
+      thread: {
+        id: 't',
+        workspace: 'w',
+        provider: 'p.a/a',
+        model: 'm1',
+        status: 'idle',
+        created: '2026-11-24T00:00:00Z',
+        updated: '2026-11-24T00:00:00Z',
+      },
+      turns: [
+        {
+          id: 'u1',
+          input: 'hello',
+          started: '2026-11-24T00:00:01Z',
+          ended: '2026-11-24T00:00:02Z',
+          outcome: 'done',
+          provider: 'p.a/a',
+          model: 'm1',
+          items: [{ kind: 'message', text: 'hi there', done: true }],
+        },
+      ],
+    };
+    const connection = {
+      id: 'local',
+      ready: true,
+      call: async (method: string) => {
+        if (method === 'provider.list') {
+          return {
+            providers: [
+              { id: 'p.a/a', name: 'Agent A', plugin: 'p.a' },
+              { id: 'p.b/b', name: 'Agent B', plugin: 'p.b' },
+            ],
+          };
+        }
+        return {};
+      },
+      subscribe: () => () => {},
+      models: async () => [{ id: 'm1', label: 'Model 1', capabilities: [] }],
+    };
+    const { ctx, ran } = fakeCtx(viewWithTurn);
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address, connection: connection as never } });
+    flushSync();
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+
+    expect(target.textContent).toContain('Agent A · m1');
+    const select = target.querySelector<HTMLSelectElement>('select[aria-label="Thread provider"]');
+    expect(select).not.toBeNull();
+    select!.value = 'p.b/b';
+    select!.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+
+    expect(target.textContent).toContain('Hand off to Agent B?');
+    const summaryRadio = target.querySelector<HTMLInputElement>('input[value="summary"]');
+    summaryRadio!.checked = true;
+    summaryRadio!.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    const confirmBtn = [...target.querySelectorAll<HTMLButtonElement>('button')].find((b) =>
+      b.textContent?.trim() === 'Hand off',
+    );
+    confirmBtn!.click();
+    await Promise.resolve();
+    flushSync();
+
+    expect(ran).toEqual([['thread.update', { address, provider: 'p.b/b', handoff: 'summary' }]]);
+    unmount(c);
+  });
+});
+
+describe('deferred messages UI', () => {
+  it('shows trigger chips and Run now on deferred queue entries and parses /later', () => {
+    const viewWithDefer: ThreadView = {
+      ...base,
+      queue: [
+        {
+          id: 'q1',
+          turn: 'u2',
+          input: { text: 'check deploy' },
+          trigger: { kind: 'after_command', argv: ['cargo', 'test'], timeoutS: 600 },
+        },
+      ],
+    };
+    const { ctx, ran } = fakeCtx(viewWithDefer);
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address } });
+    flushSync();
+
+    expect(target.textContent).toContain('After `cargo test`');
+    expect(target.textContent).toContain('Run now');
+
+    const ta = target.querySelector<HTMLTextAreaElement>('textarea')!;
+    ta.value = '/later after cargo build -- review output';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    flushSync();
+
+    expect(ran).toEqual([
+      [
+        'thread.defer',
+        {
+          address,
+          text: 'review output',
+          trigger: { kind: 'after_command', argv: ['cargo', 'build'], timeoutS: 600 },
+        },
+      ],
+    ]);
+    unmount(c);
+  });
+});
+
+describe('forks, edit-and-resend, and side threads', () => {
+  it('edits a sent prompt by forking beforeTurn, saving preload draft, and opening the fork', async () => {
+    const viewWithTurn: ThreadView = {
+      ...base,
+      turns: [
+        {
+          id: 'u1',
+          input: 'original prompt',
+          started: '2026-11-15T10:00:00Z',
+          ended: '2026-11-15T10:00:02Z',
+          outcome: 'done',
+          items: [{ kind: 'message', text: 'reply one', done: true }],
+        },
+      ],
+    };
+    const stored = new Map<string, string>();
+    const ran: [string, unknown][] = [];
+    const { ctx } = fakeCtx(viewWithTurn);
+    ctx.storage = {
+      get: (k) => stored.get(k),
+      set: (k, v) => {
+        stored.set(k, v);
+      },
+      delete: (k) => {
+        stored.delete(k);
+      },
+    };
+    ctx.commands = {
+      register: () => () => {},
+      run: async (cmd, args) => {
+        ran.push([cmd, args]);
+        if (cmd === 'thread.fork') return { id: 'th-fork' };
+        return undefined;
+      },
+    };
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address } });
+    flushSync();
+
+    const editBtn = target.querySelector<HTMLButtonElement>('button[aria-label="Edit prompt in fork"]')!;
+    editBtn.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(ran[0]).toEqual(['thread.fork', { address, beforeTurn: 'u1', open: false }]);
+    expect(ran[1]).toEqual(['thread.open', { address: { ...address, thread: 'th-fork' } }]);
+    const preload = JSON.parse(stored.get('preload:th-fork')!);
+    expect(preload.text).toBe('original prompt');
+    expect(preload.note).toContain('not rewound');
+    unmount(c);
+  });
+
+  it('offers Insert into main in side-thread mode and /btw opens side inspector', async () => {
+    const parent: ThreadAddress = { connection: 'local', workspace: 'w', thread: 'main-th' };
+    const sideView: ThreadView = {
+      ...base,
+      address: { connection: 'local', workspace: 'w', thread: 'side-th' },
+      turns: [
+        {
+          id: 's1',
+          input: 'side q',
+          started: '2026-11-15T10:00:00Z',
+          ended: '2026-11-15T10:00:01Z',
+          outcome: 'done',
+          items: [{ kind: 'message', text: 'useful side answer', done: true }],
+        },
+      ],
+    };
+    const { ctx, ran } = fakeCtx(sideView);
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address: sideView.address, sideFor: parent } });
+    flushSync();
+
+    const insertBtn = Array.from(target.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Insert into main'),
+    )!;
+    expect(insertBtn).toBeTruthy();
+    insertBtn.click();
+    flushSync();
+
+    expect(ran).toEqual([['composer.insert', { address: parent, text: 'useful side answer' }]]);
+    unmount(c);
+  });
+});
+
+describe('composer and transcript polish (M7 step 7)', () => {
+  it('shows slash command menu (agent + client), inserts without running, and supports Approve all + grouped tools + changed files', async () => {
+    const toolItems = Array.from({ length: 5 }, (_, i) => ({
+      kind: 'tool' as const,
+      call: `c${i}`,
+      name: `tool_${i}`,
+      input: {},
+      output: '',
+      ok: i !== 2,
+    }));
+    const richView: ThreadView = {
+      ...base,
+      status: 'awaiting_approval',
+      commands: [{ name: 'review', description: 'Review changes' }],
+      pendingApprovals: [
+        { id: 'ap1', thread: 'th', turn: 'u1', kind: 'tool', summary: 'Run tests', status: 'pending' },
+        { id: 'ap2', thread: 'th', turn: 'u1', kind: 'tool', summary: 'Write file', status: 'pending' },
+      ],
+      turns: [
+        {
+          id: 'u1',
+          input: 'check everything',
+          started: '2026-11-15T10:00:00Z',
+          ended: '2026-11-15T10:00:05Z',
+          outcome: 'done',
+          items: [
+            ...toolItems,
+            { kind: 'file.changed', path: 'src/app.ts', diff: '--- a/src/app.ts\n+++ b/src/app.ts\n-old\n+new\n+more' },
+            { kind: 'message', text: 'All checked.', done: true },
+          ],
+        },
+      ],
+    };
+    const { ctx, ran } = fakeCtx(richView);
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address } });
+    flushSync();
+
+    // Grouped tools (5 consecutive tool calls collapsed with failure count).
+    expect(target.textContent).toContain('5 tool calls · 1 failed');
+    // Per-turn changed files footer with +/- counts.
+    expect(target.textContent).toContain('1 file changed');
+    expect(target.textContent).toContain('src/app.ts');
+    expect(target.textContent).toContain('+2 -1');
+    // Elapsed time shown on turn.
+    expect(target.textContent).toContain('5s');
+
+    // Approve all calls approval.respond once per pending approval.
+    const approveAllBtn = Array.from(target.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Approve all'),
+    )!;
+    approveAllBtn.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(ran).toEqual([
+      ['approval.respond', { address, approval: 'ap1', decision: 'allow' }],
+      ['approval.respond', { address, approval: 'ap2', decision: 'allow' }],
+    ]);
+
+    // Typing `/rev` opens the slash menu; Enter inserts `/review ` without sending.
+    const ta = target.querySelector<HTMLTextAreaElement>('textarea')!;
+    ta.value = '/rev';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    expect(target.querySelector('[role="listbox"][aria-label="Slash commands"]')?.textContent).toContain('/review');
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    flushSync();
+    expect(ta.value).toBe('/review ');
+    expect(ran.length).toBe(2);
+
+    unmount(c);
+  });
+});
+
+describe('usage limits and post-turn checks (M7 step 8)', () => {
+  it('shows the limited banner with Resume now and schedules a failing-only check when opted in', () => {
+    const stored = new Map<string, string>([
+      [`turncheck:${address.workspace}`, JSON.stringify({ enabled: true, cmd: 'cargo test' })],
+    ]);
+    const limitedView: ThreadView = {
+      ...base,
+      status: 'limited',
+      limit: { resetAt: '2026-11-15T14:30:00.000Z', message: 'Quota hit' },
+      turns: [
+        {
+          id: 'u1',
+          input: 'edit file',
+          started: '2026-11-15T10:00:00Z',
+          ended: '2026-11-15T10:00:02Z',
+          outcome: 'done',
+          items: [{ kind: 'file.changed', path: 'src/lib.rs' }],
+        },
+      ],
+    };
+    const { ctx, ran } = fakeCtx(limitedView);
+    ctx.storage = {
+      get: (k) => stored.get(k),
+      set: (k, v) => {
+        stored.set(k, v);
+      },
+      delete: (k) => {
+        stored.delete(k);
+      },
+    };
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address } });
+    flushSync();
+
+    // Post-turn check auto-scheduled deferred after_command with onlyOnFailure: true.
+    expect(ran[0]).toEqual([
+      'thread.defer',
+      {
+        address,
+        text: 'The post-turn check failed. Fix the reported issue.',
+        trigger: { kind: 'after_command', argv: ['cargo', 'test'], timeoutS: 300, onlyOnFailure: true },
+      },
+    ]);
+
+    // Limited banner with reset time and Resume now button.
+    expect(target.textContent).toContain('Usage limit reached');
+    expect(target.textContent).toContain('14:30 UTC');
+    const resumeBtn = Array.from(target.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Resume now'),
+    )!;
+    resumeBtn.click();
+    flushSync();
+    expect(ran[1]).toEqual(['thread.queue.resume', { address }]);
     unmount(c);
   });
 });

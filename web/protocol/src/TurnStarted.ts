@@ -2,6 +2,7 @@
 import type { MessageFrom } from "./MessageFrom";
 import type { QueueEntryId } from "./QueueEntryId";
 import type { TurnId } from "./TurnId";
+import type { TurnPurpose } from "./TurnPurpose";
 import type { UserInput } from "./UserInput";
 
 /**
@@ -23,4 +24,16 @@ from?: MessageFrom,
 /**
  * The queue entry it came from; starting the turn removes the entry (since 0.7).
  */
-entry?: QueueEntryId, };
+entry?: QueueEntryId, 
+/**
+ * Qualified provider id running this turn (since 0.9).
+ */
+provider?: string, 
+/**
+ * Model id running this turn (since 0.9).
+ */
+model?: string, 
+/**
+ * Special purpose, when started by the kernel (since 0.9).
+ */
+purpose?: TurnPurpose, };

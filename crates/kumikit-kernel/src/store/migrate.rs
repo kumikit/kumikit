@@ -20,6 +20,10 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0011_thread_worktree.sql"),
     include_str!("../../migrations/0012_workspace_kind.sql"),
     include_str!("../../migrations/0013_queued_messages.sql"),
+    include_str!("../../migrations/0014_handoff.sql"),
+    include_str!("../../migrations/0015_deferred_messages.sql"),
+    include_str!("../../migrations/0016_title_source.sql"),
+    include_str!("../../migrations/0017_forks_and_side_threads.sql"),
 ];
 
 /// Applies the migrations `conn` has not seen yet, each in its own transaction. Fails
@@ -52,8 +56,8 @@ mod tests {
     #[test]
     fn fresh_database_reaches_latest() {
         let mut conn = Connection::open_in_memory().unwrap();
-        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 13);
-        assert_eq!(version(&conn), 13);
+        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 17);
+        assert_eq!(version(&conn), 17);
         let tables: i64 = conn
             .query_row(
                 "SELECT count(*) FROM sqlite_master WHERE type = 'table'
@@ -77,7 +81,7 @@ mod tests {
             [],
         )
         .unwrap();
-        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 13);
+        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 17);
         let n: i64 = conn
             .query_row("SELECT count(*) FROM workspaces", [], |r| r.get(0))
             .unwrap();

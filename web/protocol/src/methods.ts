@@ -55,6 +55,8 @@ import type { SubscribeParams } from "./SubscribeParams";
 import type { SubscribeResult } from "./SubscribeResult";
 import type { ThreadCreateParams } from "./ThreadCreateParams";
 import type { ThreadCreateResult } from "./ThreadCreateResult";
+import type { ThreadDeferParams } from "./ThreadDeferParams";
+import type { ThreadForkParams } from "./ThreadForkParams";
 import type { ThreadListParams } from "./ThreadListParams";
 import type { ThreadListResult } from "./ThreadListResult";
 import type { ThreadRef } from "./ThreadRef";
@@ -65,6 +67,8 @@ import type { ThreadSteerResult } from "./ThreadSteerResult";
 import type { ThreadUpdateParams } from "./ThreadUpdateParams";
 import type { ThreadUpdateResult } from "./ThreadUpdateResult";
 import type { UnsubscribeParams } from "./UnsubscribeParams";
+import type { WorkspaceFilesListParams } from "./WorkspaceFilesListParams";
+import type { WorkspaceFilesListResult } from "./WorkspaceFilesListResult";
 import type { WorkspaceGitCheckoutParams } from "./WorkspaceGitCheckoutParams";
 import type { WorkspaceGitInfo } from "./WorkspaceGitInfo";
 import type { WorkspaceGitStatusParams } from "./WorkspaceGitStatusParams";
@@ -78,7 +82,7 @@ import type { WorktreeDeleteParams } from "./WorktreeDeleteParams";
 import type { WorktreeListResult } from "./WorktreeListResult";
 
 /** Protocol version spoken by this package, `MAJOR.MINOR`. */
-export const PROTOCOL_VERSION = "0.8";
+export const PROTOCOL_VERSION = "0.9";
 
 /** Every request method with its params and result types. */
 export type Methods = {
@@ -103,13 +107,16 @@ export type Methods = {
   "workspace.git.status": { params: WorkspaceGitStatusParams; result: WorkspaceGitInfo };
   "workspace.git.checkout": { params: WorkspaceGitCheckoutParams; result: WorkspaceGitInfo };
   "workspace.git.worktreeCreate": { params: WorkspaceWorktreeCreateParams; result: WorkspaceWorktreeCreateResult };
+  "workspace.files.list": { params: WorkspaceFilesListParams; result: WorkspaceFilesListResult };
   "thread.list": { params: ThreadListParams; result: ThreadListResult };
   "thread.create": { params: ThreadCreateParams; result: ThreadCreateResult };
+  "thread.fork": { params: ThreadForkParams; result: ThreadCreateResult };
   "thread.update": { params: ThreadUpdateParams; result: ThreadUpdateResult };
   "thread.get": { params: ThreadRef; result: ThreadSnapshot };
   "thread.send": { params: ThreadSendParams; result: ThreadSendResult };
   "thread.cancel": { params: ThreadRef; result: Empty };
   "thread.steer": { params: ThreadSendParams; result: ThreadSteerResult };
+  "thread.defer": { params: ThreadDeferParams; result: QueueEntryResult };
   "thread.queue.update": { params: QueueUpdateParams; result: QueueEntryResult };
   "thread.queue.remove": { params: QueueEntryRef; result: Empty };
   "thread.queue.move": { params: QueueMoveParams; result: Empty };

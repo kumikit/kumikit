@@ -43,7 +43,7 @@ Approval  { id, thread, turn, kind, summary, detail, status }
 
 | Kind | Data | Emitted by |
 |---|---|---|
-| `turn.started` | `turn`, `input` (`{ text, attachments? }`), `from?` (`{ plugin }` when a plugin sent the message through the client interface), `entry?` (the queue entry it started; the entry leaves the queue with this event) | kernel |
+| `turn.started` | `turn`, `input` (`{ text, attachments? }`), `from?` (`{ plugin }` when a plugin sent the message through the client interface), `entry?` (the queue entry it started; the entry leaves the queue with this event), `provider?`, `model?`, `purpose?` (`handoff_summary` for a summary-handoff turn) | kernel |
 | `text.delta` | `turn`, `text` | provider |
 | `text.done` | `turn`, `text` (full message) | provider |
 | `reasoning.delta` | `turn`, `text` | provider |
@@ -56,13 +56,15 @@ Approval  { id, thread, turn, kind, summary, detail, status }
 | `usage` | `turn`, `inputTokens`, `outputTokens`, `cost?` | provider |
 | `turn.ended` | `turn`, `outcome` (`done`, `cancelled`, `failed`), `error?` | kernel |
 | `plugin.event` | `plugin`, `kind`, `data` | any plugin, namespaced |
-| `queue.added` | `entry` (`{ id, turn, input, from? }`), `front?` (true: it went to the front), `reason?` (`not_steered` when a steer fell back to the queue or was not taken before the turn ended) | kernel |
+| `queue.added` | `entry` (`{ id, turn, input, from?, trigger? }`), `front?` (true: it went to the front), `reason?` (`not_steered` when a steer fell back to the queue or was not taken before the turn ended) | kernel |
 | `queue.updated` | `entry`, after the change | kernel |
-| `queue.removed` | `entry` (id), `reason` (`removed`) | kernel |
+| `queue.removed` | `entry` (id), `reason` (`removed` or `condition_not_met`) | kernel |
 | `queue.moved` | `order`: every entry id, in the new order | kernel |
 | `queue.held` | `reason` (`stopped`, `failed`, `restarted`) | kernel |
 | `queue.resumed` | — | kernel |
 | `input.steered` | `turn`, `input` (text taken by the running turn's provider from its inbox) | kernel |
+| `thread.switched` | `from` (`{ provider, model }`), `to` (`{ provider, model }`), `handoff` (`transcript` or `summary`), `summaryFailed?` (true when a summary turn failed and the switch fell back to `transcript`) | kernel |
+| `handoff.delivered` | `turn`, `from`, `to`, `messages` (count carried forward), `truncated?` (true when the 200-message / 64 KiB cap trimmed earlier messages), `rendered` (the exact handoff preamble delivered to the new provider) | kernel |
 
 Providers emit through the host; the kernel validates every event (a provider cannot emit
 `turn.started`, `turn.ended` or `approval.resolved`, events for another thread or turn,

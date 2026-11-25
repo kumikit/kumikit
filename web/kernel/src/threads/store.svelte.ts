@@ -3,7 +3,16 @@
  * subscription per open thread, events folded into a `ThreadView` once per frame. Threads
  * are keyed by their whole address, so the same ids on two cores never mix.
  */
-import type { Attachment, Decision, EventNotification, PermissionMode, Thread, UserInput } from '@kumikit/protocol';
+import type {
+  Attachment,
+  Decision,
+  EventNotification,
+  HandoffMode,
+  PermissionMode,
+  QueueTrigger,
+  Thread,
+  UserInput,
+} from '@kumikit/protocol';
 import type { ThreadAddress, ThreadView } from '@kumikit/ui-sdk';
 
 import type { CoreConnection } from '../connections/connection.svelte';
@@ -46,7 +55,9 @@ class OpenThread {
     this.#scheduled = false;
     const batch = this.#queue;
     this.#queue = [];
-    const thread = (this.connection?.threads[this.address.workspace] ?? []).find((t) => t.id === this.address.thread);
+    const thread =
+      (this.connection?.threads[this.address.workspace] ?? []).find((t) => t.id === this.address.thread) ??
+      this.connection?.sideThreads?.[this.address.thread];
     let next = foldEvents(this.view, batch);
     const live = this.connection?.ready ?? false;
     if (next.live !== live || next.thread !== thread) {
@@ -133,6 +144,17 @@ export class ThreadStore {
     return r.status;
   }
 
+  /** Queues a message waiting on a trigger (ADR 0027). */
+  async defer(
+    address: ThreadAddress,
+    text: string,
+    trigger: QueueTrigger,
+    attachments?: Attachment[],
+  ): Promise<void> {
+    const input: UserInput = attachments && attachments.length > 0 ? { text, attachments } : { text };
+    await this.#connection(address).call('thread.defer', { thread: address.thread, input, trigger });
+  }
+
   /** Replaces a queued message's text, keeping its attachments. */
   async queueUpdate(address: ThreadAddress, entry: string, text: string): Promise<void> {
     const queued = this.#get(address).view.queue.find((q) => q.id === entry);
@@ -172,21 +194,47 @@ export class ThreadStore {
     await this.#connection(address).call('thread.queue.resume', { thread: address.thread });
   }
 
-  /** Updates a thread's model, permission mode, and/or title. */
+  /** Updates a thread's provider, model, permission mode, and/or title. */
   async update(
     address: ThreadAddress,
-    patch: { model?: string; permissionMode?: PermissionMode; title?: string },
+    patch: { provider?: string; model?: string; permissionMode?: PermissionMode; title?: string; handoff?: HandoffMode },
   ): Promise<Thread> {
     const conn = this.#connection(address);
-    const params: { thread: string; model?: string; permissionMode?: PermissionMode; title?: string } = {
+    const params: {
+      thread: string;
+      provider?: string;
+      model?: string;
+      permissionMode?: PermissionMode;
+      title?: string;
+      handoff?: HandoffMode;
+    } = {
       thread: address.thread,
     };
+    if (patch.provider !== undefined) params.provider = patch.provider;
     if (patch.model !== undefined) params.model = patch.model;
     if (patch.permissionMode !== undefined) params.permissionMode = patch.permissionMode;
     if (patch.title !== undefined) params.title = patch.title;
+    if (patch.handoff !== undefined) params.handoff = patch.handoff;
     const { thread } = await conn.call('thread.update', params);
     conn.noteThread(thread);
     this.refresh(address.connection);
+    return thread;
+  }
+
+  /** Forks a thread up to `atTurn` or strictly before `beforeTurn`. */
+  async fork(
+    address: ThreadAddress,
+    opts: { atTurn?: string; beforeTurn?: string; title?: string } = {},
+  ): Promise<Thread> {
+    const conn = this.#connection(address);
+    const params: { thread: string; atTurn?: string; beforeTurn?: string; title?: string } = {
+      thread: address.thread,
+    };
+    if (opts.atTurn !== undefined) params.atTurn = opts.atTurn;
+    if (opts.beforeTurn !== undefined) params.beforeTurn = opts.beforeTurn;
+    if (opts.title !== undefined) params.title = opts.title;
+    const { thread } = await conn.call('thread.fork', params);
+    conn.noteThread(thread);
     return thread;
   }
 

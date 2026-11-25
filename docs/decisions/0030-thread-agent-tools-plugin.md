@@ -1,6 +1,6 @@
 # 0030 — Agent tools for threads in a first-party plugin
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-24
 
 ## Context

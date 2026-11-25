@@ -13,6 +13,7 @@
 //!   `fired` (keys and due times so far).
 
 use kumikit_plugin::client::{self, Decision};
+use kumikit_plugin::threads;
 use kumikit_plugin::timers::{self, Missed, Schedule};
 use kumikit_plugin::turn::{self, SteerStatus};
 use kumikit_plugin::{CallContext, CommandResult, Error, ErrorCode, Plugin, kv, poll};
@@ -63,6 +64,36 @@ fn run(id: &str, args: &Value) -> Result<Value, Error> {
                 SteerStatus::Queued => "queued",
             };
             json!({ "status": status, "turn": r.turn, "entry": r.entry })
+        }
+        "defer" => {
+            let trigger = args.get("trigger").cloned().unwrap_or(Value::Null);
+            let raw = threads::defer(
+                arg(args, "thread")?,
+                arg(args, "text")?,
+                &trigger.to_string(),
+            )?;
+            serde_json::from_str(&raw)
+                .map_err(|e| Error::new(ErrorCode::Internal, e.to_string()))?
+        }
+        "list-queue" => {
+            let raw = threads::list_queue(arg(args, "thread")?)?;
+            serde_json::from_str(&raw)
+                .map_err(|e| Error::new(ErrorCode::Internal, e.to_string()))?
+        }
+        "remove-queued" => {
+            threads::remove_queued(arg(args, "thread")?, arg(args, "entry")?)?;
+            Value::Null
+        }
+        "read-events" => {
+            let after = args.get("after").and_then(Value::as_u64).unwrap_or(0);
+            let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(50) as u32;
+            let raw = threads::read_events(arg(args, "thread")?, after, limit)?;
+            serde_json::from_str(&raw)
+                .map_err(|e| Error::new(ErrorCode::Internal, e.to_string()))?
+        }
+        "suggest-title" => {
+            let applied = threads::suggest_title(arg(args, "thread")?, arg(args, "title")?)?;
+            json!({ "applied": applied })
         }
         "cancel" => {
             client::cancel(arg(args, "thread")?)?;

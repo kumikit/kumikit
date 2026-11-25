@@ -3,4 +3,4 @@
 /**
  * Where a thread is in its lifecycle. Derived from the log, except `archived`.
  */
-export type ThreadStatus = "idle" | "running" | "awaiting_approval" | "failed" | "archived";
+export type ThreadStatus = "idle" | "running" | "awaiting_approval" | "failed" | "limited" | "archived";

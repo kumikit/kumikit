@@ -83,6 +83,29 @@ pub enum Event {
         /// The update.
         data: Value,
     },
+    /// Available slash commands reported by the ACP agent.
+    CommandsAvailable {
+        /// Available commands.
+        commands: Vec<SlashCommand>,
+    },
+    /// Usage or rate limit reached by the ACP agent.
+    LimitReached {
+        /// Optional RFC 3339 reset timestamp.
+        reset_at: Option<String>,
+        /// Human-readable message.
+        message: String,
+    },
+}
+
+/// One slash command reported by an ACP agent (`available_commands_update`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct SlashCommand {
+    /// Command name without a leading `/`.
+    pub name: String,
+    /// Optional short description.
+    pub description: Option<String>,
+    /// Optional argument hint.
+    pub hint: Option<String>,
 }
 
 /// The user's answer to an approval.
@@ -284,6 +307,8 @@ pub struct Session {
     tools: HashMap<String, Tool>,
     tool_order: Vec<String>,
     cost: Option<f64>,
+    /// Slash commands announced before the first prompt; flushed when the next prompt starts.
+    pending_commands: Option<Vec<SlashCommand>>,
 }
 
 /// Extracts available models from an ACP `session/new` result.
@@ -465,6 +490,39 @@ fn collect_config_options(items: &[Value], out: &mut Vec<DiscoveredModel>) {
     }
 }
 
+fn parse_available_commands(u: &Value) -> Vec<SlashCommand> {
+    let Some(arr) = u["availableCommands"].as_array() else {
+        return Vec::new();
+    };
+    arr.iter()
+        .filter_map(|item| {
+            let name = item["name"]
+                .as_str()
+                .map(str::trim)
+                .map(|s| s.trim_start_matches('/'))
+                .filter(|s| !s.is_empty())?
+                .to_owned();
+            let description = item["description"]
+                .as_str()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned);
+            let hint = item
+                .pointer("/input/hint")
+                .or_else(|| item.get("hint"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned);
+            Some(SlashCommand {
+                name,
+                description,
+                hint,
+            })
+        })
+        .collect()
+}
+
 fn update_text(update: &Value) -> Option<String> {
     let c = &update["content"];
     (c["type"] == "text").then(|| c["text"].as_str().unwrap_or_default().to_owned())
@@ -533,6 +591,7 @@ impl Session {
             tools: HashMap::new(),
             tool_order: Vec::new(),
             cost: None,
+            pending_commands: None,
         }
     }
 
@@ -616,10 +675,15 @@ impl Session {
         if !file_notes.is_empty() {
             blocks.push(json!({"type": "text", "text": file_notes.join("\n")}));
         }
-        vec![self.request(
+        let mut actions = Vec::new();
+        if let Some(commands) = self.pending_commands.take() {
+            actions.push(Action::Emit(Event::CommandsAvailable { commands }));
+        }
+        actions.push(self.request(
             "session/prompt",
             json!({"sessionId": session, "prompt": blocks}),
-        )]
+        ));
+        actions
     }
 
     /// Whether a turn (`session/prompt`) is currently in flight.
@@ -772,12 +836,31 @@ impl Session {
         };
         if let Some(err) = msg.get("error") {
             let message = err["message"].as_str().unwrap_or("agent error").to_owned();
+            let code = err["code"].as_i64().unwrap_or(0);
+            let lower = message.to_ascii_lowercase();
+            let is_limit = code == 429
+                || lower.contains("rate limit")
+                || lower.contains("usage limit")
+                || lower.contains("quota exceeded");
+            let reset_at = err
+                .pointer("/data/resetAt")
+                .or_else(|| err.pointer("/data/reset_at"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             self.phase = if self.session.is_some() {
                 Phase::Ready
             } else {
                 Phase::Idle
             };
-            return vec![Action::Failed(format!("{method}: {message}"))];
+            let mut actions = Vec::new();
+            if is_limit && method == "session/prompt" {
+                actions.push(Action::Emit(Event::LimitReached {
+                    reset_at,
+                    message: message.clone(),
+                }));
+            }
+            actions.push(Action::Failed(format!("{method}: {message}")));
+            return actions;
         }
         let result = &msg["result"];
         match method {
@@ -977,6 +1060,18 @@ impl Session {
     }
 
     fn on_update(&mut self, u: &Value) -> Vec<Action> {
+        // `available_commands_update` may arrive right after `session/new` (before any prompt)
+        // as well as during a prompt.
+        if u["sessionUpdate"].as_str() == Some("available_commands_update") {
+            let cmds = parse_available_commands(u);
+            if !cmds.is_empty() {
+                if self.phase == Phase::Prompting {
+                    return vec![Action::Emit(Event::CommandsAvailable { commands: cmds })];
+                }
+                self.pending_commands = Some(cmds);
+            }
+            return Vec::new();
+        }
         // Updates outside a prompt (history replayed by `session/load`, notices) are not
         // part of a turn.
         if self.phase != Phase::Prompting {

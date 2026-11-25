@@ -204,6 +204,7 @@
     idle: 'idle',
     running: 'running',
     awaiting_approval: 'waiting for approval',
+    limited: 'usage limit reached',
     failed: 'failed',
     archived: 'archived',
   };
@@ -240,8 +241,9 @@
   const statusRank: Record<string, number> = {
     awaiting_approval: 0,
     running: 1,
-    failed: 2,
-    idle: 3,
+    limited: 2,
+    failed: 3,
+    idle: 4,
   };
 
   /** Flat thread list across every core and workspace for Orca-style Threads view. */

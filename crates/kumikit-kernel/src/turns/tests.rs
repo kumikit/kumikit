@@ -683,7 +683,7 @@ async fn a_model_without_steer_or_a_message_with_attachments_is_queued_first() {
     use kumikit_protocol::model::Attachment;
     let e = env().await;
     e.kernel
-        .thread_update(&e.thread, Some("two".into()), None, None)
+        .thread_update(&e.thread, None, Some("two".into()), None, None, None)
         .await
         .unwrap();
     e.send("block").await;
@@ -1006,9 +1006,11 @@ async fn thread_update_changes_mode_and_restarts_idle_session() {
         .kernel
         .thread_update(
             &e.thread,
+            None,
             Some("two".into()),
             Some(PermissionMode::FullAccess),
             Some("Updated".into()),
+            None,
         )
         .await
         .unwrap();
@@ -1025,7 +1027,14 @@ async fn thread_update_changes_mode_and_restarts_idle_session() {
     // Resetting back to Standard clears the stored override.
     let reset = e
         .kernel
-        .thread_update(&e.thread, None, Some(PermissionMode::Standard), None)
+        .thread_update(
+            &e.thread,
+            None,
+            None,
+            Some(PermissionMode::Standard),
+            None,
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(reset.permission_mode, None);
@@ -1071,5 +1080,323 @@ async fn thread_send_validates_attachments() {
         )
         .await
         .unwrap();
+    e.until(0, "turn.ended").await;
+}
+
+/// Second fake provider that records every prompt text and resume id it receives.
+#[derive(Debug, Default)]
+struct RecordingProvider {
+    id: String,
+    prompts: Mutex<Vec<String>>,
+    resumes: Mutex<Vec<Option<String>>>,
+    fail_summary: std::sync::atomic::AtomicBool,
+    sent: Notify,
+}
+
+impl RecordingProvider {
+    fn new(id: &str) -> Arc<Self> {
+        Arc::new(RecordingProvider {
+            id: id.to_owned(),
+            ..Default::default()
+        })
+    }
+}
+
+impl Provider for RecordingProvider {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn list_models(&self) -> BoxFuture<'_, ProviderResult<Vec<Model>>> {
+        Box::pin(async {
+            Ok(vec![Model {
+                id: "alpha".into(),
+                label: "Alpha".into(),
+                capabilities: vec![],
+            }])
+        })
+    }
+    fn start_session(&self, config: SessionConfig) -> BoxFuture<'_, ProviderResult<String>> {
+        Box::pin(async move {
+            self.resumes.lock().unwrap().push(config.resume);
+            Ok(format!("{}-session-{}", self.id, config.thread))
+        })
+    }
+    fn send(
+        &self,
+        _session: String,
+        input: UserInput,
+        sink: EventSink,
+    ) -> BoxFuture<'_, ProviderResult<()>> {
+        Box::pin(async move {
+            self.prompts.lock().unwrap().push(input.text.clone());
+            self.sent.notify_waiters();
+            if input.text.ends_with("block") {
+                return std::future::pending().await;
+            }
+            if input.text == crate::handoff::SUMMARY_PROMPT {
+                if self.fail_summary.load(Ordering::SeqCst) {
+                    return Err(ProviderError::new("summary unavailable"));
+                }
+                sink.emit(ProviderEvent::TextDone {
+                    text: "Summary: user wants feature X.".into(),
+                })
+                .await
+                .map_err(|e| ProviderError::new(e.to_string()))?;
+                return Ok(());
+            }
+            sink.emit(ProviderEvent::TextDone {
+                text: format!("reply from {}", self.id),
+            })
+            .await
+            .map_err(|e| ProviderError::new(e.to_string()))?;
+            Ok(())
+        })
+    }
+    fn respond_approval(
+        &self,
+        _s: String,
+        _a: ApprovalId,
+        _d: Decision,
+    ) -> BoxFuture<'_, ProviderResult<()>> {
+        Box::pin(async { Ok(()) })
+    }
+    fn cancel(&self, _s: String) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
+    fn end_session(&self, _s: String) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
+}
+
+#[tokio::test]
+async fn switch_provider_hands_off_transcript_and_records_attribution() {
+    let e = env().await;
+    let other = RecordingProvider::new("other");
+    e.kernel.register_provider(other.clone()).unwrap();
+
+    e.send("echo first answer").await;
+    let first = e.until(0, "turn.ended").await;
+    let first_start = first
+        .iter()
+        .find_map(|ev| match &ev.event {
+            ThreadEvent::TurnStarted(t) => Some(t),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(first_start.provider.as_deref(), Some("fake"));
+    assert_eq!(first_start.model.as_deref(), Some("one"));
+
+    let switched = e
+        .kernel
+        .thread_update(&e.thread, Some("other".into()), None, None, None, None)
+        .await
+        .unwrap();
+    assert_eq!(switched.provider, "other");
+    assert_eq!(switched.model, "alpha");
+
+    let after_switch = first.last().unwrap().seq;
+    e.send("continue the work").await;
+    let second = e.until(after_switch, "turn.ended").await;
+
+    // `other` started a fresh session and received the earlier exchange in its prompt.
+    assert_eq!(*other.resumes.lock().unwrap(), vec![None]);
+    let prompts = other.prompts.lock().unwrap().clone();
+    assert_eq!(prompts.len(), 1);
+    assert!(prompts[0].contains("[Conversation handoff from fake (one)]"));
+    assert!(prompts[0].contains("echo first answer"));
+    assert!(prompts[0].contains("first answer"));
+    assert!(prompts[0].ends_with("continue the work"));
+
+    assert!(second.iter().any(|ev| matches!(
+        &ev.event,
+        ThreadEvent::ThreadSwitched(s)
+            if s.from.provider == "fake"
+                && s.to.provider == "other"
+                && s.handoff == HandoffMode::Transcript
+    )));
+    assert!(second.iter().any(|ev| matches!(
+        &ev.event,
+        ThreadEvent::HandoffDelivered(d)
+            if d.from.provider == "fake"
+                && d.to.provider == "other"
+                && d.messages == 2
+                && !d.truncated
+                && d.rendered.contains("first answer")
+    )));
+    let second_start = second
+        .iter()
+        .find_map(|ev| match &ev.event {
+            ThreadEvent::TurnStarted(t) => Some(t),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(second_start.provider.as_deref(), Some("other"));
+    assert_eq!(second_start.model.as_deref(), Some("alpha"));
+
+    // Next turn on `other` does NOT resend the handoff.
+    let seq = second.last().unwrap().seq;
+    e.send("plain follow up").await;
+    let third = e.until(seq, "turn.ended").await;
+    assert_eq!(other.prompts.lock().unwrap()[1], "plain follow up");
+    assert!(
+        !third
+            .iter()
+            .any(|ev| matches!(&ev.event, ThreadEvent::HandoffDelivered(_)))
+    );
+}
+
+#[tokio::test]
+async fn cancelled_first_turn_after_switch_resends_handoff() {
+    let e = env().await;
+    let other = RecordingProvider::new("other");
+    e.kernel.register_provider(other.clone()).unwrap();
+
+    e.send("echo prior context").await;
+    let first = e.until(0, "turn.ended").await;
+
+    e.kernel
+        .thread_update(&e.thread, Some("other".into()), None, None, None, None)
+        .await
+        .unwrap();
+
+    // First turn after switch blocks and is cancelled once the provider receives it.
+    let seq = first.last().unwrap().seq;
+    let entered = other.sent.notified();
+    tokio::pin!(entered);
+    entered.as_mut().enable();
+    e.send("block").await;
+    entered.await;
+    e.kernel.thread_cancel(&e.thread).await.unwrap();
+    let cancelled = e.until(seq, "turn.ended").await;
+    assert!(
+        !cancelled
+            .iter()
+            .any(|ev| matches!(&ev.event, ThreadEvent::HandoffDelivered(_)))
+    );
+
+    // Second turn must send the handoff again and mark it delivered on completion.
+    let seq = cancelled.last().unwrap().seq;
+    e.send("try again").await;
+    let done = e.until(seq, "turn.ended").await;
+    let prompts = other.prompts.lock().unwrap().clone();
+    assert_eq!(prompts.len(), 2);
+    assert!(prompts[1].contains("prior context"));
+    assert!(prompts[1].ends_with("try again"));
+    assert_eq!(*other.resumes.lock().unwrap(), vec![None, None]);
+    assert!(
+        done.iter()
+            .any(|ev| matches!(&ev.event, ThreadEvent::HandoffDelivered(_)))
+    );
+}
+
+#[tokio::test]
+async fn summary_handoff_runs_summary_turn_and_falls_back_on_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let kernel = Kernel::open(config(&dir)).await.unwrap();
+    let p1 = RecordingProvider::new("p1");
+    let p2 = RecordingProvider::new("p2");
+    kernel.register_provider(p1.clone()).unwrap();
+    kernel.register_provider(p2.clone()).unwrap();
+    let ws = kernel
+        .workspace_open(dir.path().to_str().unwrap())
+        .await
+        .unwrap();
+
+    // 1) Successful summary handoff.
+    let t1 = kernel
+        .thread_create(&ws.id, Some("p1".into()), None, None, None)
+        .await
+        .unwrap()
+        .id;
+    let e1 = Env {
+        dir,
+        kernel: kernel.clone(),
+        fake: Arc::new(Fake::default()),
+        thread: t1.clone(),
+    };
+    e1.send("build feature X").await;
+    let first = e1.until(0, "turn.ended").await;
+    let seq = first.last().unwrap().seq;
+
+    kernel
+        .thread_update(
+            &t1,
+            Some("p2".into()),
+            None,
+            None,
+            None,
+            Some(HandoffMode::Summary),
+        )
+        .await
+        .unwrap();
+    e1.send("continue").await;
+    let after = e1.until(seq, "handoff.delivered").await;
+    assert!(after.iter().any(|ev| matches!(
+        &ev.event,
+        ThreadEvent::TurnStarted(ts) if ts.purpose == Some(TurnPurpose::HandoffSummary)
+    )));
+    assert!(after.iter().any(|ev| matches!(
+        &ev.event,
+        ThreadEvent::ThreadSwitched(s) if s.handoff == HandoffMode::Summary
+    )));
+    let p2_prompt = p2.prompts.lock().unwrap()[0].clone();
+    assert!(p2_prompt.contains("## Handoff summary"));
+    assert!(p2_prompt.contains("Summary: user wants feature X."));
+    assert!(p2_prompt.contains("build feature X"));
+    assert!(!p2_prompt.contains(crate::handoff::SUMMARY_PROMPT));
+
+    // 2) Failing summary falls back to transcript mode.
+    p1.fail_summary.store(true, Ordering::SeqCst);
+    let t2 = kernel
+        .thread_create(&ws.id, Some("p1".into()), None, None, None)
+        .await
+        .unwrap()
+        .id;
+    let e2 = Env {
+        dir: tempfile::tempdir().unwrap(),
+        kernel: kernel.clone(),
+        fake: Arc::new(Fake::default()),
+        thread: t2.clone(),
+    };
+    e2.send("build feature Y").await;
+    let first2 = e2.until(0, "turn.ended").await;
+    let seq2 = first2.last().unwrap().seq;
+
+    kernel
+        .thread_update(
+            &t2,
+            Some("p2".into()),
+            None,
+            None,
+            None,
+            Some(HandoffMode::Summary),
+        )
+        .await
+        .unwrap();
+    e2.send("continue Y").await;
+    let after2 = e2.until(seq2, "handoff.delivered").await;
+    assert!(after2.iter().any(|ev| matches!(
+        &ev.event,
+        ThreadEvent::ThreadSwitched(s) if s.handoff == HandoffMode::Transcript
+    )));
+    let p2_prompt2 = p2.prompts.lock().unwrap()[1].clone();
+    assert!(p2_prompt2.contains("automatic handoff summary could not be generated"));
+    assert!(p2_prompt2.contains("build feature Y"));
+}
+
+#[tokio::test]
+async fn switch_provider_refused_while_running() {
+    let e = env().await;
+    let other = RecordingProvider::new("other");
+    e.kernel.register_provider(other).unwrap();
+    e.send("block").await;
+    e.until(0, "turn.started").await;
+    let err = e
+        .kernel
+        .thread_update(&e.thread, Some("other".into()), None, None, None, None)
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), ErrorCode::Conflict);
+    e.kernel.thread_cancel(&e.thread).await.unwrap();
     e.until(0, "turn.ended").await;
 }

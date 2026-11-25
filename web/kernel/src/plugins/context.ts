@@ -1,6 +1,6 @@
 /** The `PluginContext` a UI plugin gets (07-ui-plugins, UI SDK). Everything it registers
  * is recorded in `dispose`, so disabling the plugin removes it. */
-import type { PluginContext, RendererProps, TranscriptItem, Unmount } from '@kumikit/ui-sdk';
+import type { ComposerProps, PluginContext, RendererProps, TranscriptItem, Unmount } from '@kumikit/ui-sdk';
 
 import type { Kernel } from '../app.svelte';
 import { renderMarkdown } from '../declarative/markdown';
@@ -85,6 +85,27 @@ export function createContext(k: Kernel, id: string, dispose: (() => void)[]): P
           el.replaceChildren();
           return fallback(el, props.item);
         }
+      },
+      renderAccessories(el: HTMLElement, props: ComposerProps): Unmount {
+        const cleanups: (() => void)[] = [];
+        for (const entry of k.slotsIn('composer.accessory')) {
+          const wrap = el.ownerDocument.createElement('span');
+          wrap.className = 'kk-composer-accessory';
+          el.append(wrap);
+          try {
+            const disposeAcc = entry.contribution.mount(wrap, props);
+            cleanups.push(() => {
+              if (typeof disposeAcc === 'function') disposeAcc();
+              wrap.remove();
+            });
+          } catch (e) {
+            k.slots.fail(entry.plugin, e);
+            wrap.remove();
+          }
+        }
+        return () => {
+          for (const fn of cleanups) fn();
+        };
       },
     },
   };

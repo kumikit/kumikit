@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use ts_rs::TS;
 
-use crate::event::{EventNotification, QueueEntry, QueueHold};
+use crate::event::{EventNotification, QueueEntry, QueueHold, QueueTrigger};
 use crate::model::{
     Approval, ApprovalId, Decision, PermissionMode, QueueEntryId, Thread, ThreadId, Timestamp,
     Turn, TurnId, UserInput, Workspace, WorkspaceId,
@@ -122,10 +122,14 @@ methods! {
         WorkspaceGitCheckout = "workspace.git.checkout" (WorkspaceGitCheckoutParams) -> WorkspaceGitInfo;
         /// `workspace.git.worktreeCreate`: creates a Git worktree under `<homeDir>/worktrees/` for a thread in this workspace.
         WorkspaceGitWorktreeCreate = "workspace.git.worktreeCreate" (WorkspaceWorktreeCreateParams) -> WorkspaceWorktreeCreateResult;
+        /// `workspace.files.list`: lists workspace-relative file paths for `@` mentions (since 0.9).
+        WorkspaceFilesList = "workspace.files.list" (WorkspaceFilesListParams) -> WorkspaceFilesListResult;
         /// `thread.list`: threads of a workspace.
         ThreadList = "thread.list" (ThreadListParams) -> ThreadListResult;
         /// `thread.create`: a new thread.
         ThreadCreate = "thread.create" (ThreadCreateParams) -> ThreadCreateResult;
+        /// `thread.fork`: copy a thread's history up to a turn into a new thread (since 0.9).
+        ThreadFork = "thread.fork" (ThreadForkParams) -> ThreadCreateResult;
         /// `thread.update`: updates a thread's model, permission mode, or title.
         ThreadUpdate = "thread.update" (ThreadUpdateParams) -> ThreadUpdateResult;
         /// `thread.get`: a snapshot folded from the log.
@@ -136,6 +140,8 @@ methods! {
         ThreadCancel = "thread.cancel" (ThreadRef) -> Empty;
         /// `thread.steer`: a message for the running turn's agent (since 0.8).
         ThreadSteer = "thread.steer" (ThreadSendParams) -> ThreadSteerResult;
+        /// `thread.defer`: queue a message that waits for a trigger before running (since 0.9).
+        ThreadDefer = "thread.defer" (ThreadDeferParams) -> QueueEntryResult;
         /// `thread.queue.update`: replace a queued message's input.
         ThreadQueueUpdate = "thread.queue.update" (QueueUpdateParams) -> QueueEntryResult;
         /// `thread.queue.remove`: remove a queued message.
@@ -880,6 +886,35 @@ pub struct WorkspaceRef {
     pub workspace: WorkspaceId,
 }
 
+/// Params of `workspace.files.list` (since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct WorkspaceFilesListParams {
+    /// Workspace to search.
+    pub workspace: WorkspaceId,
+    /// Optional linked worktree directory; defaults to the workspace root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Case-insensitive substring filter on relative file paths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    /// Maximum number of paths to return (default 50, capped at 500).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// Result of `workspace.files.list` (since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceFilesListResult {
+    /// Relative paths using forward slashes.
+    pub files: Vec<String>,
+    /// True when more files matched than `limit`.
+    #[serde(default)]
+    pub truncated: bool,
+}
+
 /// Params of `thread.list`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -890,6 +925,9 @@ pub struct ThreadListParams {
     /// Include archived threads (default false).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub include_archived: Option<bool>,
+    /// Include side threads (default false; since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_side: Option<bool>,
 }
 
 /// Result of `thread.list`.
@@ -922,6 +960,30 @@ pub struct ThreadCreateParams {
     /// Optional linked Git worktree path for this thread (keeps the thread under `workspace`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree_path: Option<String>,
+    /// Parent thread id for a linked side thread (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<ThreadId>,
+    /// True when creating a side thread hidden from the main sidebar list (since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side: Option<bool>,
+}
+
+/// Params of `thread.fork` (since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadForkParams {
+    /// Source thread to fork.
+    pub thread: ThreadId,
+    /// Copy events up to and including this turn (mutually exclusive with `beforeTurn`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at_turn: Option<TurnId>,
+    /// Copy events strictly before this turn (mutually exclusive with `atTurn`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_turn: Option<TurnId>,
+    /// Optional title for the new thread.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 /// Result of `thread.create`.
@@ -939,9 +1001,15 @@ pub struct ThreadCreateResult {
 pub struct ThreadUpdateParams {
     /// The thread.
     pub thread: ThreadId,
-    /// New model id (validated against the thread's provider).
+    /// New provider id (ADR 0029, since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// New model id (validated against the thread's provider, or the new `provider`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Handoff mode when changing `provider` (`transcript` by default; since 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handoff: Option<crate::model::HandoffMode>,
     /// New permission mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<PermissionMode>,
@@ -1035,6 +1103,18 @@ pub struct ThreadSteerResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub entry: Option<QueueEntryId>,
+}
+
+/// Params of `thread.defer`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadDeferParams {
+    /// The thread.
+    pub thread: ThreadId,
+    /// The message to send when the trigger fires.
+    pub input: UserInput,
+    /// Condition to wait for.
+    pub trigger: QueueTrigger,
 }
 
 /// Params naming a queued message.

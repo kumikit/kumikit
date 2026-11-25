@@ -1,0 +1,23 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 31,
+      "time": "2026-11-15T10:01:00.000Z",
+      "kind": "thread.switched",
+      "data": {
+        "from": {
+          "provider": "test.example/a",
+          "model": "model-a"
+        },
+        "to": {
+          "provider": "test.example/b",
+          "model": "model-b"
+        },
+        "handoff": "transcript"
+      }
+    }
+  }
+]

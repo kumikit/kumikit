@@ -3,6 +3,7 @@ import type { ThreadId } from "./ThreadId";
 import type { Timestamp } from "./Timestamp";
 import type { TurnId } from "./TurnId";
 import type { TurnOutcome } from "./TurnOutcome";
+import type { TurnPurpose } from "./TurnPurpose";
 
 /**
  * One user message and the agent's work on it.
@@ -16,6 +17,18 @@ id: TurnId,
  * The thread it belongs to.
  */
 thread: ThreadId, 
+/**
+ * Provider that ran this turn (since 0.9).
+ */
+provider?: string, 
+/**
+ * Model that ran this turn (since 0.9).
+ */
+model?: string, 
+/**
+ * Special purpose, when started by the kernel (since 0.9).
+ */
+purpose?: TurnPurpose, 
 /**
  * When it started.
  */

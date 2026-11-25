@@ -12,19 +12,21 @@ use std::sync::Arc;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use kumikit_protocol::event::{
-    ApprovalResolved, MessageFrom, QueueAddReason, QueueAdded, QueueEntry, QueueHeld, QueueHold,
-    QueueMoved, QueueRemoval, QueueRemoved, QueueResumed, QueueUpdated, ThreadChange, TurnEnded,
-    TurnStarted,
+    ApprovalResolved, HandoffDelivered, MessageFrom, QueueAddReason, QueueAdded, QueueEntry,
+    QueueHeld, QueueHold, QueueMoved, QueueRemoval, QueueRemoved, QueueResumed, QueueUpdated,
+    ThreadChange, ThreadSwitched, TurnEnded, TurnStarted,
 };
 use kumikit_protocol::methods::{ProviderInfo, SteerStatus, ThreadSendResult, ThreadSteerResult};
 use kumikit_protocol::model::{
-    ApprovalId, Attachment, Decision, PermissionMode, QueueEntryId, Resolution, Thread, ThreadId,
-    TurnId, TurnOutcome, UserInput, WorkspaceId,
+    ApprovalId, Attachment, Decision, HandoffMode, PermissionMode, ProviderModel, QueueEntryId,
+    Resolution, Thread, ThreadForkInfo, ThreadId, ThreadStatus, TitleSource, TurnId, TurnOutcome,
+    TurnPurpose, UserInput, WorkspaceId,
 };
 use kumikit_protocol::{ThreadEvent, WorkspaceEvent};
 use tokio::sync::oneshot;
 
 use crate::error::{KernelError, KernelResult};
+use crate::handoff::{self, PendingHandoff, SUMMARY_PROMPT};
 use crate::kernel::{Kernel, Session};
 use crate::provider::{EventSink, Inbox, Model, Provider, SessionConfig};
 use crate::repo;
@@ -34,7 +36,7 @@ const MAX_ATTACHMENTS: usize = 16;
 /// Maximum total decoded bytes across attachments on a single user turn (4 MiB).
 const MAX_ATTACHMENT_BYTES: usize = 4 * 1024 * 1024;
 
-fn validate_attachments(attachments: &[Attachment]) -> KernelResult<()> {
+pub(crate) fn validate_attachments(attachments: &[Attachment]) -> KernelResult<()> {
     if attachments.len() > MAX_ATTACHMENTS {
         return Err(KernelError::InvalidParams(format!(
             "at most {MAX_ATTACHMENTS} attachments per message"
@@ -65,14 +67,14 @@ fn validate_attachments(attachments: &[Attachment]) -> KernelResult<()> {
     Ok(())
 }
 
-/// A message about to start a turn: the turn it gets, the input, the plugin that sent
-/// it (if one did) and the queue entry it comes from (if it waited).
+/// A message about to start a turn: the turn it gets, the input, who sent it (a plugin
+/// and/or deferred trigger) and the queue entry it comes from (if it waited).
 #[derive(Debug, Clone)]
 pub(crate) struct Queued {
-    turn: TurnId,
-    input: UserInput,
-    from: Option<String>,
-    entry: Option<QueueEntryId>,
+    pub(crate) turn: TurnId,
+    pub(crate) input: UserInput,
+    pub(crate) from: Option<MessageFrom>,
+    pub(crate) entry: Option<QueueEntryId>,
 }
 
 impl From<QueueEntry> for Queued {
@@ -80,7 +82,7 @@ impl From<QueueEntry> for Queued {
         Queued {
             turn: e.turn,
             input: e.input,
-            from: e.from.map(|f| f.plugin),
+            from: e.from,
             entry: Some(e.id),
         }
     }
@@ -226,6 +228,52 @@ impl Kernel {
         permission_mode: Option<PermissionMode>,
         worktree_path: Option<String>,
     ) -> KernelResult<Thread> {
+        self.thread_create_opts(
+            workspace,
+            provider,
+            model,
+            title,
+            permission_mode,
+            worktree_path,
+            None,
+            false,
+        )
+        .await
+    }
+
+    /// Creates a thread with optional worktree, parent link, and side-thread flag.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn thread_create_opts(
+        &self,
+        workspace: &WorkspaceId,
+        mut provider: Option<String>,
+        mut model: Option<String>,
+        title: Option<String>,
+        mut permission_mode: Option<PermissionMode>,
+        mut worktree_path: Option<String>,
+        parent: Option<ThreadId>,
+        side: bool,
+    ) -> KernelResult<Thread> {
+        if let Some(ref parent_id) = parent {
+            let parent_row = self.thread_row(parent_id).await?;
+            if &parent_row.thread.workspace != workspace {
+                return Err(KernelError::InvalidParams(format!(
+                    "parent thread {parent_id} belongs to a different workspace"
+                )));
+            }
+            if provider.is_none() {
+                provider = Some(parent_row.thread.provider.clone());
+                if model.is_none() {
+                    model = Some(parent_row.thread.model.clone());
+                }
+            }
+            if worktree_path.is_none() {
+                worktree_path = parent_row.thread.worktree_path.clone();
+            }
+            if permission_mode.is_none() {
+                permission_mode = parent_row.thread.permission_mode;
+            }
+        }
         let provider = match provider {
             Some(id) => self
                 .provider(&id)
@@ -259,26 +307,175 @@ impl Kernel {
                 KernelError::PluginFailed(format!("provider {} has no models", provider.id()))
             })?,
         };
-        self.thread_insert_with_worktree(
+        self.thread_insert_opts(
             workspace,
             provider.id().to_owned(),
             model,
             title,
             permission_mode,
             worktree_path,
+            parent,
+            side,
         )
         .await
     }
 
-    /// Updates a thread's model, permission mode, and/or title. Fails with `conflict`
-    /// while a turn runs or if the thread is archived. Changing the model or permission
-    /// mode restarts the provider session (with `resume`) on the next turn.
+    /// Forks a thread into a new independent thread, copying events up to `at_turn`
+    /// (inclusive), strictly before `before_turn`, or up to the latest completed turn when
+    /// neither is given. Leaves the source thread untouched and arms a pending handoff so
+    /// the fork's first turn carries bounded conversation history.
+    pub async fn thread_fork(
+        &self,
+        source: &ThreadId,
+        at_turn: Option<TurnId>,
+        before_turn: Option<TurnId>,
+        title: Option<String>,
+    ) -> KernelResult<Thread> {
+        if at_turn.is_some() && before_turn.is_some() {
+            return Err(KernelError::InvalidParams(
+                "atTurn and beforeTurn are mutually exclusive".into(),
+            ));
+        }
+        let src = source.clone();
+        let (row, events) = self
+            .inner
+            .store
+            .read(move |c| {
+                let row = repo::thread_require(c, &src)?;
+                let events = repo::read_all_events(c, &src)?;
+                Ok::<_, KernelError>((row, events))
+            })
+            .await?;
+
+        let cut_seq: u64 = if let Some(ref target) = before_turn {
+            let start = events
+                .iter()
+                .find(|e| matches!(&e.event, ThreadEvent::TurnStarted(t) if &t.turn == target))
+                .ok_or_else(|| KernelError::NotFound(format!("no turn {target}")))?;
+            start.seq.saturating_sub(1)
+        } else if let Some(ref target) = at_turn {
+            let start_idx = events
+                .iter()
+                .position(|e| matches!(&e.event, ThreadEvent::TurnStarted(t) if &t.turn == target))
+                .ok_or_else(|| KernelError::NotFound(format!("no turn {target}")))?;
+            if let Some(ended) = events[start_idx..]
+                .iter()
+                .find(|e| matches!(&e.event, ThreadEvent::TurnEnded(t) if &t.turn == target))
+            {
+                ended.seq
+            } else {
+                // Cut before the next turn if this turn has no TurnEnded yet.
+                events[start_idx + 1..]
+                    .iter()
+                    .find(|e| matches!(&e.event, ThreadEvent::TurnStarted(_)))
+                    .map_or_else(|| events.last().map_or(0, |e| e.seq), |e| e.seq - 1)
+            }
+        } else {
+            events.last().map_or(0, |e| e.seq)
+        };
+
+        // Keep events up to cut_seq, stripping queue events so the fork starts with a clean queue.
+        let mut copied: Vec<repo::StoredEvent> = events
+            .into_iter()
+            .filter(|e| e.seq <= cut_seq)
+            .filter(|e| {
+                !matches!(
+                    e.event,
+                    ThreadEvent::QueueAdded(_)
+                        | ThreadEvent::QueueUpdated(_)
+                        | ThreadEvent::QueueRemoved(_)
+                        | ThreadEvent::QueueMoved(_)
+                        | ThreadEvent::QueueHeld(_)
+                        | ThreadEvent::QueueResumed(_)
+                )
+            })
+            .collect();
+
+        // If the cut landed inside an unfinished turn, drop that open turn's events so the
+        // forked thread starts cleanly idle.
+        if let Some(open_start) = copied.iter().rposition(|e| {
+            if let ThreadEvent::TurnStarted(ts) = &e.event {
+                !copied
+                    .iter()
+                    .any(|x| matches!(&x.event, ThreadEvent::TurnEnded(te) if te.turn == ts.turn))
+            } else {
+                false
+            }
+        }) {
+            copied.truncate(open_start);
+        }
+
+        let has_history = copied.iter().any(|e| {
+            matches!(
+                &e.event,
+                ThreadEvent::TurnStarted(t) if t.purpose != Some(TurnPurpose::HandoffSummary)
+            )
+        });
+        let pending_handoff = if has_history {
+            let from = handoff::last_author(&copied, None).unwrap_or_else(|| ProviderModel {
+                provider: row.thread.provider.clone(),
+                model: row.thread.model.clone(),
+            });
+            Some(PendingHandoff {
+                from,
+                summary: None,
+                summary_failed: false,
+            })
+        } else {
+            None
+        };
+
+        let now = self.now();
+        let fork_title = title
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .or_else(|| row.thread.title.as_ref().map(|t| format!("{t} (fork)")));
+        let forked = Thread {
+            id: ThreadId(self.new_id()),
+            workspace: row.thread.workspace.clone(),
+            title: fork_title,
+            title_source: None,
+            provider: row.thread.provider.clone(),
+            model: row.thread.model.clone(),
+            permission_mode: row.thread.permission_mode,
+            worktree_path: row.thread.worktree_path.clone(),
+            forked_from: Some(ThreadForkInfo {
+                thread: source.clone(),
+                turn: at_turn.or(before_turn),
+            }),
+            parent: None,
+            side: None,
+            status: ThreadStatus::Idle,
+            created: now.clone(),
+            updated: now,
+        };
+
+        let f = forked.clone();
+        self.inner
+            .store
+            .write(move |c| repo::thread_fork_copy(c, &f, &copied, pending_handoff.as_ref()))
+            .await?;
+        self.announce(WorkspaceEvent::ThreadCreated(ThreadChange {
+            thread: forked.clone(),
+        }));
+        Ok(forked)
+    }
+
+    /// Updates a thread's provider, model, permission mode, and/or title. Fails with
+    /// `conflict` while a turn runs or if the thread is archived. Changing the model or
+    /// permission mode restarts the provider session (with `resume`) on the next turn.
+    /// Changing `provider` ends the old session, clears the stored resume id, records
+    /// `thread.switched` and arms a bounded handoff for the next turn (ADR 0029).
     pub async fn thread_update(
         &self,
         id: &ThreadId,
+        provider: Option<String>,
         model: Option<String>,
         permission_mode: Option<PermissionMode>,
         title: Option<String>,
+        handoff: Option<HandoffMode>,
     ) -> KernelResult<Thread> {
         if self.has_run(id) {
             return Err(KernelError::Conflict(format!(
@@ -289,65 +486,300 @@ impl Kernel {
         if row.archived {
             return Err(KernelError::Conflict(format!("thread {id} is archived")));
         }
-        let next_model = match model {
-            Some(m) if m != row.thread.model => {
-                let provider = self.provider(&row.thread.provider).ok_or_else(|| {
-                    KernelError::PluginFailed(format!(
-                        "provider {} is not available",
-                        row.thread.provider
-                    ))
-                })?;
-                let models = provider
-                    .list_models()
-                    .await
-                    .map_err(|e| KernelError::PluginFailed(e.message))?;
-                if !models.iter().any(|x| x.id == m) {
+
+        let switching = provider
+            .as_deref()
+            .is_some_and(|p| p != row.thread.provider);
+
+        let (next_provider, next_model) = if switching {
+            let next_provider_id = provider.unwrap_or_else(|| row.thread.provider.clone());
+            let target = self.provider(&next_provider_id).ok_or_else(|| {
+                KernelError::InvalidParams(format!("no provider {next_provider_id}"))
+            })?;
+            let models = target
+                .list_models()
+                .await
+                .map_err(|e| KernelError::PluginFailed(e.message))?;
+            let resolved_model = match model {
+                Some(m) if models.iter().any(|x| x.id == m) => m,
+                Some(m) => {
                     return Err(KernelError::InvalidParams(format!(
                         "provider {} has no model {m}",
-                        provider.id()
+                        target.id()
                     )));
                 }
-                m
-            }
-            Some(m) => m,
-            None => row.thread.model.clone(),
+                None => models.first().map(|m| m.id.clone()).ok_or_else(|| {
+                    KernelError::PluginFailed(format!("provider {} has no models", target.id()))
+                })?,
+            };
+            (next_provider_id, resolved_model)
+        } else {
+            let resolved_model = match model {
+                Some(m) if m != row.thread.model => {
+                    let current = self.provider(&row.thread.provider).ok_or_else(|| {
+                        KernelError::PluginFailed(format!(
+                            "provider {} is not available",
+                            row.thread.provider
+                        ))
+                    })?;
+                    let models = current
+                        .list_models()
+                        .await
+                        .map_err(|e| KernelError::PluginFailed(e.message))?;
+                    if !models.iter().any(|x| x.id == m) {
+                        return Err(KernelError::InvalidParams(format!(
+                            "provider {} has no model {m}",
+                            current.id()
+                        )));
+                    }
+                    m
+                }
+                Some(m) => m,
+                None => row.thread.model.clone(),
+            };
+            (row.thread.provider.clone(), resolved_model)
         };
+
         let next_mode = match permission_mode {
             Some(PermissionMode::Standard) => None,
             Some(m) => Some(m),
             None => row.thread.permission_mode,
         };
-        let next_title = match title {
-            Some(t) => Some(t),
-            None => row.thread.title.clone(),
+        let (next_title, next_title_source) = match title {
+            Some(t) => (Some(t), Some(TitleSource::User)),
+            None => (row.thread.title.clone(), row.thread.title_source),
         };
+
+        if switching {
+            let tid = id.clone();
+            let events = self
+                .inner
+                .store
+                .read(move |c| repo::read_all_events(c, &tid))
+                .await?;
+            let has_history = events.iter().any(|e| {
+                matches!(
+                    &e.event,
+                    ThreadEvent::TurnStarted(ts)
+                        if ts.purpose != Some(TurnPurpose::HandoffSummary)
+                )
+            });
+
+            let requested_mode = handoff.unwrap_or(HandoffMode::Transcript);
+            let (summary, summary_failed) = if requested_mode == HandoffMode::Summary && has_history
+            {
+                self.run_handoff_summary(id, &row.thread).await?
+            } else {
+                (None, false)
+            };
+            let effective_mode = if summary_failed {
+                HandoffMode::Transcript
+            } else {
+                requested_mode
+            };
+
+            self.end_live_session(id).await;
+
+            let pending = has_history.then(|| PendingHandoff {
+                from: ProviderModel {
+                    provider: row.thread.provider.clone(),
+                    model: row.thread.model.clone(),
+                },
+                summary,
+                summary_failed,
+            });
+            let updated = self.now();
+            let tid = id.clone();
+            let p_for_db = next_provider.clone();
+            let m_for_db = next_model.clone();
+            let t_for_db = next_title.clone();
+            let pending_for_db = pending.clone();
+            let saved = self
+                .inner
+                .store
+                .write(move |c| {
+                    repo::thread_update(
+                        c,
+                        &tid,
+                        &p_for_db,
+                        &m_for_db,
+                        next_mode,
+                        t_for_db.as_deref(),
+                        next_title_source,
+                        &updated,
+                        true,
+                        Some(pending_for_db.as_ref()),
+                    )
+                })
+                .await?;
+            self.append(
+                id,
+                ThreadEvent::ThreadSwitched(ThreadSwitched {
+                    from: ProviderModel {
+                        provider: row.thread.provider.clone(),
+                        model: row.thread.model.clone(),
+                    },
+                    to: ProviderModel {
+                        provider: next_provider,
+                        model: next_model,
+                    },
+                    handoff: effective_mode,
+                    summary_failed,
+                }),
+            )
+            .await?;
+            let public = saved.public();
+            self.announce(WorkspaceEvent::ThreadUpdated(ThreadChange {
+                thread: public.clone(),
+            }));
+            return Ok(public);
+        }
+
         let restart_session =
             next_model != row.thread.model || next_mode != row.thread.permission_mode;
         let updated = self.now();
         let tid = id.clone();
+        let p_for_db = next_provider.clone();
         let m_for_db = next_model.clone();
         let t_for_db = next_title.clone();
         let saved = self
             .inner
             .store
             .write(move |c| {
-                repo::thread_update(c, &tid, &m_for_db, next_mode, t_for_db.as_deref(), &updated)
+                repo::thread_update(
+                    c,
+                    &tid,
+                    &p_for_db,
+                    &m_for_db,
+                    next_mode,
+                    t_for_db.as_deref(),
+                    next_title_source,
+                    &updated,
+                    false,
+                    None,
+                )
             })
             .await?;
         if restart_session {
-            let old_session = self.lock_sessions().remove(id);
-            self.gateway_revoke(id);
-            if let Some(session) = old_session
-                && let Some(provider) = self.provider(&session.provider)
-            {
-                provider.end_session(session.id).await;
-            }
+            self.end_live_session(id).await;
         }
         let public = saved.public();
         self.announce(WorkspaceEvent::ThreadUpdated(ThreadChange {
             thread: public.clone(),
         }));
         Ok(public)
+    }
+
+    /// Runs a single `handoff_summary` turn on the outgoing provider and returns
+    /// `(summary, summary_failed)`. Failures do not abort the switch (ADR 0029).
+    async fn run_handoff_summary(
+        &self,
+        thread: &ThreadId,
+        outgoing: &Thread,
+    ) -> KernelResult<(Option<String>, bool)> {
+        let Some(provider) = self.provider(&outgoing.provider) else {
+            return Ok((None, true));
+        };
+        let turn = TurnId(self.new_id());
+        let input = UserInput::text(SUMMARY_PROMPT);
+        let (tx, mut rx) = oneshot::channel();
+        {
+            let _dispatch = self.inner.dispatch.lock().await;
+            if self.has_run(thread) {
+                return Err(KernelError::Conflict(format!(
+                    "thread {thread} has a running turn"
+                )));
+            }
+            self.lock_runs().insert(
+                thread.clone(),
+                ThreadRun {
+                    turn: turn.clone(),
+                    provider: outgoing.provider.clone(),
+                    cancel: Some(tx),
+                    next: None,
+                    inbox: Inbox::new(),
+                },
+            );
+            if let Err(e) = self
+                .append(
+                    thread,
+                    ThreadEvent::TurnStarted(TurnStarted {
+                        turn: turn.clone(),
+                        input: input.clone(),
+                        from: None,
+                        entry: None,
+                        provider: Some(outgoing.provider.clone()),
+                        model: Some(outgoing.model.clone()),
+                        purpose: Some(TurnPurpose::HandoffSummary),
+                    }),
+                )
+                .await
+            {
+                self.lock_runs().remove(thread);
+                return Err(e);
+            }
+        }
+
+        let queued = Queued {
+            turn: turn.clone(),
+            input,
+            from: None,
+            entry: None,
+        };
+        let result = self
+            .run_one(thread, outgoing, &provider, queued, &mut rx, false)
+            .await;
+
+        let (outcome, error) = match result {
+            Ok(Some(ended)) => ended,
+            Ok(None) => {
+                self.lock_runs().remove(thread);
+                return Ok((None, true));
+            }
+            Err(e) => {
+                self.lock_runs().remove(thread);
+                return Err(e);
+            }
+        };
+
+        {
+            let _dispatch = self.inner.dispatch.lock().await;
+            self.lock_runs().remove(thread);
+            self.append(
+                thread,
+                ThreadEvent::TurnEnded(TurnEnded {
+                    turn: turn.clone(),
+                    outcome,
+                    error,
+                }),
+            )
+            .await?;
+        }
+
+        if outcome != TurnOutcome::Done {
+            return Ok((None, true));
+        }
+
+        let tid = thread.clone();
+        let events = self
+            .inner
+            .store
+            .read(move |c| repo::read_all_events(c, &tid))
+            .await?;
+        match handoff::turn_assistant_text(&events, &turn) {
+            Some(text) => Ok((Some(text), false)),
+            None => Ok((None, true)),
+        }
+    }
+
+    async fn end_live_session(&self, id: &ThreadId) {
+        let old_session = self.lock_sessions().remove(id);
+        self.gateway_revoke(id);
+        if let Some(session) = old_session
+            && let Some(provider) = self.provider(&session.provider)
+        {
+            provider.end_session(session.id).await;
+        }
     }
 
     /// Sends a user message: starts a turn, or queues it behind the running one.
@@ -386,7 +818,8 @@ impl Kernel {
                 id: QueueEntryId(self.new_id()),
                 turn: turn.clone(),
                 input,
-                from: from.map(|plugin| MessageFrom { plugin }),
+                from: from.map(MessageFrom::plugin),
+                trigger: None,
             };
             let id = entry.id.clone();
             self.append(
@@ -407,7 +840,7 @@ impl Kernel {
         let first = Queued {
             turn: turn.clone(),
             input,
-            from,
+            from: from.map(MessageFrom::plugin),
             entry: None,
         };
         self.start_run(thread, row.thread, provider, first).await?;
@@ -479,7 +912,8 @@ impl Kernel {
             id: QueueEntryId(self.new_id()),
             turn: TurnId(self.new_id()),
             input,
-            from: from.map(|plugin| MessageFrom { plugin }),
+            from: from.map(MessageFrom::plugin),
+            trigger: None,
         };
         let id = entry.id.clone();
         self.append(
@@ -534,11 +968,12 @@ impl Kernel {
         Ok(queued)
     }
 
-    /// Removes a queued message.
+    /// Removes a queued (or deferred) message.
     pub async fn queue_remove(&self, thread: &ThreadId, entry: &QueueEntryId) -> KernelResult<()> {
         self.thread_row(thread).await?;
         let _dispatch = self.inner.dispatch.lock().await;
         self.queue_entry(thread, entry).await?;
+        self.cancel_defer_task(entry);
         self.append(
             thread,
             ThreadEvent::QueueRemoved(QueueRemoved {
@@ -590,8 +1025,8 @@ impl Kernel {
         Ok(())
     }
 
-    /// Starts a queued message now. While a turn runs, that turn is cancelled and this
-    /// message runs next; the rest of the queue is held.
+    /// Starts a queued (or deferred) message now. While a turn runs, that turn is
+    /// cancelled and this message runs next; the rest of the queue is held.
     pub async fn queue_send_now(
         &self,
         thread: &ThreadId,
@@ -604,7 +1039,18 @@ impl Kernel {
             )));
         }
         let _dispatch = self.inner.dispatch.lock().await;
-        let queued = self.queue_entry(thread, entry).await?;
+        let mut queued = self.queue_entry(thread, entry).await?;
+        self.cancel_defer_task(entry);
+        if queued.trigger.is_some() {
+            queued.trigger = None;
+            self.append(
+                thread,
+                ThreadEvent::QueueUpdated(QueueUpdated {
+                    entry: queued.clone(),
+                }),
+            )
+            .await?;
+        }
         if let Some(run) = self.lock_runs().get_mut(thread) {
             run.next = Some(queued.id.clone());
             if let Some(tx) = run.cancel.take() {
@@ -627,7 +1073,8 @@ impl Kernel {
         })
     }
 
-    /// Lets a held queue start its entries again; an idle thread starts the first one.
+    /// Lets a held queue start its entries again; re-arms held command triggers and on an
+    /// idle thread starts the first ready entry.
     pub async fn queue_resume(&self, thread: &ThreadId) -> KernelResult<()> {
         let row = self.thread_row(thread).await?;
         if row.archived {
@@ -635,23 +1082,27 @@ impl Kernel {
                 "thread {thread} is archived"
             )));
         }
-        let _dispatch = self.inner.dispatch.lock().await;
-        if self.queue_hold_of(thread).await?.is_some() {
-            self.append(thread, ThreadEvent::QueueResumed(QueueResumed {}))
-                .await?;
+        self.clear_limit_resume(thread);
+        {
+            let _dispatch = self.inner.dispatch.lock().await;
+            if self.queue_hold_of(thread).await?.is_some()
+                || row.thread.status == ThreadStatus::Limited
+            {
+                self.append(thread, ThreadEvent::QueueResumed(QueueResumed {}))
+                    .await?;
+            }
+            if !self.has_run(thread)
+                && let Some(first) = self.queue_ready_of(thread).await?.into_iter().next()
+            {
+                let provider = self.provider_of(&row.thread)?;
+                self.start_run(thread, row.thread, provider, first.into())
+                    .await?;
+            }
         }
-        if self.has_run(thread) {
-            return Ok(());
-        }
-        let Some(first) = self.queue_of(thread).await?.into_iter().next() else {
-            return Ok(());
-        };
-        let provider = self.provider_of(&row.thread)?;
-        self.start_run(thread, row.thread, provider, first.into())
-            .await
+        self.rearm_command_triggers(thread).await
     }
 
-    async fn queue_of(&self, thread: &ThreadId) -> KernelResult<Vec<QueueEntry>> {
+    pub(crate) async fn queue_of(&self, thread: &ThreadId) -> KernelResult<Vec<QueueEntry>> {
         let t = thread.clone();
         self.inner
             .store
@@ -659,7 +1110,15 @@ impl Kernel {
             .await
     }
 
-    async fn queue_hold_of(&self, thread: &ThreadId) -> KernelResult<Option<QueueHold>> {
+    pub(crate) async fn queue_ready_of(&self, thread: &ThreadId) -> KernelResult<Vec<QueueEntry>> {
+        let t = thread.clone();
+        self.inner
+            .store
+            .read(move |c| repo::queue_ready_list(c, &t))
+            .await
+    }
+
+    pub(crate) async fn queue_hold_of(&self, thread: &ThreadId) -> KernelResult<Option<QueueHold>> {
         let t = thread.clone();
         self.inner
             .store
@@ -679,7 +1138,7 @@ impl Kernel {
             .ok_or_else(|| KernelError::NotFound(format!("no queued message {entry}")))
     }
 
-    fn provider_of(&self, thread: &Thread) -> KernelResult<Arc<dyn Provider>> {
+    pub(crate) fn provider_of(&self, thread: &Thread) -> KernelResult<Arc<dyn Provider>> {
         self.provider(&thread.provider).ok_or_else(|| {
             KernelError::PluginFailed(format!("provider {} is not available", thread.provider))
         })
@@ -687,7 +1146,7 @@ impl Kernel {
 
     /// Registers a run for an idle thread, appends its `turn.started` and spawns the turn
     /// loop. The caller holds `dispatch`.
-    async fn start_run(
+    pub(crate) async fn start_run(
         &self,
         thread: &ThreadId,
         meta: Thread,
@@ -705,25 +1164,30 @@ impl Kernel {
                 inbox: Inbox::new(),
             },
         );
-        if let Err(e) = self.begin_turn(thread, &first).await {
+        if let Err(e) = self.begin_turn(thread, &meta, &first).await {
             self.lock_runs().remove(thread);
             return Err(e);
         }
         let kernel = self.clone();
         let t = thread.clone();
-        tokio::spawn(async move { kernel.run_turns(t, meta, provider, first, rx).await });
+        let fut: crate::provider::BoxFuture<'static, ()> =
+            Box::pin(async move { kernel.run_turns(t, meta, provider, first, rx).await });
+        tokio::spawn(fut);
         Ok(())
     }
 
     /// Appends `turn.started`; for a queued message this also takes it out of the queue.
-    async fn begin_turn(&self, thread: &ThreadId, q: &Queued) -> KernelResult<()> {
+    async fn begin_turn(&self, thread: &ThreadId, meta: &Thread, q: &Queued) -> KernelResult<()> {
         self.append(
             thread,
             ThreadEvent::TurnStarted(TurnStarted {
                 turn: q.turn.clone(),
                 input: q.input.clone(),
-                from: q.from.clone().map(|plugin| MessageFrom { plugin }),
+                from: q.from.clone(),
                 entry: q.entry.clone(),
+                provider: Some(meta.provider.clone()),
+                model: Some(meta.model.clone()),
+                purpose: None,
             }),
         )
         .await?;
@@ -809,7 +1273,7 @@ impl Kernel {
         loop {
             let turn = next_up.turn.clone();
             let (outcome, error) = match self
-                .run_one(&thread, &meta, &provider, next_up, &mut cancel)
+                .run_one(&thread, &meta, &provider, next_up, &mut cancel, true)
                 .await
             {
                 Ok(Some(ended)) => ended,
@@ -821,9 +1285,15 @@ impl Kernel {
                     break;
                 }
             };
-            match self.end_turn(&thread, &turn, outcome, error).await {
-                Ok(Some((q, rx))) => (next_up, cancel) = (q, rx),
-                Ok(None) => break,
+            match self.end_turn(&thread, &meta, &turn, outcome, error).await {
+                Ok(Some((q, rx))) => {
+                    tokio::spawn(self.on_turn_ended_triggers(thread.clone(), outcome));
+                    (next_up, cancel) = (q, rx);
+                }
+                Ok(None) => {
+                    tokio::spawn(self.on_turn_ended_triggers(thread.clone(), outcome));
+                    break;
+                }
                 Err(e) => {
                     tracing::warn!(%thread, error = %e, "the next queued message could not start");
                     self.lock_runs().remove(&thread);
@@ -841,6 +1311,7 @@ impl Kernel {
     async fn end_turn(
         &self,
         thread: &ThreadId,
+        meta: &Thread,
         turn: &TurnId,
         outcome: TurnOutcome,
         error: Option<String>,
@@ -858,22 +1329,31 @@ impl Kernel {
                 turn: TurnId(self.new_id()),
                 input,
                 from: None,
+                trigger: None,
             })
             .collect();
         let mut queue = unsteered.clone();
-        queue.extend(self.queue_of(thread).await?);
+        queue.extend(self.queue_ready_of(thread).await?);
         let mut held = self.queue_hold_of(thread).await?.is_some();
         let requested = requested.and_then(|id| queue.iter().find(|q| q.id == id).cloned());
         let others = queue
             .iter()
             .any(|q| requested.as_ref().is_none_or(|r| r.id != q.id));
-        let hold = match outcome {
-            TurnOutcome::Done => None,
-            TurnOutcome::Cancelled => Some(QueueHold::Stopped),
-            TurnOutcome::Failed => Some(QueueHold::Failed),
+        let is_limited = self
+            .thread_row(thread)
+            .await
+            .is_ok_and(|r| r.thread.status == ThreadStatus::Limited);
+        let hold = if is_limited {
+            (!held).then_some(QueueHold::Limited)
+        } else {
+            let reason = match outcome {
+                TurnOutcome::Done => None,
+                TurnOutcome::Cancelled => Some(QueueHold::Stopped),
+                TurnOutcome::Failed => Some(QueueHold::Failed),
+            };
+            reason.filter(|_| others && !held)
         };
-        let hold = hold.filter(|_| others && !held);
-        held |= hold.is_some();
+        held |= hold.is_some() || is_limited;
         let next = requested.or_else(|| if held { None } else { queue.into_iter().next() });
         if next.is_none() {
             self.lock_runs().remove(thread);
@@ -916,7 +1396,7 @@ impl Kernel {
             // The kernel is closing and dropped the run.
             None => return Ok(None),
         }
-        if let Err(e) = self.begin_turn(thread, &q).await {
+        if let Err(e) = self.begin_turn(thread, meta, &q).await {
             self.lock_runs().remove(thread);
             return Err(e);
         }
@@ -933,9 +1413,73 @@ impl Kernel {
         provider: &Arc<dyn Provider>,
         queued: Queued,
         cancel: &mut oneshot::Receiver<()>,
+        allow_handoff: bool,
     ) -> KernelResult<Option<(TurnOutcome, Option<String>)>> {
-        let Queued { turn, input, .. } = queued;
+        let Queued {
+            turn, mut input, ..
+        } = queued;
         let turn = &turn;
+        let mut active_handoff: Option<(PendingHandoff, u32, bool, String)> = None;
+        let mut side_parent_seq: Option<u64> = None;
+        if allow_handoff {
+            let row = self.thread_row(thread).await?;
+            // Side threads receive any unseen parent-thread messages (capped at 24 KiB)
+            // without touching the parent's queue or running turn.
+            if row.thread.side == Some(true)
+                && let Some(ref parent_id) = row.thread.parent
+            {
+                let pid = parent_id.clone();
+                let seen = row.parent_seen_seq;
+                if let Ok(parent_events) = self
+                    .inner
+                    .store
+                    .read(move |c| repo::read_all_events(c, &pid))
+                    .await
+                    && let Some((rendered, last_seq)) =
+                        handoff::build_side_parent_context(&parent_events, seen)
+                {
+                    input.text = handoff::prepend(&rendered, &input.text);
+                    side_parent_seq = Some(last_seq);
+                }
+            }
+            let needs_check = row.pending_handoff.is_some()
+                || (row.provider_session.is_none() && !self.lock_sessions().contains_key(thread));
+            if needs_check {
+                let tid = thread.clone();
+                let events = self
+                    .inner
+                    .store
+                    .read(move |c| repo::read_all_events(c, &tid))
+                    .await?;
+                let pending = match row.pending_handoff {
+                    Some(p) => Some(p),
+                    None => handoff::last_author(&events, Some(turn)).map(|from| PendingHandoff {
+                        from,
+                        summary: None,
+                        summary_failed: false,
+                    }),
+                };
+                if let Some(pending) = pending {
+                    let ctx = handoff::build_context(
+                        &events,
+                        pending.from.clone(),
+                        pending.summary.clone(),
+                        pending.summary_failed,
+                        Some(turn),
+                    );
+                    if !ctx.messages.is_empty() || ctx.summary.is_some() {
+                        let rendered = handoff::render(&ctx);
+                        input.text = handoff::prepend(&rendered, &input.text);
+                        active_handoff = Some((
+                            pending,
+                            u32::try_from(ctx.messages.len()).unwrap_or(u32::MAX),
+                            ctx.truncated,
+                            rendered,
+                        ));
+                    }
+                }
+            }
+        }
         let inbox = self
             .lock_runs()
             .get(thread)
@@ -994,6 +1538,54 @@ impl Kernel {
                 // A client answered between the read and this append; that answer stands.
                 Ok(_) | Err(KernelError::Conflict(_)) => {}
                 Err(e) => return Err(e),
+            }
+        }
+        if let Some(last_seq) = side_parent_seq
+            && outcome == TurnOutcome::Done
+        {
+            let tid = thread.clone();
+            self.inner
+                .store
+                .write(move |c| repo::thread_set_parent_seen_seq(c, &tid, last_seq))
+                .await?;
+        }
+        if let Some((pending, messages, truncated, rendered)) = active_handoff {
+            if outcome == TurnOutcome::Done
+                && self.thread_row(thread).await?.provider_session.is_some()
+            {
+                let tid = thread.clone();
+                self.inner
+                    .store
+                    .write(move |c| repo::thread_set_pending_handoff(c, &tid, None))
+                    .await?;
+                self.append(
+                    thread,
+                    ThreadEvent::HandoffDelivered(HandoffDelivered {
+                        turn: turn.clone(),
+                        from: pending.from,
+                        to: ProviderModel {
+                            provider: meta.provider.clone(),
+                            model: meta.model.clone(),
+                        },
+                        messages,
+                        truncated,
+                        rendered,
+                    }),
+                )
+                .await?;
+            } else {
+                // Keep the handoff pending and reset the aborted session so the next turn
+                // sends the handoff cleanly (ADR 0029).
+                let tid = thread.clone();
+                let pending_for_db = pending.clone();
+                self.inner
+                    .store
+                    .write(move |c| {
+                        repo::thread_set_pending_handoff(c, &tid, Some(&pending_for_db))?;
+                        repo::thread_clear_session(c, &tid)
+                    })
+                    .await?;
+                self.end_live_session(thread).await;
             }
         }
         Ok(Some((outcome, error)))

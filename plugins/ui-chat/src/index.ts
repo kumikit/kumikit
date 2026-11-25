@@ -8,9 +8,11 @@ import { type Component, mount, unmount } from 'svelte';
 import Approval from './Approval.svelte';
 import Chat from './Chat.svelte';
 import FileChange from './FileChange.svelte';
+import Handoff from './Handoff.svelte';
 import Message from './Message.svelte';
 import PluginEvent from './PluginEvent.svelte';
 import Reasoning from './Reasoning.svelte';
+import SideThread from './SideThread.svelte';
 import Steer from './Steer.svelte';
 import Tool from './Tool.svelte';
 import { linkStyles } from './style';
@@ -37,6 +39,7 @@ function renderers(ctx: PluginContext): [string, (el: HTMLElement, p: RendererPr
       return show(PluginEvent, el, { plugin: i.plugin, event: i.event, data: i.data });
     }],
     ['steer', (el, p) => show(Steer, el, { text: (p.item as Of<'steer'>).text })],
+    ['handoff', (el, p) => show(Handoff, el, { item: p.item as Of<'handoff'> })],
   ];
 }
 
@@ -48,6 +51,16 @@ export default {
     ctx.slots.register('thread.view', {
       id: 'chat',
       mount: (el, props) => show(Chat, el, { ctx, address: props.address, connection: props.connection }),
+    });
+    ctx.slots.register('inspector.tab', {
+      id: 'side',
+      title: 'Side thread',
+      mount: (el, props) =>
+        show(SideThread, el, {
+          ctx,
+          ...(props.address ? { address: props.address } : {}),
+          ...(props.connection ? { connection: props.connection } : {}),
+        }),
     });
     for (const [kind, render] of renderers(ctx)) {
       ctx.slots.register('transcript.renderer', { kind, mount: render });

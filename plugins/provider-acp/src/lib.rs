@@ -17,7 +17,7 @@ use std::cell::RefCell;
 
 use kumikit_provider::{
     Child, Decision, Error, ErrorCode, Event, Model, Plugin, Provider, ProviderRef, SessionConfig,
-    SpawnRequest, UserInput, events, process, steering, take_line,
+    SpawnRequest, UserInput, events, process, session as provider_session, steering, take_line,
 };
 
 use crate::acp::{Action, Attachment, Options, PermissionMode, Session};
@@ -113,6 +113,12 @@ fn wit_event(e: acp::Event) -> Event {
             kind,
             data: json(&data),
         }),
+        A::CommandsAvailable { .. } | A::LimitReached { .. } => {
+            Event::Plugin(events::PluginEvent {
+                kind: "acp.session".into(),
+                data: "null".into(),
+            })
+        }
     }
 }
 
@@ -188,6 +194,36 @@ impl State {
                 Action::Write(mut line) => {
                     line.push('\n');
                     self.child.write_stdin(line.as_bytes())?;
+                }
+                Action::Emit(acp::Event::CommandsAvailable { commands }) => {
+                    let list: Vec<provider_session::CommandInfo> = commands
+                        .into_iter()
+                        .map(|c| provider_session::CommandInfo {
+                            name: c.name,
+                            description: c.description,
+                            hint: c.hint,
+                        })
+                        .collect();
+                    match provider_session::emit_commands(&list) {
+                        Ok(()) => {}
+                        Err(_) if cancelled => {}
+                        Err(e) if is_cancelled(&e) => {
+                            cancelled = true;
+                            queue.extend(self.session.cancel().into_iter().rev());
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+                Action::Emit(acp::Event::LimitReached { reset_at, message }) => {
+                    match provider_session::emit_limit(reset_at.as_deref(), &message) {
+                        Ok(()) => {}
+                        Err(_) if cancelled => {}
+                        Err(e) if is_cancelled(&e) => {
+                            cancelled = true;
+                            queue.extend(self.session.cancel().into_iter().rev());
+                        }
+                        Err(e) => return Err(e),
+                    }
                 }
                 Action::Emit(e) => match events::emit(&wit_event(e)) {
                     Ok(()) => {}

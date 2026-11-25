@@ -173,4 +173,79 @@ describe('the transcript', () => {
     ]);
     expect(after.notSteered).toBeUndefined();
   });
+
+  it('folds turn attribution, thread.switched and handoff.delivered', () => {
+    const view = foldEvents(
+      emptyView(address),
+      stamp([
+        {
+          kind: 'turn.started',
+          data: { turn: 'u1', input: { text: 'start' }, provider: 'p.a/a', model: 'm1' },
+        },
+        { kind: 'text.done', data: { turn: 'u1', text: 'first reply' } },
+        { kind: 'turn.ended', data: { turn: 'u1', outcome: 'done' } },
+        {
+          kind: 'thread.switched',
+          data: {
+            from: { provider: 'p.a/a', model: 'm1' },
+            to: { provider: 'p.b/b', model: 'm2' },
+            handoff: 'transcript',
+            summaryFailed: true,
+          },
+        },
+        {
+          kind: 'turn.started',
+          data: { turn: 'u2', input: { text: 'next' }, provider: 'p.b/b', model: 'm2' },
+        },
+        {
+          kind: 'handoff.delivered',
+          data: {
+            turn: 'u2',
+            from: { provider: 'p.a/a', model: 'm1' },
+            to: { provider: 'p.b/b', model: 'm2' },
+            messages: 2,
+            truncated: false,
+            rendered: '[Conversation handoff]',
+          },
+        },
+      ]),
+    );
+    expect(view.turns[0]).toMatchObject({ provider: 'p.a/a', model: 'm1' });
+    expect(view.switches).toEqual([
+      {
+        seq: 4,
+        afterTurnId: 'u1',
+        from: { provider: 'p.a/a', model: 'm1' },
+        to: { provider: 'p.b/b', model: 'm2' },
+        handoff: 'transcript',
+        summaryFailed: true,
+      },
+    ]);
+    expect(view.turns[1]).toMatchObject({ provider: 'p.b/b', model: 'm2' });
+    expect(view.turns[1]!.items).toEqual([
+      {
+        kind: 'handoff',
+        from: { provider: 'p.a/a', model: 'm1' },
+        to: { provider: 'p.b/b', model: 'm2' },
+        messages: 2,
+        truncated: false,
+        rendered: '[Conversation handoff]',
+      },
+    ]);
+  });
+
+  it('folds commands.available onto ThreadView.commands', () => {
+    const v = foldEvents(
+      emptyView(address),
+      stamp([
+        {
+          kind: 'commands.available',
+          data: {
+            commands: [{ name: 'review', description: 'Review diff', hint: '[branch]' }],
+          },
+        },
+      ]),
+    );
+    expect(v.commands).toEqual([{ name: 'review', description: 'Review diff', hint: '[branch]' }]);
+  });
 });

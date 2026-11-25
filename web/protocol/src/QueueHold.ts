@@ -3,4 +3,4 @@
 /**
  * Why a thread's queue waits instead of starting its next entry.
  */
-export type QueueHold = "stopped" | "failed" | "restarted";
+export type QueueHold = "stopped" | "failed" | "restarted" | "limited";

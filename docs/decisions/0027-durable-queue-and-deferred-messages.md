@@ -1,6 +1,6 @@
 # 0027 — A durable thread queue, held after stops, and deferred messages
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-24
 
 ## Context

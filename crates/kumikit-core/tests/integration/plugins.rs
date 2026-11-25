@@ -23,7 +23,7 @@ async fn installing_and_disabling_is_announced_to_every_client() {
         let mut admin = Client::hello(&dirs.address).await;
 
         let hello = admin
-            .call("core.hello", json!({"protocol":"0.8", "client": {"name": "t", "version": "0"}}))
+            .call("core.hello", json!({"protocol":"0.9", "client": {"name": "t", "version": "0"}}))
             .await;
         assert_eq!(hello["plugins"], json!([]));
         assert!(hello["capabilities"].as_array().unwrap().contains(&json!("plugins")));
@@ -89,7 +89,7 @@ async fn enabled_plugins_survive_a_restart_and_appear_in_hello() {
         let hello = c
             .call(
                 "core.hello",
-                json!({"protocol":"0.8", "client": {"name": "t", "version": "0"}}),
+                json!({"protocol":"0.9", "client": {"name": "t", "version": "0"}}),
             )
             .await;
         assert_eq!(

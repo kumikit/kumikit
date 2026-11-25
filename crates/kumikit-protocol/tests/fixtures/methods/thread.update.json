@@ -24,5 +24,32 @@
         "workspace": "01JCWS00000000000000000001"
       }
     }
+  },
+  {
+    "id": 10,
+    "jsonrpc": "2.0",
+    "method": "thread.update",
+    "params": {
+      "handoff": "summary",
+      "model": "codex-5",
+      "provider": "test.other/other",
+      "thread": "01JCTH00000000000000000001"
+    }
+  },
+  {
+    "id": 10,
+    "jsonrpc": "2.0",
+    "result": {
+      "thread": {
+        "created": "2026-11-15T10:00:00.000Z",
+        "id": "01JCTH00000000000000000001",
+        "model": "codex-5",
+        "permissionMode": "accept_edits",
+        "provider": "test.other/other",
+        "status": "idle",
+        "updated": "2026-11-15T10:02:00.000Z",
+        "workspace": "01JCWS00000000000000000001"
+      }
+    }
   }
 ]

@@ -4,8 +4,8 @@
  * plugins can compare by reference. The status rules match the kernel's
  * (`crates/kumikit-kernel/src/fold.rs`); a shared fixture checks both.
  */
-import type { Approval, EventNotification, ThreadStatus } from '@kumikit/protocol';
-import type { ThreadAddress, ThreadView, TranscriptItem, TurnView } from '@kumikit/ui-sdk';
+import type { Approval, EventNotification, SlashCommand, ThreadStatus } from '@kumikit/protocol';
+import type { ThreadAddress, ThreadSwitchView, ThreadView, TranscriptItem, TurnView } from '@kumikit/ui-sdk';
 
 /** A view with nothing folded in yet. */
 export function emptyView(address: ThreadAddress): ThreadView {
@@ -35,7 +35,12 @@ export function nextStatus(
       return 'awaiting_approval';
     case 'approval.resolved':
       return pendingAfter === 0 ? 'running' : 'awaiting_approval';
+    case 'limit.reached':
+      return 'limited';
+    case 'queue.resumed':
+      return current === 'limited' ? 'idle' : current;
     case 'turn.ended':
+      if (current === 'limited') return 'limited';
       return event.data.outcome === 'failed' ? 'failed' : 'idle';
     default:
       return current;
@@ -79,6 +84,9 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
   let queue = view.queue;
   let queueHold = view.queueHold;
   let notSteered = view.notSteered;
+  let switches: ThreadSwitchView[] | undefined = view.switches;
+  let commands: SlashCommand[] | undefined = view.commands;
+  let limit = view.limit;
   let status = view.status;
   let seq = view.seq;
 
@@ -93,10 +101,14 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
     seq = e.seq;
     switch (e.kind) {
       case 'turn.started': {
+        limit = undefined;
         const turn: TurnView = { id: e.data.turn, input: e.data.input.text, started: e.time, items: [] };
         if (e.data.input.attachments && e.data.input.attachments.length > 0) {
           turn.attachments = e.data.input.attachments;
         }
+        if (e.data.provider !== undefined) turn.provider = e.data.provider;
+        if (e.data.model !== undefined) turn.model = e.data.model;
+        if (e.data.purpose !== undefined) turn.purpose = e.data.purpose;
         turns.push(turn);
         const entry = e.data.entry;
         if (entry !== undefined) {
@@ -108,6 +120,40 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
       case 'input.steered':
         withTurn(e.data.turn, (t) => t.items.push({ kind: 'steer', text: e.data.input.text }));
         break;
+      case 'thread.switched': {
+        const afterTurnId = turns.length > 0 ? turns[turns.length - 1]!.id : undefined;
+        const entry: ThreadSwitchView = {
+          seq: e.seq,
+          from: e.data.from,
+          to: e.data.to,
+          handoff: e.data.handoff,
+        };
+        if (afterTurnId !== undefined) entry.afterTurnId = afterTurnId;
+        if (e.data.summaryFailed) entry.summaryFailed = true;
+        switches = switches ? [...switches, entry] : [entry];
+        break;
+      }
+      case 'handoff.delivered':
+        withTurn(e.data.turn, (t) => {
+          t.items.push({
+            kind: 'handoff',
+            from: e.data.from,
+            to: e.data.to,
+            messages: e.data.messages,
+            truncated: Boolean(e.data.truncated),
+            rendered: e.data.rendered,
+          });
+        });
+        break;
+      case 'commands.available':
+        commands = e.data.commands;
+        break;
+      case 'limit.reached': {
+        const nextLimit: { resetAt?: string; message: string } = { message: e.data.message };
+        if (e.data.resetAt !== undefined) nextLimit.resetAt = e.data.resetAt;
+        limit = nextLimit;
+        break;
+      }
       case 'queue.added':
         queue = e.data.front ? [e.data.entry, ...queue] : [...queue, e.data.entry];
         if (e.data.reason === 'not_steered') {
@@ -137,6 +183,7 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
         break;
       case 'queue.resumed':
         queueHold = undefined;
+        limit = undefined;
         break;
       case 'text.delta':
         withTurn(e.data.turn, (t) => {
@@ -268,5 +315,9 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
   else next.queueHold = queueHold;
   if (notSteered === undefined) delete next.notSteered;
   else next.notSteered = notSteered;
+  if (switches !== undefined) next.switches = switches;
+  if (commands !== undefined) next.commands = commands;
+  if (limit === undefined) delete next.limit;
+  else next.limit = limit;
   return next;
 }

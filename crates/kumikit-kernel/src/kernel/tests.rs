@@ -62,6 +62,9 @@ fn started(turn: &str) -> ThreadEvent {
         input: UserInput::text("hi"),
         from: None,
         entry: None,
+        provider: None,
+        model: None,
+        purpose: None,
     })
 }
 

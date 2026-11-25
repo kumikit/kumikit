@@ -8,18 +8,35 @@ import type {
   Approval,
   Attachment,
   EventNotification,
+  HandoffMode,
   Methods,
   ModelInfo,
   PermissionMode,
+  ProviderInfo,
+  ProviderModel,
   QueueEntry,
   QueueHold,
+  QueueTrigger,
   Resolution,
+  SlashCommand,
   Thread,
   ThreadStatus,
   TurnOutcome,
+  TurnPurpose,
 } from '@kumikit/protocol';
 
-export type { Attachment, PermissionMode, QueueEntry, QueueHold };
+export type {
+  Attachment,
+  HandoffMode,
+  PermissionMode,
+  ProviderInfo,
+  ProviderModel,
+  QueueEntry,
+  QueueHold,
+  QueueTrigger,
+  SlashCommand,
+  TurnPurpose,
+};
 
 import type { Slot, TokenName } from './generated';
 
@@ -65,7 +82,16 @@ export type TranscriptItem =
   | { kind: 'approval'; approval: Approval; resolution?: Resolution }
   | { kind: 'plugin.event'; plugin: string; event: string; data: unknown }
   /** A message the user sent with `thread.steer`, where the agent took it (since 0.1.4). */
-  | { kind: 'steer'; text: string };
+  | { kind: 'steer'; text: string }
+  /** Bounded conversation history delivered after switching provider (since 0.1.5). */
+  | {
+      kind: 'handoff';
+      from: ProviderModel;
+      to: ProviderModel;
+      messages: number;
+      truncated: boolean;
+      rendered: string;
+    };
 
 /** The kind strings of transcript items; `plugin.event` items also match
  * `plugin.event:<plugin>/<kind>`. */
@@ -80,8 +106,24 @@ export interface TurnView {
   ended?: string;
   outcome?: TurnOutcome;
   error?: string;
+  /** Provider that ran this turn (since 0.1.5). */
+  provider?: string;
+  /** Model that ran this turn (since 0.1.5). */
+  model?: string;
+  /** Purpose of a kernel-initiated turn (since 0.1.5). */
+  purpose?: TurnPurpose;
   items: TranscriptItem[];
   usage?: { inputTokens: number; outputTokens: number; cost?: number };
+}
+
+/** A provider switch recorded in a thread's log (since 0.1.5). */
+export interface ThreadSwitchView {
+  seq: number;
+  afterTurnId?: string;
+  from: ProviderModel;
+  to: ProviderModel;
+  handoff: HandoffMode;
+  summaryFailed?: boolean;
 }
 
 /** A thread as the UI kernel folds it from its event log. Plain data; replaced, not
@@ -95,6 +137,8 @@ export interface ThreadView {
   /** The last `seq` folded in. */
   seq: number;
   turns: TurnView[];
+  /** Provider switches recorded in the log, in order (since 0.1.5). */
+  switches?: ThreadSwitchView[];
   pendingApprovals: Approval[];
   /** The texts of `queue`, in order. Kept for plugins written against 0.1.2; read
    * `queue` instead. */
@@ -107,6 +151,10 @@ export interface ThreadView {
   /** Queue entry ids that fell back from `thread.steer` (`reason: "not_steered"`; since
    * 0.1.4). */
   notSteered?: string[];
+  /** Slash commands reported by the thread's provider (`commands.available`; since 0.1.5). */
+  commands?: SlashCommand[];
+  /** Active usage/rate limit info when `status === 'limited'` (since 0.1.5). */
+  limit?: { resetAt?: string; message: string };
   /** Whether the connection is live (false while reconnecting). */
   live: boolean;
 }
@@ -294,6 +342,8 @@ export interface PluginContext {
     /** Mounts the registered `transcript.renderer` for an item (from any plugin), or a
      * plain fallback, into `el`. */
     renderItem(el: HTMLElement, props: RendererProps): Unmount;
+    /** Mounts every registered `composer.accessory` contribution into `el` (since 0.1.5). */
+    renderAccessories?(el: HTMLElement, props: ComposerProps): Unmount;
   };
 }
 

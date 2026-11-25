@@ -318,6 +318,16 @@ fn replay(path: &str, extra: &[String]) -> ExitCode {
             if !same {
                 return fail(&format!("entry {i}: expected {message}, got {got}"));
             }
+            if let Some(needles) = entry.get("contains").and_then(Value::as_array) {
+                let raw = got.to_string();
+                for needle in needles.iter().filter_map(Value::as_str) {
+                    if !raw.contains(needle) {
+                        return fail(&format!(
+                            "entry {i}: client message missing {needle:?}: {raw}"
+                        ));
+                    }
+                }
+            }
             if message.get("method").is_some()
                 && let (Some(rec), Some(now)) = (message.get("id"), got.get("id"))
             {

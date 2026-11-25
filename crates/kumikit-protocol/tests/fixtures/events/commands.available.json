@@ -1,0 +1,25 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 1,
+      "time": "2026-11-15T10:00:00.000Z",
+      "kind": "commands.available",
+      "data": {
+        "commands": [
+          {
+            "name": "review",
+            "description": "Review recent changes",
+            "hint": "[branch]"
+          },
+          {
+            "name": "compact",
+            "description": "Summarize the conversation"
+          }
+        ]
+      }
+    }
+  }
+]
