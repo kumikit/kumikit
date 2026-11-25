@@ -66,16 +66,29 @@ test('M7 threads: find, slash menu, @ mentions, /later, /btw side thread, and ed
   await mentionMenu.getByRole('option', { name: 'notes.md' }).click();
   await expect(composer).toHaveValue('Look at @notes.md ');
 
-  // `/btw` opens a side thread in the inspector and offers Insert into main.
-  await composer.fill('/btw quick side question');
+  // `/btw` creates side threads in the inspector; multiple side threads can be switched via history.
+  await composer.fill('/btw first side question');
   await composer.press('Enter');
-  const insertBtn = page.getByRole('button', { name: 'Insert into main' });
+  const inspector = page.getByRole('complementary', { name: 'Inspector' });
+  const insertBtn = inspector.getByRole('button', { name: 'Insert into main' });
   await expect(insertBtn).toBeVisible();
   await insertBtn.click();
   await expect(composer).toHaveValue(/hello from kumikit/);
 
-  // Edit on the user message forks before that turn with its prompt preloaded.
+  await composer.fill('/btw second side question');
+  await composer.press('Enter');
+  const sideHistory = inspector.getByLabel('Side thread history');
+  await expect(sideHistory.locator('option')).toHaveCount(2);
+  await expect(inspector.getByRole('log', { name: 'Transcript' })).toContainText('second side question');
+  // Switch back to the first side thread via the history switcher.
+  await sideHistory.selectOption({ label: 'first side question' });
+  await expect(inspector.getByRole('log', { name: 'Transcript' })).toContainText('first side question');
+
+  // Edit on the user message forks before that turn while the inspector is still open:
+  // both the forked thread (with its banner) and the inspector update immediately.
   await page.locator('main').getByRole('button', { name: 'Edit prompt in fork' }).first().click();
+  await expect(page.locator('main').getByRole('note')).toContainText('Forked from an earlier thread');
   await expect(page.locator('main').getByRole('note')).toContainText('Workspace files were not rewound');
   await expect(composer).toHaveValue('First prompt about woodworking');
+  await expect(inspector.getByText('New side thread')).toBeVisible();
 });

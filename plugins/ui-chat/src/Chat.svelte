@@ -565,32 +565,31 @@
   async function openBtw(question: string) {
     const conn = activeConn;
     if (!conn?.ready) return;
-    let sideId: string | undefined;
-    try {
-      const listed = await conn.call('thread.list', { workspace: address.workspace, includeSide: true });
-      sideId = (listed?.threads ?? []).find((t) => t.side && t.parent === address.thread)?.id;
-    } catch {
-      // Fall through to creating a fresh side thread.
+    const trimmed = question.trim();
+    if (!trimmed) {
+      await run('inspector.open', { tab: `${ctx.id}/side` });
+      return;
     }
-    if (!sideId) {
-      const created = await conn.call('thread.create', {
-        workspace: address.workspace,
-        parent: address.thread,
-        side: true,
-        title: 'Side thread',
-      });
-      sideId = created.thread.id;
-    }
+    const title = trimmed.length > 48 ? `${trimmed.slice(0, 45)}…` : trimmed;
+    const created = await conn.call('thread.create', {
+      workspace: address.workspace,
+      parent: address.thread,
+      side: true,
+      title,
+    });
+    const sideId = created.thread.id;
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('kumikit:side-thread-opened', { detail: { parent: address, side: sideId } }));
+      window.dispatchEvent(
+        new CustomEvent('kumikit:side-thread-opened', {
+          detail: { parent: address, side: sideId, thread: created.thread },
+        }),
+      );
     }
     await run('inspector.open', { tab: `${ctx.id}/side` });
-    if (question.trim()) {
-      await run('thread.send', {
-        address: { connection: address.connection, workspace: address.workspace, thread: sideId },
-        text: question.trim(),
-      });
-    }
+    await run('thread.send', {
+      address: { connection: address.connection, workspace: address.workspace, thread: sideId },
+      text: trimmed,
+    });
   }
 
   function copyText(content: string) {
@@ -1000,21 +999,28 @@
                 <div class="turn-actions user-actions">
                   <button
                     type="button"
-                    class="turn-action"
+                    class="turn-action icon-action"
                     aria-label="Edit prompt in fork"
                     title="Fork before this message and edit it"
                     onclick={() => void editTurn(turn)}
                   >
-                    Edit
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M11.4 2.6a1.4 1.4 0 0 1 2 2L5.5 12.5l-3 .8.8-3 8.1-7.7Z" />
+                    </svg>
                   </button>
                   <button
                     type="button"
-                    class="turn-action"
+                    class="turn-action icon-action"
                     aria-label="Fork from turn"
                     title="Fork thread after this turn"
                     onclick={() => void forkFrom(turn.id)}
                   >
-                    Fork
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <circle cx="5" cy="3.5" r="1.5" />
+                      <circle cx="11" cy="3.5" r="1.5" />
+                      <circle cx="5" cy="12.5" r="1.5" />
+                      <path d="M5 5v6M11 5v1a2 2 0 0 1-2 2H5" />
+                    </svg>
                   </button>
                 </div>
               {/if}
@@ -1080,7 +1086,18 @@
                 {@const reply = assistantText(turn)}
                 <div class="turn-actions">
                   {#if reply}
-                    <button type="button" class="turn-action" onclick={() => copyText(reply)}>Copy</button>
+                    <button
+                      type="button"
+                      class="turn-action icon-action"
+                      aria-label="Copy reply"
+                      title="Copy reply"
+                      onclick={() => copyText(reply)}
+                    >
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <rect x="5.5" y="5.5" width="8" height="8" rx="1.2" />
+                        <path d="M10.5 5.5V3.7A1.2 1.2 0 0 0 9.3 2.5H3.7A1.2 1.2 0 0 0 2.5 3.7v5.6a1.2 1.2 0 0 0 1.2 1.2h1.8" />
+                      </svg>
+                    </button>
                   {/if}
                   {#if sideFor && reply}
                     <button
@@ -1091,7 +1108,20 @@
                       Insert into main
                     </button>
                   {:else if !sideFor && !archived}
-                    <button type="button" class="turn-action" onclick={() => void forkFrom(turn.id)}>Fork from here</button>
+                    <button
+                      type="button"
+                      class="turn-action icon-action"
+                      aria-label="Fork from here"
+                      title="Fork thread after this turn"
+                      onclick={() => void forkFrom(turn.id)}
+                    >
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="5" cy="3.5" r="1.5" />
+                        <circle cx="11" cy="3.5" r="1.5" />
+                        <circle cx="5" cy="12.5" r="1.5" />
+                        <path d="M5 5v6M11 5v1a2 2 0 0 1-2 2H5" />
+                      </svg>
+                    </button>
                   {/if}
                 </div>
               {/if}
@@ -1412,16 +1442,37 @@
               </svg>
             </button>
           {/if}
+          {#if !sideFor && !archived && (view?.turns.length ?? 0) > 0}
+            <button
+              type="button"
+              class="action-btn later"
+              disabled={!connReady}
+              aria-label="Fork thread"
+              title="Fork this thread"
+              onclick={() => void forkFrom()}
+            >
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="5" cy="3.5" r="1.5" />
+                <circle cx="11" cy="3.5" r="1.5" />
+                <circle cx="5" cy="12.5" r="1.5" />
+                <path d="M5 5v6M11 5v1a2 2 0 0 1-2 2H5" />
+              </svg>
+            </button>
+          {/if}
           <button
             type="button"
             class="action-btn later"
+            class:active={showLater}
             disabled={archived || !connReady}
             aria-label="Send later"
             aria-expanded={showLater}
             title="Send later (or use /later)"
             onclick={() => (showLater = !showLater)}
           >
-            Later
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="8" cy="8" r="5.5" />
+              <polyline points="8 4.8 8 8 10.4 9.4" />
+            </svg>
           </button>
           <button
             type="submit"
@@ -1494,13 +1545,17 @@
           {#if !sideFor}
             <button
               type="button"
-              class="turn-action"
+              class="turn-action icon-action"
               class:primary={turnCheckEnabled && turnCheckCmd.trim().length > 0}
               aria-label="Turn check settings"
               aria-expanded={showTurnCheck}
+              title={turnCheckEnabled && turnCheckCmd.trim() ? `Post-turn check: ${turnCheckCmd}` : 'Configure post-turn check'}
               onclick={() => (showTurnCheck = !showTurnCheck)}
             >
-              {turnCheckEnabled && turnCheckCmd.trim() ? 'Check: on' : 'Check'}
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="8" cy="8" r="5.75" />
+                <polyline points="5.5 8.2 7.2 9.9 10.7 6.3" />
+              </svg>
             </button>
           {/if}
           <span class="accessories" use:mountAccessories></span>
@@ -1918,14 +1973,12 @@
     cursor: default;
   }
   .action-btn.later {
-    width: auto;
-    padding: 0 8px;
-    border-color: var(--kk-border-subtle, ButtonBorder);
-    background: var(--kk-surface-raised, ButtonFace);
+    width: 30px;
+    background: transparent;
     color: var(--kk-text-secondary, CanvasText);
-    font-size: var(--kk-font-size-small, small);
   }
-  .action-btn.later:hover:not(:disabled) {
+  .action-btn.later:hover:not(:disabled),
+  .action-btn.later.active {
     background: var(--kk-surface-hover, ButtonFace);
     color: var(--kk-text-primary, CanvasText);
   }
@@ -2056,6 +2109,18 @@
   .turn-action:hover {
     background: var(--kk-surface-hover, ButtonFace);
     color: var(--kk-text-primary, CanvasText);
+  }
+  .turn-action.icon-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border-color: transparent;
+  }
+  .turn-action.icon-action:hover {
+    border-color: var(--kk-border-subtle, ButtonBorder);
   }
   .turn-action.primary {
     border-color: var(--kk-accent, Highlight);

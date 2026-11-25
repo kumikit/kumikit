@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import Approval from '../src/Approval.svelte';
 import Chat from '../src/Chat.svelte';
 import Handoff from '../src/Handoff.svelte';
+import SideThread from '../src/SideThread.svelte';
 import Steer from '../src/Steer.svelte';
 
 const address = { connection: 'local', workspace: 'w', thread: 't' };
@@ -676,6 +677,150 @@ describe('usage limits and post-turn checks (M7 step 8)', () => {
     resumeBtn.click();
     flushSync();
     expect(ran[1]).toEqual(['thread.queue.resume', { address }]);
+    unmount(c);
+  });
+
+  it('uses icon-only buttons for message, composer, and reply actions', () => {
+    const viewWithTurn: ThreadView = {
+      ...base,
+      turns: [
+        {
+          id: 'u1',
+          input: 'check this',
+          started: '2026-11-15T10:00:00Z',
+          ended: '2026-11-15T10:00:02Z',
+          outcome: 'done',
+          items: [{ kind: 'message', text: 'looks good', done: true }],
+        },
+      ],
+    };
+    const { ctx, ran } = fakeCtx(viewWithTurn);
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address } });
+    flushSync();
+
+    for (const label of [
+      'Edit prompt in fork',
+      'Fork from turn',
+      'Copy reply',
+      'Fork from here',
+      'Fork thread',
+      'Send later',
+      'Turn check settings',
+    ]) {
+      const btn = target.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+      expect(btn, `expected button with aria-label="${label}"`).toBeTruthy();
+      expect(btn!.querySelector('svg'), `expected SVG icon in "${label}"`).toBeTruthy();
+      expect(btn!.textContent?.trim()).toBe('');
+    }
+
+    target.querySelector<HTMLButtonElement>('button[aria-label="Fork thread"]')!.click();
+    flushSync();
+    expect(ran).toEqual([['thread.fork', { address, open: true }]]);
+    unmount(c);
+  });
+
+  it('lists and switches between multiple side threads in SideThread inspector', async () => {
+    const parent: ThreadAddress = { connection: 'local', workspace: 'w', thread: 'main-th' };
+    const side1: ThreadView = {
+      ...base,
+      address: { connection: 'local', workspace: 'w', thread: 'side-1' },
+      turns: [
+        {
+          id: 't1',
+          input: 'first question',
+          started: '2026-11-15T10:00:00Z',
+          ended: '2026-11-15T10:00:01Z',
+          outcome: 'done',
+          items: [{ kind: 'message', text: 'first answer', done: true }],
+        },
+      ],
+    };
+    const side2: ThreadView = {
+      ...base,
+      address: { connection: 'local', workspace: 'w', thread: 'side-2' },
+      turns: [
+        {
+          id: 't2',
+          input: 'second question',
+          started: '2026-11-15T10:01:00Z',
+          ended: '2026-11-15T10:01:01Z',
+          outcome: 'done',
+          items: [{ kind: 'message', text: 'second answer', done: true }],
+        },
+      ],
+    };
+    const byId: Record<string, ThreadView> = { 'side-1': side1, 'side-2': side2 };
+    const { ctx } = fakeCtx(side2);
+    ctx.threads = {
+      watch: (addr, fn) => {
+        fn(byId[addr.thread] ?? side2);
+        return () => {};
+      },
+    };
+    const conn = {
+      id: 'local',
+      ready: true,
+      call: async (method: string) => {
+        if (method === 'thread.list') {
+          return {
+            threads: [
+              {
+                id: 'side-1',
+                workspace: 'w',
+                provider: 'p',
+                model: 'm',
+                title: 'First side',
+                status: 'idle',
+                side: true,
+                parent: 'main-th',
+                created: '2026-11-15T10:00:00Z',
+                updated: '2026-11-15T10:00:05Z',
+              },
+              {
+                id: 'side-2',
+                workspace: 'w',
+                provider: 'p',
+                model: 'm',
+                title: 'Second side',
+                status: 'running',
+                side: true,
+                parent: 'main-th',
+                created: '2026-11-15T10:01:00Z',
+                updated: '2026-11-15T10:01:05Z',
+              },
+            ],
+          };
+        }
+        return {};
+      },
+      subscribe: () => () => {},
+      models: async () => [],
+    } as unknown as import('@kumikit/ui-sdk').Connection;
+
+    const target = document.createElement('div');
+    const c = mount(SideThread, { target, props: { ctx, address: parent, connection: conn } });
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+
+    const select = target.querySelector<HTMLSelectElement>('select[aria-label="Side thread history"]')!;
+    expect(select).toBeTruthy();
+    expect(select.options).toHaveLength(2);
+    expect(select.options[0]!.textContent).toContain('Second side (running)');
+    expect(target.textContent).toContain('second answer');
+
+    // Switch to the earlier side thread.
+    select.value = 'side-1';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    expect(target.textContent).toContain('first answer');
+
+    // Click New side thread (+) to view the composer and full history list.
+    target.querySelector<HTMLButtonElement>('button[aria-label="New side thread"]')!.click();
+    flushSync();
+    expect(target.textContent).toContain('History (2)');
+    expect(target.querySelector('ul[aria-label="Side thread history list"]')?.textContent).toContain('First side');
     unmount(c);
   });
 });
