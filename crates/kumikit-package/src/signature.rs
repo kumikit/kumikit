@@ -203,6 +203,71 @@ fn hashes(dir: &Path) -> Result<BTreeMap<String, String>, PackageError> {
     Ok(out)
 }
 
+/// Builds the signature text for a single named byte payload (such as `release.json`),
+/// using the same `kumikit-signature 1` format as [`sign_dir`].
+pub fn sign_file_bytes(name: &str, bytes: &[u8], key: &SigningKey) -> Result<String, PackageError> {
+    if !safe_listed_path(name) {
+        return Err(PackageError::Invalid(format!(
+            "{name} cannot be signed: paths may not contain spaces, newlines or `\\`"
+        )));
+    }
+    let hash = sha256_hex(bytes);
+    let mut text = format!("{HEADER}\nkey {}\nfile {hash} {name}\n", key.public());
+    let sig = key.sign(text.as_bytes());
+    text.push_str(&format!("sig {}\n", URL_SAFE_NO_PAD.encode(sig)));
+    Ok(text)
+}
+
+/// Checks a single named byte payload against its `kumikit-signature 1` signature text.
+/// Returns the signing [`PublicKey`] on success, or [`PackageError::Untrusted`] if the
+/// signature is malformed, covers a different file or hash, does not match `expected`, or
+/// fails Ed25519 verification.
+pub fn verify_file_bytes(
+    name: &str,
+    bytes: &[u8],
+    signature: &str,
+    expected: Option<PublicKey>,
+) -> Result<PublicKey, PackageError> {
+    if signature.len() as u64 > MAX_SIGNATURE {
+        return Err(untrusted("signature is too large"));
+    }
+    let parsed = parse(signature)?;
+    if let Some(want) = expected
+        && parsed.key != want
+    {
+        return Err(untrusted(format!(
+            "signed by {}, expected {want}",
+            parsed.key
+        )));
+    }
+    if parsed.files.len() != 1 || parsed.files[0].0 != name {
+        return Err(untrusted(format!(
+            "signature does not cover exactly {name}"
+        )));
+    }
+    let actual = sha256_hex(bytes);
+    if parsed.files[0].1 != actual {
+        return Err(untrusted(format!("{name} changed after it was signed")));
+    }
+    UnparsedPublicKey::new(&ED25519, parsed.key.bytes())
+        .verify(&signature.as_bytes()[..parsed.signed_len], &parsed.sig)
+        .map_err(|_| untrusted("the signature does not match its key"))?;
+    Ok(parsed.key)
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    let mut out = String::with_capacity(64);
+    for b in digest {
+        use std::fmt::Write as _;
+        let _ = write!(&mut out, "{b:02x}");
+    }
+    out
+}
+
 /// Builds the signature text for the files under `dir` (its own `SIGNATURE`, if any, is
 /// left out).
 pub fn sign_dir(dir: &Path, key: &SigningKey) -> Result<String, PackageError> {

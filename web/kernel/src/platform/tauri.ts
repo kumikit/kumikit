@@ -3,6 +3,10 @@ import { Channel, invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 
 import type {
+  AppUpdateApplyResult,
+  AppUpdateCheckResult,
+  AppUpdateDownloadResult,
+  AppUpdateInfo,
   ClientPluginEntry,
   ClientRegistryResult,
   ClientUpdate,
@@ -11,6 +15,8 @@ import type {
   Platform,
   ProfileInfo,
   Removed,
+  SshProbeResult,
+  SshSyncResult,
 } from './index';
 import { asConnectError, pickWithInput, safeModeFromUrl } from './index';
 
@@ -43,6 +49,9 @@ export function tauriPlatform(): Platform {
       probe: (address) => call<string>('profile_probe', { address }),
       pair: (request) => call<ProfileInfo>('profile_pair', { request }),
       addSsh: (request) => call<ProfileInfo>('profile_add_ssh', { request }),
+      updateSsh: (request) => call<ProfileInfo>('profile_update_ssh', { request }),
+      probeSsh: (request) => call<SshProbeResult>('ssh_probe', { request }),
+      syncSsh: (request) => call<SshSyncResult>('ssh_sync', { request }),
       remove: (name) => call<Removed>('profile_remove', { name }),
     },
     pickBytes: (accept) => pickWithInput(accept),
@@ -73,6 +82,12 @@ export function tauriPlatform(): Platform {
       registries: () => call<string[]>('client_registries_get'),
       setRegistries: (urls) => call<void>('client_registries_set', { urls }),
       lock: () => call<string>('client_lock'),
+    },
+    updates: {
+      info: () => call<AppUpdateInfo>('app_update_info'),
+      check: () => call<AppUpdateCheckResult>('app_update_check'),
+      download: () => call<AppUpdateDownloadResult>('app_update_download'),
+      apply: (version, ifIdle) => call<AppUpdateApplyResult>('app_update_apply', { request: { version, ifIdle } }),
     },
     safeMode: safeModeFromUrl(location.href),
   };

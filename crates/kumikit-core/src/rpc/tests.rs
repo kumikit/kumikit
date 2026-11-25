@@ -167,10 +167,10 @@ impl Client {
         let r = self
             .call(
                 "core.hello",
-                json!({"protocol":"0.9","client":{"name":"t","version":"1"}}),
+                json!({"protocol":"0.10","client":{"name":"t","version":"1"}}),
             )
             .await;
-        assert_eq!(r["result"]["protocol"], "0.9", "{r}");
+        assert_eq!(r["result"]["protocol"], "0.10", "{r}");
     }
 
     fn dir(&self) -> String {
@@ -241,12 +241,12 @@ async fn hello_describes_the_core() {
     let r = c
         .call(
             "core.hello",
-            json!({"protocol":"0.9","client":{"name":"t","version":"1"}}),
+            json!({"protocol":"0.10","client":{"name":"t","version":"1"}}),
         )
         .await;
     assert_eq!(
         r["result"],
-        json!({"protocol":"0.9","core":{"version":"0.0.0","name":"test","os":"test"},
+        json!({"protocol":"0.10","core":{"version":"0.0.0","name":"test","os":"test"},
                "plugins":[],"capabilities":["threads","approvals","plugins","providers","workspace_events","secrets","settings","commands","schedules","gateway"]})
     );
 }
@@ -480,4 +480,18 @@ async fn core_config_round_trip() {
 
     let reset = c.call("core.config.set", json!({})).await;
     assert_eq!(reset["result"]["homeDir"], default_home);
+}
+
+#[tokio::test]
+async fn core_activity_and_idle_shutdown() {
+    let mut c = client().await;
+    c.hello().await;
+    let act = c.call("core.activity", json!({})).await;
+    assert_eq!(
+        act["result"],
+        json!({"activeTurns": 0, "readyQueued": 0, "idle": true}),
+        "{act}"
+    );
+    let shut = c.call("core.shutdown", json!({"ifIdle": true})).await;
+    assert_eq!(shut["result"], json!({}), "{shut}");
 }

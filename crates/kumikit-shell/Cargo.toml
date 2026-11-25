@@ -25,12 +25,14 @@ test-hooks = []
 
 [dependencies]
 base64 = "0.22"
+flate2 = "1"
 kumikit-assets.workspace = true
 kumikit-package.workspace = true
 kumikit-registry.workspace = true
 kumikit-protocol.workspace = true
 semver = "1.0.28"
 serde_json = "1.0.154"
+tar = "0.4.46"
 tempfile = "3.27.0"
 toml = "1.2.1"
 serde = { version = "1.0.229", features = ["derive"] }

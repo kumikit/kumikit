@@ -7,7 +7,7 @@
   import { isComposing } from '@kumikit/ui-sdk';
   import type { Kernel } from '../app.svelte';
   import type { CoreConnection } from '../connections/connection.svelte';
-  import { asConnectError } from '../platform/index';
+  import { asConnectError, type SshProbeResult } from '../platform/index';
   import { trapFocus } from './dialog';
 
   let { kernel }: { kernel: Kernel } = $props();
@@ -40,11 +40,17 @@
   let code = $state('');
   let destination = $state('');
   let command = $state('');
+  let sshAutoSync = $state(false);
+  /** Remote SSH probe shown when `kumikit` is missing or mismatched during Add SSH. */
+  let sshProbe = $state.raw<SshProbeResult | undefined>(undefined);
+  let syncingCore = $state<string | undefined>(undefined);
   /** The fingerprint the core showed, waiting for the user to confirm it. */
   let fingerprint = $state<string | undefined>();
   let busy = $state(false);
   let problem = $state<string | undefined>();
   let removing = $state.raw<CoreConnection | undefined>();
+
+  const appVersion = $derived(kernel.updates.info?.currentVersion ?? kernel.connections[0]?.hello?.core.version);
 
   /** A connection id from a label: lowercase letters, digits and dashes, unique here. */
   function nameFor(text: string): string {
@@ -63,6 +69,8 @@
   function reset(next: Mode = 'none') {
     mode = next;
     label = address = code = destination = command = '';
+    sshAutoSync = false;
+    sshProbe = undefined;
     fingerprint = undefined;
     problem = undefined;
   }
@@ -103,9 +111,15 @@
     if (busy) return;
     busy = true;
     problem = undefined;
+    sshProbe = undefined;
     const text = label.trim() || destination.trim();
     try {
-      const request: { name: string; label: string; destination: string; command?: string } = { name: nameFor(text), label: text, destination: destination.trim() };
+      const request: { name: string; label: string; destination: string; command?: string; autoSync?: boolean } = {
+        name: nameFor(text),
+        label: text,
+        destination: destination.trim(),
+        autoSync: sshAutoSync,
+      };
       if (command.trim()) request.command = command.trim();
       const info = await kernel.platform.profiles.addSsh(request);
       kernel.addedCore(info);
@@ -113,8 +127,70 @@
       reset();
     } catch (err) {
       problem = asConnectError(err).message;
+      // Probe the SSH host to offer installing a matching Kumikit binary if missing/mismatched.
+      if (kernel.platform.profiles.probeSsh && destination.trim()) {
+        try {
+          const p = await kernel.platform.profiles.probeSsh({ destination: destination.trim() });
+          if (p.supported && (p.status === 'missing' || p.status === 'mismatch')) {
+            sshProbe = p;
+          }
+        } catch {
+          // Keep the original connection error.
+        }
+      }
     }
     busy = false;
+  }
+
+  async function installAndAddSsh() {
+    if (busy || !kernel.platform.profiles.syncSsh || !destination.trim()) return;
+    busy = true;
+    problem = undefined;
+    try {
+      const synced = await kernel.platform.profiles.syncSsh({
+        destination: destination.trim(),
+        ...(command.trim() ? { command: command.trim() } : {}),
+        ifIdle: true,
+      });
+      const text = label.trim() || destination.trim();
+      const effectiveCmd = command.trim() || '$HOME/.local/bin/kumikit bridge';
+      const info = await kernel.platform.profiles.addSsh({
+        name: nameFor(text),
+        label: text,
+        destination: destination.trim(),
+        command: effectiveCmd,
+        autoSync: sshAutoSync,
+      });
+      kernel.addedCore(info);
+      kernel.notify(`Installed Kumikit ${synced.installedVersion} on ${info.label} and connected`, 'success');
+      reset();
+    } catch (err) {
+      problem = asConnectError(err).message;
+    }
+    busy = false;
+  }
+
+  function promptSyncSsh(c: CoreConnection) {
+    if (!kernel.platform.profiles.syncSsh || syncingCore) return;
+    kernel.dialog = {
+      kind: 'confirm',
+      title: `Install matching Kumikit on ${c.label}?`,
+      message: `Downloads Kumikit v${appVersion ?? 'current'} locally, verifies its Ed25519 signature, streams it over SSH into ~/.local/bin/kumikit, and restarts the remote core only if remote agents are idle.`,
+      confirmLabel: 'Download & install',
+      tone: 'primary',
+      onConfirm: async () => {
+        syncingCore = c.id;
+        try {
+          const res = await kernel.platform.profiles.syncSsh!({ profile: c.id, ifIdle: true });
+          kernel.notify(`Installed Kumikit ${res.installedVersion} on ${c.label}`, 'success');
+          c.reconnectNow();
+        } catch (err) {
+          kernel.notify(`SSH sync failed: ${asConnectError(err).message}`, 'danger');
+        } finally {
+          syncingCore = undefined;
+        }
+      },
+    };
   }
 
   async function remove() {
@@ -149,6 +225,12 @@
         {@const tone = statusTone(c.status)}
         {@const canReconnect = c.status !== 'ready' && c.status !== 'unauthorized'}
         {@const canRemove = kernel.platform.profiles.editable && c.id !== kernel.platform.home}
+        {@const canSyncSsh =
+          c.kind === 'ssh' &&
+          Boolean(kernel.platform.profiles.syncSsh) &&
+          (c.status === 'mismatch' ||
+            c.status === 'reconnecting' ||
+            (Boolean(appVersion) && Boolean(c.hello) && c.hello!.core.version !== appVersion))}
         <li class="card" data-core={c.id}>
           <div class="card-top">
             <div class="title-col">
@@ -161,8 +243,28 @@
             </span>
           </div>
           {#if c.error && c.status !== 'ready'}<p class="problem">{c.error}</p>{/if}
-          {#if canReconnect || canRemove}
+          {#if c.kind === 'ssh' && kernel.platform.profiles.updateSsh}
+            <label class="inline-check">
+              <input
+                type="checkbox"
+                checked={c.autoSync}
+                onchange={(e) => void kernel.setCoreAutoSync(c.id, (e.currentTarget as HTMLInputElement).checked)}
+              />
+              <span>Auto-sync matching Kumikit version</span>
+            </label>
+          {/if}
+          {#if canReconnect || canSyncSsh || canRemove}
             <div class="actions">
+              {#if canSyncSsh}
+                <button
+                  type="button"
+                  class="kk-button primary"
+                  disabled={syncingCore === c.id}
+                  onclick={() => promptSyncSsh(c)}
+                >
+                  {syncingCore === c.id ? 'Installing…' : 'Install matching version…'}
+                </button>
+              {/if}
               {#if canReconnect}
                 <button type="button" class="kk-button" onclick={() => c.reconnectNow()}>Reconnect now</button>
               {/if}
@@ -235,8 +337,34 @@
               <span>Name <span class="kk-muted">(optional)</span></span>
               <input class="kk-input" bind:value={label} placeholder={destination} />
             </label>
+            <label class="inline-check">
+              <input type="checkbox" bind:checked={sshAutoSync} />
+              <span>Automatically keep Kumikit in sync on this SSH host</span>
+            </label>
             <p class="note kk-muted">The app runs <code>ssh</code> without a terminal, so it cannot ask for a password or a new host key: connect once with <code>ssh</code> in a terminal first.</p>
             {#if problem}<p class="problem" role="alert">{problem}</p>{/if}
+            {#if sshProbe}
+              <div class="sync-prompt" role="status">
+                <p class="note">
+                  {#if sshProbe.status === 'missing'}
+                    Kumikit is not installed on <code>{destination}</code> ({sshProbe.os} {sshProbe.arch}).
+                  {:else}
+                    <code>{destination}</code> has Kumikit <code>{sshProbe.remoteVersion ?? 'unknown'}</code> ({sshProbe.os} {sshProbe.arch}); this app is <code>{sshProbe.localVersion}</code>.
+                  {/if}
+                  Download the verified matching binary locally and install it to <code>~/.local/bin/kumikit</code> over SSH?
+                </p>
+                <div class="actions start">
+                  <button
+                    type="button"
+                    class="kk-button primary"
+                    disabled={busy}
+                    onclick={() => void installAndAddSsh()}
+                  >
+                    {busy ? 'Installing…' : `Install Kumikit v${sshProbe.localVersion} & connect`}
+                  </button>
+                </div>
+              </div>
+            {/if}
             <div class="actions">
               <button type="button" class="kk-button" onclick={() => reset()}>Cancel</button>
               <button type="submit" class="kk-button primary" disabled={busy}>Add</button>
@@ -404,6 +532,21 @@
     gap: 4px;
     font-size: var(--kk-font-size-small, small);
     color: var(--kk-text-primary, CanvasText);
+  }
+  .inline-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    color: var(--kk-text-secondary, CanvasText);
+  }
+  .sync-prompt {
+    display: grid;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--kk-border-strong, CanvasText);
+    border-radius: var(--kk-radius-small, 0);
+    background: var(--kk-surface-raised, Canvas);
   }
   .actions {
     display: flex;

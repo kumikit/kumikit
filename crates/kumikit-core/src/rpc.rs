@@ -75,7 +75,7 @@ impl ServerInfo {
     /// Info for this process and machine.
     pub fn current() -> Self {
         ServerInfo {
-            version: env!("CARGO_PKG_VERSION").to_owned(),
+            version: kumikit_protocol::APP_VERSION.to_owned(),
             name: crate::paths::host_name(),
             os: std::env::consts::OS.to_owned(),
             shutdown: Arc::new(Notify::new()),
@@ -445,8 +445,25 @@ impl Conn {
                         .collect(),
                 })
             }
+            m::CoreActivity::NAME => {
+                parse::<m::CoreActivity>(params)?;
+                let activity = k.activity().await.map_err(kernel_err)?;
+                reply::<m::CoreActivity>(activity)
+            }
             m::CoreShutdown::NAME => {
-                parse::<m::CoreShutdown>(params)?;
+                let p = parse::<m::CoreShutdown>(params)?;
+                if p.if_idle == Some(true) {
+                    let activity = k.activity().await.map_err(kernel_err)?;
+                    if !activity.idle {
+                        return Err(RpcError::new(
+                            ErrorCode::Conflict,
+                            format!(
+                                "cannot shut down while {} active turn(s) and {} queued message(s) are pending",
+                                activity.active_turns, activity.ready_queued
+                            ),
+                        ));
+                    }
+                }
                 tracing::info!("shutdown requested by a client");
                 self.stop = true;
                 reply::<m::CoreShutdown>(Empty {})

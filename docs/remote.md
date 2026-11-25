@@ -124,6 +124,23 @@ stdin/stdout to the remote core's local socket.
 The remote core appears in the sidebar and reconnects automatically if the SSH tunnel
 drops.
 
+### Installing or syncing matching `kumikit` over SSH
+
+If `kumikit` is missing on the remote machine or is on a different version than your
+desktop app:
+
+- When adding an SSH core, Kumikit probes the remote host (`uname -s`, `uname -m`) and
+  offers to download the matching `kumikit` archive **locally on your computer**, verify
+  its Ed25519 signature and SHA-256 hash, stream it over `ssh` into `~/.local/bin/kumikit`,
+  start `kumikit serve`, and connect — working even on firewalled hosts without direct
+  GitHub access.
+- On existing SSH cores in **Cores**, click **Install matching version…** whenever a core
+  is on a different version, or opt into **Auto-sync matching Kumikit version** per host
+  (or globally in **Settings → Updates**). An existing remote core is checked for idle
+  (`core.activity`) before stopping so active remote agents are never interrupted.
+- On headless or TLS-paired cores, run `kumikit update [--check] [--wait-idle] [--yes]`
+  directly on that machine.
+
 ---
 
 ## Option 3: Browser client

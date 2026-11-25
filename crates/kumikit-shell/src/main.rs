@@ -14,12 +14,17 @@ use kumikit_shell::client_registry::{
     ClientError, ClientRef, ClientRegistry, ClientResult, ClientUpdate,
 };
 use kumikit_shell::connections::{
-    CommandError, Connections, Keepalive, PairRequest, Removed, SshRequest,
+    CommandError, Connections, Keepalive, PairRequest, Removed, SshRequest, SshUpdateRequest,
 };
 use kumikit_shell::local::{self, LocalCore};
 use kumikit_shell::profiles::{LOCAL, ProfileInfo, Profiles};
 use kumikit_shell::secrets::TokenStore;
+use kumikit_shell::ssh_sync::{self, SshProbeResult, SshSyncResult, SshTargetRequest};
 use kumikit_shell::store::{Entry, Store};
+use kumikit_shell::updater::{
+    AppUpdater, UpdateApplyRequest, UpdateApplyResult, UpdateCheckResult, UpdateDownloadResult,
+    UpdateInfo,
+};
 use tauri::http::{Request, Response};
 use tauri::ipc::Channel;
 use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
@@ -33,6 +38,10 @@ struct Shell {
     registry: ClientRegistry,
     /// Remote profiles.
     connections: Connections,
+    /// Signed application updates and release client.
+    updater: AppUpdater,
+    /// Client data directory (for remote SSH archive cache).
+    client_dir: PathBuf,
     /// The UI kernel's files.
     ui: PathBuf,
 }
@@ -144,6 +153,77 @@ async fn profile_add_ssh(
     request: SshRequest,
 ) -> Result<ProfileInfo, CommandError> {
     shell.connections.add_ssh(request).await
+}
+
+/// Updates an SSH profile's auto-sync preference.
+#[tauri::command]
+fn profile_update_ssh(
+    shell: State<'_, Shell>,
+    request: SshUpdateRequest,
+) -> Result<ProfileInfo, CommandError> {
+    shell.connections.update_ssh(request)
+}
+
+/// Inspects a remote SSH host's OS, architecture, and installed `kumikit` version.
+#[tauri::command]
+async fn ssh_probe(
+    shell: State<'_, Shell>,
+    request: SshTargetRequest,
+) -> Result<SshProbeResult, CommandError> {
+    ssh_sync::probe(
+        &shell.connections.ssh,
+        &shell.connections.profiles,
+        shell.updater.current_version(),
+        &request,
+    )
+    .await
+}
+
+/// Downloads and verifies the matching `kumikit` binary locally and installs it over SSH.
+#[tauri::command]
+async fn ssh_sync(
+    shell: State<'_, Shell>,
+    request: SshTargetRequest,
+) -> Result<SshSyncResult, CommandError> {
+    let release = shell.updater.release_client()?;
+    ssh_sync::sync(
+        &shell.connections.ssh,
+        &shell.connections.profiles,
+        release,
+        &shell.client_dir,
+        shell.updater.current_version(),
+        &request,
+    )
+    .await
+}
+
+/// Current desktop app version, install kind, and any staged update.
+#[tauri::command]
+fn app_update_info(shell: State<'_, Shell>) -> UpdateInfo {
+    shell.updater.info()
+}
+
+/// Checks the signed release manifest for a newer Kumikit version.
+#[tauri::command]
+async fn app_update_check(shell: State<'_, Shell>) -> Result<UpdateCheckResult, CommandError> {
+    shell.updater.check().await
+}
+
+/// Downloads and SHA-256-verifies the latest platform installer.
+#[tauri::command]
+async fn app_update_download(
+    shell: State<'_, Shell>,
+) -> Result<UpdateDownloadResult, CommandError> {
+    shell.updater.download().await
+}
+
+/// Applies a verified staged update (shutting down the local core cleanly first).
+#[tauri::command]
+async fn app_update_apply(
+    shell: State<'_, Shell>,
+    request: UpdateApplyRequest,
+) -> Result<UpdateApplyResult, CommandError> {
+    shell.updater.apply(request).await
 }
 
 /// Forgets a core (revoking this device there when it answers).
@@ -469,7 +549,14 @@ fn main() {
         profile_probe,
         profile_pair,
         profile_add_ssh,
+        profile_update_ssh,
         profile_remove,
+        ssh_probe,
+        ssh_sync,
+        app_update_info,
+        app_update_check,
+        app_update_download,
+        app_update_apply,
         pick_attachments,
         test_report
     ]);
@@ -492,7 +579,14 @@ fn main() {
         profile_probe,
         profile_pair,
         profile_add_ssh,
+        profile_update_ssh,
         profile_remove,
+        ssh_probe,
+        ssh_sync,
+        app_update_info,
+        app_update_check,
+        app_update_download,
+        app_update_apply,
         pick_attachments
     ]);
     let result = builder
@@ -545,12 +639,15 @@ fn main() {
                 keepalive: keepalive(),
                 device_name: local::host_name(),
             };
+            let updater = AppUpdater::from_env(&client, local.address.clone(), &env, false);
             app.manage(Shell {
                 bridge: Bridge::default(),
                 local,
                 store,
                 registry,
                 connections,
+                updater,
+                client_dir: client.clone(),
                 ui,
             });
             let query = if safe { "?safe" } else { "" };

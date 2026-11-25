@@ -3,7 +3,21 @@
  * `test-plugins/web-relay`, which sits in front of a real core. Only the browser-test
  * bundle contains it.
  */
-import type { ClientPluginEntry, ClientRegistryResult, ClientUpdate, Incoming, Platform, ProfileInfo, Removed } from './index';
+import type {
+  AppUpdateApplyResult,
+  AppUpdateCheckResult,
+  AppUpdateDownloadResult,
+  AppUpdateInfo,
+  ClientPluginEntry,
+  ClientRegistryResult,
+  ClientUpdate,
+  Incoming,
+  Platform,
+  ProfileInfo,
+  Removed,
+  SshProbeResult,
+  SshSyncResult,
+} from './index';
 import { ConnectError, asConnectError, pickWithInput, safeModeFromUrl } from './index';
 
 /** A profile endpoint: failures carry the shell's `{ code, message }`. */
@@ -36,6 +50,9 @@ export function relayPlatform(): Platform {
       probe: (address) => profileCall<string>('/profiles/probe', post({ address })),
       pair: (request) => profileCall<ProfileInfo>('/profiles/pair', post(request)),
       addSsh: (request) => profileCall<ProfileInfo>('/profiles/ssh', post(request)),
+      updateSsh: (request) => profileCall<ProfileInfo>('/profiles/ssh/update', post(request)),
+      probeSsh: (request) => profileCall<SshProbeResult>('/ssh/probe', post(request)),
+      syncSsh: (request) => profileCall<SshSyncResult>('/ssh/sync', post(request)),
       remove: (name) => profileCall<Removed>(`/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' }),
     },
     pickBytes: (accept) => pickWithInput(accept),
@@ -92,6 +109,12 @@ export function relayPlatform(): Platform {
         await profileCall<unknown>('/client-registry/registries', post({ urls }));
       },
       lock: async () => (await profileCall<{ lock: string }>('/client-registry/lock')).lock,
+    },
+    updates: {
+      info: () => profileCall<AppUpdateInfo>('/updates/info'),
+      check: () => profileCall<AppUpdateCheckResult>('/updates/check', post({})),
+      download: () => profileCall<AppUpdateDownloadResult>('/updates/download', post({})),
+      apply: (version, ifIdle) => profileCall<AppUpdateApplyResult>('/updates/apply', post({ version, ifIdle })),
     },
     safeMode: safeModeFromUrl(location.href),
   };

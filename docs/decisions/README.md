@@ -54,3 +54,5 @@ Small, local choices do not need one; a clear commit message is enough.
 | [0028](0028-steering-a-running-turn.md) | Steering a running turn through a host input inbox | Accepted |
 | [0029](0029-provider-switch-and-handoff.md) | Switching provider in a thread, with a bounded handoff | Accepted |
 | [0030](0030-thread-agent-tools-plugin.md) | Agent tools for threads in a first-party plugin | Accepted |
+| [0031](0031-signed-release-manifest-and-updates.md) | Signed release manifest and idle-gated application updates | Accepted |
+| [0032](0032-ssh-remote-core-sync.md) | Matching remote core installation over SSH | Accepted |

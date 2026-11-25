@@ -63,6 +63,10 @@ export interface Settings {
   pluginStorage: Record<string, Record<string, string>>;
   /** The first-run welcome was answered (10-distribution, Starter pack). */
   welcomeDone: boolean;
+  /** Opt-in automatic desktop updates, applied only when all agents are idle (default false). */
+  autoUpdate: boolean;
+  /** Opt-in automatic matching `kumikit` sync on SSH hosts (default false). */
+  autoSyncSsh: boolean;
 }
 
 export const DEFAULTS: Settings = {
@@ -82,6 +86,8 @@ export const DEFAULTS: Settings = {
   trustedPlugins: [],
   pluginStorage: {},
   welcomeDone: false,
+  autoUpdate: false,
+  autoSyncSsh: false,
 };
 
 const KEY = 'kumikit.settings';
@@ -138,6 +144,8 @@ export function parseSettings(text: string | null): Settings {
     pluginStorage:
       typeof r.pluginStorage === 'object' && r.pluginStorage !== null ? (r.pluginStorage as Settings['pluginStorage']) : {},
     welcomeDone: r.welcomeDone === true,
+    autoUpdate: r.autoUpdate === true,
+    autoSyncSsh: r.autoSyncSsh === true,
   };
   if (typeof r.themeVariant === 'string') s.themeVariant = r.themeVariant;
   if (Array.isArray(r.openInspectorTabs)) s.openInspectorTabs = strings(r.openInspectorTabs);

@@ -10,7 +10,7 @@ use kumikit_core::{cli, transport};
 
 /// Kumikit core: a headless server for working with coding agents.
 #[derive(Debug, Parser)]
-#[command(name = "kumikit", version)]
+#[command(name = "kumikit", version = kumikit_protocol::APP_VERSION)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -92,6 +92,25 @@ enum Command {
         /// The core's socket (Linux, macOS) or pipe (Windows). Default: per platform.
         #[arg(long)]
         socket: Option<String>,
+    },
+    /// Check for or install a newer signed `kumikit` release.
+    Update {
+        /// The core's socket (Linux, macOS) or pipe (Windows). Default: per platform.
+        #[arg(long)]
+        socket: Option<String>,
+        /// Only check whether a newer release is available; do not download or install.
+        #[arg(long)]
+        check: bool,
+        /// Install without prompting interactively.
+        #[arg(long)]
+        yes: bool,
+        /// If a local core has active agents, wait until all agents are idle before stopping
+        /// it and installing the update.
+        #[arg(long)]
+        wait_idle: bool,
+        /// Stop a running core even if agent turns are active.
+        #[arg(long)]
+        force: bool,
     },
     /// Manage core plugins (local .kkp files).
     Plugin {
@@ -344,6 +363,25 @@ fn main() -> Result<()> {
         Command::Mcp { socket } => {
             runtime.block_on(async { cli::mcp(&target(socket, None)?).await })
         }
+        Command::Update {
+            socket,
+            check,
+            yes,
+            wait_idle,
+            force,
+        } => runtime.block_on(async {
+            cli::self_update(
+                &target(socket, None)?,
+                cli::UpdateOptions {
+                    check,
+                    yes,
+                    wait_idle,
+                    force,
+                },
+                &mut cli::Stdout,
+            )
+            .await
+        }),
     }
 }
 

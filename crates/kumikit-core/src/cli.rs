@@ -23,10 +23,12 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use crate::lock::DataDirLock;
 
 mod registry;
+mod update;
 pub use registry::{
     add_by_id, is_package_path, lock_export, lock_import, registry_add, registry_list,
     registry_remove, search, update,
 };
+pub use update::{UpdateOptions, replace_binary, self_update};
 
 /// Where the core is.
 #[derive(Debug, Clone)]
@@ -89,6 +91,27 @@ struct Rpc {
 }
 
 impl Rpc {
+    async fn connect(address: &str) -> Result<Self> {
+        let stream = crate::transport::connect(address)
+            .await
+            .with_context(|| format!("cannot connect to core at {address}"))?;
+        let (read, write) = tokio::io::split(stream);
+        let mut rpc = Rpc {
+            reader: Box::new(BufReader::new(read)),
+            writer: Box::new(write),
+            next: 0,
+        };
+        rpc.request(
+            "core.hello",
+            json!({"protocol": PROTOCOL_VERSION.to_string(),
+                   "client": {"name": "kumikit-cli", "version": kumikit_protocol::APP_VERSION}}),
+        )
+        .await
+        .map_err(rpc_err)
+        .context("the running core refused the connection")?;
+        Ok(rpc)
+    }
+
     async fn call<M: Method>(&mut self, params: &M::Params) -> Result<M::Result, RpcError> {
         let value = self
             .request(M::NAME, serde_json::to_value(params).map_err(internal)?)

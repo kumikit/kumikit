@@ -33,10 +33,14 @@ use axum::routing::{delete, get, post};
 use kumikit_shell::assets::{self, Asset};
 use kumikit_shell::bridge::{Bridge, Incoming};
 use kumikit_shell::client_registry::{ClientError, ClientRef, ClientRegistry};
-use kumikit_shell::connections::{CommandError, Connections, Keepalive, PairRequest, SshRequest};
+use kumikit_shell::connections::{
+    CommandError, Connections, Keepalive, PairRequest, SshRequest, SshUpdateRequest,
+};
 use kumikit_shell::profiles::{LOCAL, Profiles};
 use kumikit_shell::secrets::TokenStore;
+use kumikit_shell::ssh_sync::{self, SshTargetRequest};
 use kumikit_shell::store::Store;
+use kumikit_shell::updater::{AppUpdater, UpdateApplyRequest};
 use serde::Deserialize;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::{broadcast, mpsc};
@@ -55,6 +59,9 @@ struct Relay {
     picks: Mutex<VecDeque<Option<String>>>,
     drop_all: broadcast::Sender<()>,
     connections: Connections,
+    updater: AppUpdater,
+    client_dir: PathBuf,
+    updating: std::sync::atomic::AtomicBool,
     remote: Option<RemoteSide>,
 }
 
@@ -210,7 +217,8 @@ async fn main() -> Result<()> {
 
     // The default registry comes from KUMIKIT_DEFAULT_REGISTRY, as in the app.
     let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
-    let registry = ClientRegistry::new(&work.join("client"), store.clone(), &env);
+    let registry = ClientRegistry::new(&client, store.clone(), &env);
+    let updater = AppUpdater::from_env(&client, address.clone(), &env, true);
     let relay = Arc::new(Relay {
         ui,
         registry,
@@ -219,8 +227,12 @@ async fn main() -> Result<()> {
         picks: Mutex::new(VecDeque::new()),
         drop_all: broadcast::Sender::new(4),
         connections,
+        updater,
+        client_dir: client,
+        updating: std::sync::atomic::AtomicBool::new(false),
         remote,
     });
+    let relay_watch = Arc::clone(&relay);
     let app = Router::new()
         .route("/bridge", get(bridge))
         .route("/test/pick", get(take_pick).post(queue_pick))
@@ -234,7 +246,14 @@ async fn main() -> Result<()> {
         .route("/profiles/probe", post(profile_probe))
         .route("/profiles/pair", post(profile_pair))
         .route("/profiles/ssh", post(profile_add_ssh))
+        .route("/profiles/ssh/update", post(profile_update_ssh))
         .route("/profiles/{name}", delete(profile_remove))
+        .route("/ssh/probe", post(ssh_probe))
+        .route("/ssh/sync", post(ssh_sync))
+        .route("/updates/info", get(app_update_info))
+        .route("/updates/check", post(app_update_check))
+        .route("/updates/download", post(app_update_download))
+        .route("/updates/apply", post(app_update_apply))
         .route("/client-plugins", get(list_plugins).post(install_plugin))
         .route("/client-plugins/{id}", delete(remove_plugin))
         .route("/client-registry/search", post(registry_search))
@@ -263,9 +282,18 @@ async fn main() -> Result<()> {
         let mut buf = Vec::new();
         let _ = tokio::io::AsyncReadExt::read_to_end(&mut tokio::io::stdin(), &mut buf).await;
     };
+    let core_crashed = async {
+        let _ = core.wait().await;
+        if relay_watch
+            .updating
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            std::future::pending::<()>().await;
+        }
+    };
     let result = tokio::select! {
         r = axum::serve(listener, app) => r.map_err(anyhow::Error::from),
-        _ = core.wait() => Err(anyhow::anyhow!("the core exited")),
+        () = core_crashed => Err(anyhow::anyhow!("the core exited")),
         () = stdin_closed => Ok(()),
     };
     let _ = core.kill().await;
@@ -585,6 +613,89 @@ async fn profile_add_ssh(
     match r.connections.add_ssh(p).await {
         Ok(i) => axum::Json(i).into_response(),
         Err(e) => command_err(e),
+    }
+}
+
+async fn profile_update_ssh(
+    State(r): State<Arc<Relay>>,
+    axum::Json(p): axum::Json<SshUpdateRequest>,
+) -> Response {
+    match r.connections.update_ssh(p) {
+        Ok(i) => axum::Json(i).into_response(),
+        Err(e) => command_err(e),
+    }
+}
+
+async fn ssh_probe(
+    State(r): State<Arc<Relay>>,
+    axum::Json(p): axum::Json<SshTargetRequest>,
+) -> Response {
+    match ssh_sync::probe(
+        &r.connections.ssh,
+        &r.connections.profiles,
+        r.updater.current_version(),
+        &p,
+    )
+    .await
+    {
+        Ok(res) => axum::Json(res).into_response(),
+        Err(e) => command_err(e),
+    }
+}
+
+async fn ssh_sync(
+    State(r): State<Arc<Relay>>,
+    axum::Json(p): axum::Json<SshTargetRequest>,
+) -> Response {
+    let release = match r.updater.release_client() {
+        Ok(c) => c,
+        Err(e) => return command_err(e),
+    };
+    match ssh_sync::sync(
+        &r.connections.ssh,
+        &r.connections.profiles,
+        release,
+        &r.client_dir,
+        r.updater.current_version(),
+        &p,
+    )
+    .await
+    {
+        Ok(res) => axum::Json(res).into_response(),
+        Err(e) => command_err(e),
+    }
+}
+
+async fn app_update_info(State(r): State<Arc<Relay>>) -> Response {
+    axum::Json(r.updater.info()).into_response()
+}
+
+async fn app_update_check(State(r): State<Arc<Relay>>) -> Response {
+    match r.updater.check().await {
+        Ok(res) => axum::Json(res).into_response(),
+        Err(e) => command_err(e),
+    }
+}
+
+async fn app_update_download(State(r): State<Arc<Relay>>) -> Response {
+    match r.updater.download().await {
+        Ok(res) => axum::Json(res).into_response(),
+        Err(e) => command_err(e),
+    }
+}
+
+async fn app_update_apply(
+    State(r): State<Arc<Relay>>,
+    axum::Json(p): axum::Json<UpdateApplyRequest>,
+) -> Response {
+    r.updating.store(true, std::sync::atomic::Ordering::Release);
+    match r.updater.apply(p).await {
+        Ok(res) => axum::Json(res).into_response(),
+        Err(e) => {
+            r.updating
+                .store(false, std::sync::atomic::Ordering::Release);
+            command_err(e)
+        }
     }
 }
 

@@ -87,6 +87,8 @@ export interface ProfileInfo {
   label: string;
   /** `local` (this computer), `tls` (paired), `ssh`, or `core` (the core serving a browser). */
   kind: 'local' | 'tls' | 'ssh' | 'core';
+  /** Present on SSH profiles: whether matching `kumikit` is synced automatically. */
+  autoSync?: boolean;
 }
 
 export interface PairRequest {
@@ -105,6 +107,75 @@ export interface SshRequest {
   label: string;
   destination: string;
   command?: string;
+  autoSync?: boolean;
+}
+
+export interface SshUpdateRequest {
+  name: string;
+  autoSync: boolean;
+}
+
+export interface SshTargetRequest {
+  profile?: string;
+  destination?: string;
+  command?: string;
+  ifIdle?: boolean;
+}
+
+export interface SshProbeResult {
+  os: string;
+  arch: string;
+  target?: string;
+  supported: boolean;
+  remoteBinary?: string;
+  remoteVersion?: string;
+  localVersion: string;
+  status: 'match' | 'missing' | 'mismatch' | 'unsupported';
+}
+
+export interface SshSyncResult {
+  installedVersion: string;
+  remoteBinary: string;
+  startedCore: boolean;
+  updatedCommand?: string;
+}
+
+export type AppInstallKind = 'appimage' | 'deb' | 'rpm' | 'macos_app' | 'windows_nsis' | 'unsupported';
+
+export interface AppUpdateInfo {
+  currentVersion: string;
+  target: string;
+  installKind: AppInstallKind;
+  canAutoInstall: boolean;
+  stagedVersion?: string;
+}
+
+export interface AppUpdateCheckResult {
+  currentVersion: string;
+  latestVersion: string;
+  updateAvailable: boolean;
+  tag: string;
+  publishedAt: string;
+  notesUrl: string;
+  notes?: string;
+  installKind: AppInstallKind;
+  canAutoInstall: boolean;
+  assetAvailable: boolean;
+  assetSize?: number;
+}
+
+export interface AppUpdateDownloadResult {
+  version: string;
+  path: string;
+  canAutoInstall: boolean;
+  readyToInstall: boolean;
+}
+
+export interface AppUpdateApplyResult {
+  applied: boolean;
+  relaunching: boolean;
+  message: string;
+  packagePath?: string;
 }
 
 export interface Removed {
@@ -143,6 +214,9 @@ export interface Platform {
     probe(address: string): Promise<string>;
     pair(request: PairRequest): Promise<ProfileInfo>;
     addSsh(request: SshRequest): Promise<ProfileInfo>;
+    updateSsh?(request: SshUpdateRequest): Promise<ProfileInfo>;
+    probeSsh?(request: SshTargetRequest): Promise<SshProbeResult>;
+    syncSsh?(request: SshTargetRequest): Promise<SshSyncResult>;
     remove(name: string): Promise<Removed>;
   };
   /** A file's contents, picked with a file input (for uploads to a core). */
@@ -171,6 +245,13 @@ export interface Platform {
     setRegistries(urls: string[]): Promise<void>;
     /** The client lockfile's text. */
     lock(): Promise<string>;
+  };
+  /** Signed desktop application updates through the shell (absent in a browser). */
+  readonly updates?: {
+    info(): Promise<AppUpdateInfo>;
+    check(): Promise<AppUpdateCheckResult>;
+    download(): Promise<AppUpdateDownloadResult>;
+    apply(version: string, ifIdle: boolean): Promise<AppUpdateApplyResult>;
   };
   /** Whether to start without UI plugins (06-client, safe mode). */
   readonly safeMode: boolean;

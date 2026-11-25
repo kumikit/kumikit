@@ -169,7 +169,7 @@ where
     use tokio::io::AsyncWriteExt;
     let hello = serde_json::json!({"jsonrpc": "2.0", "id": 0, "method": "core.hello",
         "params": {"protocol": kumikit_protocol::PROTOCOL_VERSION.to_string(),
-                   "client": {"name": "kumikit-desktop", "version": env!("CARGO_PKG_VERSION")}}});
+                   "client": {"name": "kumikit-desktop", "version": kumikit_protocol::APP_VERSION}}});
     let attempt = async {
         write
             .write_all(format!("{hello}\n").as_bytes())

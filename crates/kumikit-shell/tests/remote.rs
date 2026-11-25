@@ -162,7 +162,7 @@ fn sink() -> (
     (move |m| drop(tx.send(m)), rx)
 }
 
-const HELLO: &str = r#"{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.9","client":{"name":"t","version":"0"}}}"#;
+const HELLO: &str = r#"{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.10","client":{"name":"t","version":"0"}}}"#;
 
 /// Sends `core.hello` over the bridge and returns its result.
 async fn hello(bridge: &Bridge, id: &str, rx: &mut mpsc::UnboundedReceiver<Incoming>) -> Value {
@@ -382,6 +382,7 @@ async fn ssh_profiles_reach_the_core_through_the_bridge_command() {
                 label: "VM".into(),
                 destination: "denied".into(),
                 command: Some(command.clone()),
+                auto_sync: false,
             })
             .await
             .unwrap_err();
@@ -394,6 +395,7 @@ async fn ssh_profiles_reach_the_core_through_the_bridge_command() {
                 label: "VM".into(),
                 destination: "-oProxyCommand=x".into(),
                 command: Some(command.clone()),
+                auto_sync: false,
             })
             .await
             .unwrap_err();
@@ -405,6 +407,7 @@ async fn ssh_profiles_reach_the_core_through_the_bridge_command() {
                 label: "VM".into(),
                 destination: "devbox".into(),
                 command: Some(command),
+                auto_sync: false,
             })
             .await
             .unwrap();
@@ -414,7 +417,7 @@ async fn ssh_profiles_reach_the_core_through_the_bridge_command() {
         let (s, mut rx) = sink();
         let id = c.connect(&bridge, "vm", s).await.unwrap();
         let result = hello(&bridge, &id, &mut rx).await;
-        assert_eq!(result["protocol"], "0.9");
+        assert_eq!(result["protocol"], "0.10");
         // A local connection on the far side: no device, no auth.
         bridge.close(&id);
         assert!(matches!(rx.recv().await.unwrap(), Incoming::Closed { .. }));
@@ -439,6 +442,7 @@ async fn live_ssh() {
             label: "Live".into(),
             destination,
             command: None,
+            auto_sync: false,
         })
         .await
         .unwrap();
@@ -446,7 +450,7 @@ async fn live_ssh() {
         let (s, mut rx) = sink();
         let id = c.connect(&bridge, "live", s).await.unwrap();
         let result = hello(&bridge, &id, &mut rx).await;
-        assert_eq!(result["protocol"], "0.9");
+        assert_eq!(result["protocol"], "0.10");
     })
     .await;
 }

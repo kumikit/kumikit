@@ -5,6 +5,7 @@
   import CoreSettings from './CoreSettings.svelte';
   import GeneralSettings from './GeneralSettings.svelte';
   import SlotHost from './SlotHost.svelte';
+  import UpdatesSettings from './UpdatesSettings.svelte';
   import WorktreesSettings from './WorktreesSettings.svelte';
 
   let { kernel, page }: { kernel: Kernel; page: string | undefined } = $props();
@@ -18,9 +19,10 @@
     conn.hello?.capabilities.includes('settings') ? conn.plugins.filter((p) => p.contributes.settings) : [],
   );
   const generalCurrent = $derived(showGeneral && (page === undefined || page === 'general'));
+  const updatesCurrent = $derived(showGeneral && page === 'updates');
   const worktreesCurrent = $derived(showGeneral && page === 'worktrees');
   const coreCurrent = $derived(
-    generalCurrent || worktreesCurrent
+    generalCurrent || updatesCurrent || worktreesCurrent
       ? undefined
       : page?.startsWith('core:')
         ? corePages.find((p) => `core:${p.id}` === page)
@@ -29,7 +31,7 @@
           : corePages[0],
   );
   const current = $derived(
-    generalCurrent || worktreesCurrent || coreCurrent
+    generalCurrent || updatesCurrent || worktreesCurrent || coreCurrent
       ? undefined
       : (pages.find((p) => p.contribution.id === page) ?? pages[0]),
   );
@@ -47,6 +49,18 @@
           onclick={() => (kernel.main = { kind: 'settings', page: 'general' })}
         >
           General
+        </button>
+        <button
+          type="button"
+          class="nav-with-dot"
+          class:current={updatesCurrent}
+          aria-current={updatesCurrent ? 'page' : undefined}
+          onclick={() => (kernel.main = { kind: 'settings', page: 'updates' })}
+        >
+          <span>Updates</span>
+          {#if kernel.updates.hasAttention}
+            <span class="update-dot" aria-label="Update available"></span>
+          {/if}
         </button>
         <button
           type="button"
@@ -86,6 +100,8 @@
     <div class="page-inner">
       {#if generalCurrent}
         <GeneralSettings {kernel} />
+      {:else if updatesCurrent}
+        <UpdatesSettings {kernel} />
       {:else if worktreesCurrent}
         <WorktreesSettings {kernel} />
       {:else if coreCurrent}
@@ -155,6 +171,19 @@
     background: var(--kk-surface-selected, Highlight);
     color: var(--kk-text-primary, CanvasText);
     font-weight: var(--kk-font-weight-strong, bold);
+  }
+  .nav-with-dot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .update-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: var(--kk-radius-large, 0);
+    background: var(--kk-accent, Highlight);
+    flex: none;
   }
   .page {
     overflow: auto;

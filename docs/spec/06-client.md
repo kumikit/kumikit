@@ -48,14 +48,32 @@ The shell's jobs, and its only commands ([ADR 0013](../decisions/0013-desktop-sh
     `BatchMode` means ssh never prompts: an unknown host key or a locked key fails with
     ssh's message, shown to the user.
 
-  Commands: `profiles_list` (names, labels and kinds only), `profile_probe(address)` (a TLS
+  Commands: `profiles_list` (names, labels, kinds and SSH `autoSync` only), `profile_probe(address)` (a TLS
   handshake that returns the certificate's fingerprint and sends nothing),
   `profile_pair({ name, label, address, fingerprint, code, deviceName? })` (pinned to
   `fingerprint`; sends `auth.pair`, keeps the token, saves the profile; the device name
   defaults to this computer's host name), `profile_add_ssh({ name, label, destination,
-  command? })` (checks it with a `core.hello` over its own connection), and `profile_remove(name)` (revokes its own
-  device on the core if it can reach it within 2 s, then forgets the token and profile).
+  command?, autoSync? })` (checks it with a `core.hello` over its own connection),
+  `profile_update_ssh({ name, autoSync })` (updates an SSH profile's auto-sync preference),
+  `profile_remove(name)` (revokes its own device on the core if it can reach it within 2 s,
+  then forgets the token and profile), and the SSH remote sync commands
+  ([ADR 0032](../decisions/0032-ssh-remote-core-sync.md)): `ssh_probe({ profile? | destination? })`
+  (inspects remote OS/arch and installed `kumikit` version over `ssh`) and
+  `ssh_sync({ profile? | destination?, ifIdle? })` (downloads and verifies the matching `kumikit`
+  archive locally from the signed release manifest, checks remote `core.activity` before stopping
+  an older core, streams the archive over `ssh` `stdin` to `$HOME/.local/bin/kumikit`, and starts
+  the remote core if needed).
   After a profile is added the webview never sees its address again.
+- **Application updates** ([ADR 0031](../decisions/0031-signed-release-manifest-and-updates.md)):
+  `app_update_info` (current stamped version, target triple, install kind and whether in-place
+  auto-install is supported), `app_update_check` (fetches and verifies the signed `release.json`
+  manifest; never called automatically unless the user opts into automatic updates),
+  `app_update_download` (downloads and SHA-256-verifies the platform installer into
+  `<client data>/updates/`), and `app_update_apply({ version, ifIdle? })` (stops the local core
+  with `core.shutdown { ifIdle }`, replaces/launches the updated app on AppImage, macOS `.app` or
+  Windows NSIS, or stages the verified `.deb`/`.rpm` package for manual install on system-packaged
+  Linux installs). Overridable via `KUMIKIT_UPDATE_URL` and `KUMIKIT_UPDATE_KEY` for tests and
+  mirrors.
 - **Client plugin store:** `client_plugins_list`, `client_plugins_install(path)` and
   `client_plugins_remove(id)`.
   Installs UI plugin and theme packages into `<client data>/ui-plugins/<id>/<version>/`,
