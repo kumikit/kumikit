@@ -153,6 +153,8 @@ export interface ThreadView {
   notSteered?: string[];
   /** Slash commands reported by the thread's provider (`commands.available`; since 0.1.5). */
   commands?: SlashCommand[];
+  /** Active usage/rate limit info when `status === 'limited'` (since 0.1.5). */
+  limit?: { resetAt?: string; message: string };
   /** Whether the connection is live (false while reconnecting). */
   live: boolean;
 }

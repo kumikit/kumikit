@@ -1082,9 +1082,12 @@ impl Kernel {
                 "thread {thread} is archived"
             )));
         }
+        self.clear_limit_resume(thread);
         {
             let _dispatch = self.inner.dispatch.lock().await;
-            if self.queue_hold_of(thread).await?.is_some() {
+            if self.queue_hold_of(thread).await?.is_some()
+                || row.thread.status == ThreadStatus::Limited
+            {
                 self.append(thread, ThreadEvent::QueueResumed(QueueResumed {}))
                     .await?;
             }
@@ -1336,13 +1339,21 @@ impl Kernel {
         let others = queue
             .iter()
             .any(|q| requested.as_ref().is_none_or(|r| r.id != q.id));
-        let hold = match outcome {
-            TurnOutcome::Done => None,
-            TurnOutcome::Cancelled => Some(QueueHold::Stopped),
-            TurnOutcome::Failed => Some(QueueHold::Failed),
+        let is_limited = self
+            .thread_row(thread)
+            .await
+            .is_ok_and(|r| r.thread.status == ThreadStatus::Limited);
+        let hold = if is_limited {
+            (!held).then_some(QueueHold::Limited)
+        } else {
+            let reason = match outcome {
+                TurnOutcome::Done => None,
+                TurnOutcome::Cancelled => Some(QueueHold::Stopped),
+                TurnOutcome::Failed => Some(QueueHold::Failed),
+            };
+            reason.filter(|_| others && !held)
         };
-        let hold = hold.filter(|_| others && !held);
-        held |= hold.is_some();
+        held |= hold.is_some() || is_limited;
         let next = requested.or_else(|| if held { None } else { queue.into_iter().next() });
         if next.is_none() {
             self.lock_runs().remove(thread);

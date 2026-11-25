@@ -35,7 +35,12 @@ export function nextStatus(
       return 'awaiting_approval';
     case 'approval.resolved':
       return pendingAfter === 0 ? 'running' : 'awaiting_approval';
+    case 'limit.reached':
+      return 'limited';
+    case 'queue.resumed':
+      return current === 'limited' ? 'idle' : current;
     case 'turn.ended':
+      if (current === 'limited') return 'limited';
       return event.data.outcome === 'failed' ? 'failed' : 'idle';
     default:
       return current;
@@ -81,6 +86,7 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
   let notSteered = view.notSteered;
   let switches: ThreadSwitchView[] | undefined = view.switches;
   let commands: SlashCommand[] | undefined = view.commands;
+  let limit = view.limit;
   let status = view.status;
   let seq = view.seq;
 
@@ -95,6 +101,7 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
     seq = e.seq;
     switch (e.kind) {
       case 'turn.started': {
+        limit = undefined;
         const turn: TurnView = { id: e.data.turn, input: e.data.input.text, started: e.time, items: [] };
         if (e.data.input.attachments && e.data.input.attachments.length > 0) {
           turn.attachments = e.data.input.attachments;
@@ -141,6 +148,12 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
       case 'commands.available':
         commands = e.data.commands;
         break;
+      case 'limit.reached': {
+        const nextLimit: { resetAt?: string; message: string } = { message: e.data.message };
+        if (e.data.resetAt !== undefined) nextLimit.resetAt = e.data.resetAt;
+        limit = nextLimit;
+        break;
+      }
       case 'queue.added':
         queue = e.data.front ? [e.data.entry, ...queue] : [...queue, e.data.entry];
         if (e.data.reason === 'not_steered') {
@@ -170,6 +183,7 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
         break;
       case 'queue.resumed':
         queueHold = undefined;
+        limit = undefined;
         break;
       case 'text.delta':
         withTurn(e.data.turn, (t) => {
@@ -303,5 +317,7 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
   else next.notSteered = notSteered;
   if (switches !== undefined) next.switches = switches;
   if (commands !== undefined) next.commands = commands;
+  if (limit === undefined) delete next.limit;
+  else next.limit = limit;
   return next;
 }

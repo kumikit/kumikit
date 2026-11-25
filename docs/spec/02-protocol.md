@@ -235,7 +235,10 @@ Provider switching and bounded conversation handoff ([03](03-kernel.md#thread-ev
 - `turn.started` and `Turn` carry `provider?`, `model?` and `purpose?` (`handoff_summary`).
 - `workspace.files.list { workspace, path?, query?, limit? }` → `{ files, truncated }`
   lists workspace-relative paths (worktree-aware) for `@` file mentions.
-- New thread events: `thread.switched`, `handoff.delivered`, and `commands.available`.
+- `ThreadStatus` and `QueueHold` gain `limited`; `QueueTrigger::AfterCommand` gains
+  `onlyOnFailure?`.
+- New thread events: `thread.switched`, `handoff.delivered`, `commands.available`, and
+  `limit.reached`.
 
 ### Methods added in 0.8
 

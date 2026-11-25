@@ -88,6 +88,13 @@ pub enum Event {
         /// Available commands.
         commands: Vec<SlashCommand>,
     },
+    /// Usage or rate limit reached by the ACP agent.
+    LimitReached {
+        /// Optional RFC 3339 reset timestamp.
+        reset_at: Option<String>,
+        /// Human-readable message.
+        message: String,
+    },
 }
 
 /// One slash command reported by an ACP agent (`available_commands_update`).
@@ -829,12 +836,31 @@ impl Session {
         };
         if let Some(err) = msg.get("error") {
             let message = err["message"].as_str().unwrap_or("agent error").to_owned();
+            let code = err["code"].as_i64().unwrap_or(0);
+            let lower = message.to_ascii_lowercase();
+            let is_limit = code == 429
+                || lower.contains("rate limit")
+                || lower.contains("usage limit")
+                || lower.contains("quota exceeded");
+            let reset_at = err
+                .pointer("/data/resetAt")
+                .or_else(|| err.pointer("/data/reset_at"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             self.phase = if self.session.is_some() {
                 Phase::Ready
             } else {
                 Phase::Idle
             };
-            return vec![Action::Failed(format!("{method}: {message}"))];
+            let mut actions = Vec::new();
+            if is_limit && method == "session/prompt" {
+                actions.push(Action::Emit(Event::LimitReached {
+                    reset_at,
+                    message: message.clone(),
+                }));
+            }
+            actions.push(Action::Failed(format!("{method}: {message}")));
+            return actions;
         }
         let result = &msg["result"];
         match method {

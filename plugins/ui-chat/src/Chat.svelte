@@ -78,6 +78,10 @@
   let findQuery = $state('');
   let findIndex = $state(0);
   let findInput: HTMLInputElement | undefined = $state();
+  let showTurnCheck = $state(false);
+  let turnCheckCmd = $state('');
+  let turnCheckEnabled = $state(false);
+  let lastCheckedTurnId = '';
   let stuck = $state(true);
   let log: HTMLElement;
   let textarea: HTMLTextAreaElement | undefined = $state();
@@ -139,6 +143,52 @@
     const current = text;
     if (current.length > 0) ctx.storage?.set(key, current);
     else ctx.storage?.delete(key);
+  });
+
+  // Load opt-in per-workspace post-turn check setting (off by default).
+  $effect(() => {
+    const raw = ctx.storage?.get(`turncheck:${address.workspace}`);
+    if (!raw) {
+      turnCheckEnabled = false;
+      turnCheckCmd = '';
+      return;
+    }
+    try {
+      const parsed = JSON.parse(raw) as { enabled?: boolean; cmd?: string };
+      turnCheckEnabled = Boolean(parsed.enabled);
+      turnCheckCmd = typeof parsed.cmd === 'string' ? parsed.cmd : '';
+    } catch {
+      turnCheckEnabled = false;
+      turnCheckCmd = '';
+    }
+  });
+
+  function saveTurnCheck(enabled: boolean, cmd: string) {
+    turnCheckEnabled = enabled;
+    turnCheckCmd = cmd;
+    if (!enabled && !cmd.trim()) {
+      ctx.storage?.delete(`turncheck:${address.workspace}`);
+    } else {
+      ctx.storage?.set(`turncheck:${address.workspace}`, JSON.stringify({ enabled, cmd }));
+    }
+  }
+
+  // Opt-in post-turn check: after a turn ends `done` with file changes, schedule a deferred
+  // `after_command` (`onlyOnFailure: true`) with an editable fix prompt.
+  $effect(() => {
+    if (!turnCheckEnabled || !turnCheckCmd.trim() || sideFor || archived) return;
+    const turns = view?.turns ?? [];
+    const last = turns[turns.length - 1];
+    if (!last || last.outcome !== 'done' || !last.ended || last.id === lastCheckedTurnId) return;
+    if (collectTurnFiles(last.items).length === 0) return;
+    lastCheckedTurnId = last.id;
+    const argv = turnCheckCmd.trim().split(/\s+/);
+    if (argv.length === 0) return;
+    void run('thread.defer', {
+      address,
+      text: 'The post-turn check failed. Fix the reported issue.',
+      trigger: { kind: 'after_command', argv, timeoutS: 300, onlyOnFailure: true },
+    });
   });
 
   // Tick elapsed timer once per second only while a turn is running.
@@ -1144,6 +1194,41 @@
         {/each}
       </div>
     {/if}
+    {#if view?.status === 'limited'}
+      <div class="limit-bar" role="status" aria-label="Usage limit reached">
+        <span class="limit-text">
+          Usage limit reached{#if view.limit?.resetAt} · resumes at {view.limit.resetAt.slice(11, 16)} UTC{/if}{#if view.limit?.message} — {view.limit.message}{/if}
+        </span>
+        <button
+          type="button"
+          class="handoff-btn primary"
+          onclick={() => void run('thread.queue.resume', { address })}
+        >
+          Resume now
+        </button>
+      </div>
+    {/if}
+    {#if showTurnCheck}
+      <div class="later-bar" role="region" aria-label="Post-turn check">
+        <label class="check-toggle">
+          <input
+            type="checkbox"
+            checked={turnCheckEnabled}
+            onchange={(e) => saveTurnCheck((e.currentTarget as HTMLInputElement).checked, turnCheckCmd)}
+          />
+          Run check after edits
+        </label>
+        <input
+          class="later-input"
+          type="text"
+          placeholder="cargo test"
+          aria-label="Turn check command"
+          value={turnCheckCmd}
+          oninput={(e) => saveTurnCheck(turnCheckEnabled, (e.currentTarget as HTMLInputElement).value)}
+        />
+        <button type="button" class="handoff-btn" onclick={() => (showTurnCheck = false)}>Done</button>
+      </div>
+    {/if}
     {#if pendingSwitch}
       <div class="handoff-bar" role="region" aria-label="Confirm provider handoff">
         <span class="handoff-title">Hand off to {pendingSwitch.name}?</span>
@@ -1406,6 +1491,18 @@
             disabled={busy || archived || !connReady}
             onChange={onPermissionChange}
           />
+          {#if !sideFor}
+            <button
+              type="button"
+              class="turn-action"
+              class:primary={turnCheckEnabled && turnCheckCmd.trim().length > 0}
+              aria-label="Turn check settings"
+              aria-expanded={showTurnCheck}
+              onclick={() => (showTurnCheck = !showTurnCheck)}
+            >
+              {turnCheckEnabled && turnCheckCmd.trim() ? 'Check: on' : 'Check'}
+            </button>
+          {/if}
           <span class="accessories" use:mountAccessories></span>
         </div>
         <div class="footer-right">
@@ -2129,6 +2226,32 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
+  }
+  .limit-bar {
+    max-width: 760px;
+    margin: 0 auto 8px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 12px;
+    border: 1px solid var(--kk-state-warning, Mark);
+    border-radius: var(--kk-radius-medium, 0);
+    background: var(--kk-surface-raised, Canvas);
+    color: var(--kk-text-primary, CanvasText);
+    font-size: var(--kk-font-size-small, small);
+  }
+  .limit-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .check-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
   }
   @media (prefers-reduced-motion: reduce) {
     .log {

@@ -914,6 +914,8 @@ impl Kernel {
             ThreadEvent::TurnStarted(_)
                 | ThreadEvent::ApprovalRequested(_)
                 | ThreadEvent::ApprovalResolved(_)
+                | ThreadEvent::LimitReached(_)
+                | ThreadEvent::QueueResumed(_)
                 | ThreadEvent::TurnEnded(_)
         );
         let seq = self

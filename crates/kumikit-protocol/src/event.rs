@@ -244,6 +244,10 @@ pub enum QueueTrigger {
         cwd: Option<String>,
         /// Maximum wall time in seconds before the command is killed.
         timeout_s: u32,
+        /// Fire only when the command exits non-zero or times out (for post-turn checks; since 0.9).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        only_on_failure: bool,
     },
     /// Poll `argv` every `everyS` seconds until it exits 0 or `maxTries` attempts finish.
     #[serde(rename_all = "camelCase")]
@@ -291,6 +295,8 @@ pub enum QueueHold {
     Failed,
     /// The core restarted with messages in the queue.
     Restarted,
+    /// The provider hit a rate or usage limit (since 0.9).
+    Limited,
 }
 
 impl QueueHold {
@@ -300,6 +306,7 @@ impl QueueHold {
             QueueHold::Stopped => "stopped",
             QueueHold::Failed => "failed",
             QueueHold::Restarted => "restarted",
+            QueueHold::Limited => "limited",
         }
     }
 
@@ -309,6 +316,7 @@ impl QueueHold {
             "stopped" => Some(QueueHold::Stopped),
             "failed" => Some(QueueHold::Failed),
             "restarted" => Some(QueueHold::Restarted),
+            "limited" => Some(QueueHold::Limited),
             _ => None,
         }
     }
@@ -506,6 +514,9 @@ pub enum ThreadEvent {
     /// `commands.available`: slash commands reported by the agent provider (since 0.9).
     #[serde(rename = "commands.available")]
     CommandsAvailable(CommandsAvailable),
+    /// `limit.reached`: the provider hit a rate or usage limit (since 0.9).
+    #[serde(rename = "limit.reached")]
+    LimitReached(LimitReached),
 }
 
 /// `commands.available`: the slash commands offered by the thread's provider (since 0.9).
@@ -516,9 +527,21 @@ pub struct CommandsAvailable {
     pub commands: Vec<SlashCommand>,
 }
 
+/// `limit.reached`: the provider hit a usage or rate limit (since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct LimitReached {
+    /// When the limit is expected to reset, if the provider reported one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_at: Option<Timestamp>,
+    /// Human-readable message from the provider.
+    pub message: String,
+}
+
 impl ThreadEvent {
     /// Every kind string, in spec table order.
-    pub const KINDS: [&'static str; 23] = [
+    pub const KINDS: [&'static str; 24] = [
         "turn.started",
         "text.delta",
         "text.done",
@@ -542,6 +565,7 @@ impl ThreadEvent {
         "thread.switched",
         "handoff.delivered",
         "commands.available",
+        "limit.reached",
     ];
 
     /// This event's kind string.
@@ -570,6 +594,7 @@ impl ThreadEvent {
             ThreadEvent::ThreadSwitched(_) => "thread.switched",
             ThreadEvent::HandoffDelivered(_) => "handoff.delivered",
             ThreadEvent::CommandsAvailable(_) => "commands.available",
+            ThreadEvent::LimitReached(_) => "limit.reached",
         }
     }
 
@@ -598,7 +623,8 @@ impl ThreadEvent {
             | ThreadEvent::QueueHeld(_)
             | ThreadEvent::QueueResumed(_)
             | ThreadEvent::ThreadSwitched(_)
-            | ThreadEvent::CommandsAvailable(_) => None,
+            | ThreadEvent::CommandsAvailable(_)
+            | ThreadEvent::LimitReached(_) => None,
         }
     }
 }

@@ -55,6 +55,8 @@ pub(crate) struct State {
     commands: Mutex<HashMap<QueueEntryId, JoinHandle<()>>>,
     /// Cached grants of plugin-initiated command triggers (for `poll_command` retries / resume).
     plugin_grants: Mutex<HashMap<QueueEntryId, (String, Grants)>>,
+    /// Scheduled auto-resumes for threads paused by `limit.reached { resetAt }` (M7 step 8).
+    limit_resumes: Mutex<HashMap<ThreadId, JiffTs>>,
 }
 
 impl std::fmt::Debug for State {
@@ -327,6 +329,7 @@ impl Kernel {
                 argv,
                 cwd,
                 timeout_s,
+                only_on_failure,
             } => {
                 self.spawn_after_command(
                     thread.clone(),
@@ -334,6 +337,7 @@ impl Kernel {
                     argv.clone(),
                     cwd.clone(),
                     *timeout_s,
+                    *only_on_failure,
                 );
             }
             QueueTrigger::AfterTurn { .. } => {}
@@ -342,22 +346,64 @@ impl Kernel {
         Ok(entry)
     }
 
+    /// Arms an auto-resume for a `limited` thread at `reset_at` (M7 step 8).
+    pub(crate) fn schedule_limit_resume(
+        &self,
+        thread: &ThreadId,
+        reset_at: &kumikit_protocol::model::Timestamp,
+    ) {
+        if let Ok(ts) = reset_at.0.parse::<JiffTs>() {
+            lock(&self.defer_state().limit_resumes).insert(thread.clone(), ts);
+            self.defer_state().changed.notify_one();
+        }
+    }
+
+    /// Clears any pending auto-resume for `thread` (manual resume or thread delete).
+    pub(crate) fn clear_limit_resume(&self, thread: &ThreadId) {
+        lock(&self.defer_state().limit_resumes).remove(thread);
+    }
+
     /// Earliest `next_at` timestamp waiting on the deferred timer, if any.
     pub async fn defer_wake(&self) -> KernelResult<Option<JiffTs>> {
         let next = self.inner.store.read(repo::defer_earliest_at).await?;
-        Ok(next.as_deref().and_then(|s| s.parse::<JiffTs>().ok()))
+        let db_wake = next.as_deref().and_then(|s| s.parse::<JiffTs>().ok());
+        let limit_wake = lock(&self.defer_state().limit_resumes)
+            .values()
+            .copied()
+            .min();
+        Ok(match (db_wake, limit_wake) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        })
     }
 
-    /// Evaluates all `at` and `poll_command` entries due at or before `now`. Deterministic:
-    /// tests call this with explicit timestamps instead of sleeping.
+    /// Evaluates all `at`, `poll_command`, and limit-resume timers due at or before `now`.
+    /// Deterministic: tests call this with explicit timestamps instead of sleeping.
     pub async fn defer_tick(&self, now: JiffTs) -> KernelResult<usize> {
+        let due_resumes: Vec<ThreadId> = {
+            let mut map = lock(&self.defer_state().limit_resumes);
+            let ready: Vec<ThreadId> = map
+                .iter()
+                .filter(|&(_, ts)| *ts <= now)
+                .map(|(t, _)| t.clone())
+                .collect();
+            for t in &ready {
+                map.remove(t);
+            }
+            ready
+        };
+        let mut fired = 0usize;
+        for tid in due_resumes {
+            if self.queue_resume(&tid).await.is_ok() {
+                fired += 1;
+            }
+        }
         let now_str = now.to_string();
         let due = self
             .inner
             .store
             .read(move |c| repo::defer_due(c, &now_str))
             .await?;
-        let mut fired = 0usize;
         for row in due {
             match row.entry.trigger.clone() {
                 Some(QueueTrigger::At { time }) => {
@@ -518,9 +564,17 @@ impl Kernel {
                     argv,
                     cwd,
                     timeout_s,
+                    only_on_failure,
                 }) => {
                     if !lock(&self.defer_state().commands).contains_key(&row.entry.id) {
-                        self.spawn_after_command(row.thread, row.entry.id, argv, cwd, timeout_s);
+                        self.spawn_after_command(
+                            row.thread,
+                            row.entry.id,
+                            argv,
+                            cwd,
+                            timeout_s,
+                            only_on_failure,
+                        );
                     }
                 }
                 Some(QueueTrigger::PollCommand { .. }) if row.next_at.is_none() => {
@@ -601,6 +655,7 @@ impl Kernel {
         argv: Vec<String>,
         cwd: Option<String>,
         timeout_s: u32,
+        only_on_failure: bool,
     ) {
         let kernel = self.clone();
         let id = entry_id.clone();
@@ -618,6 +673,17 @@ impl Kernel {
                 .and_then(|q| q.from);
             let who = source_label(&entry_from);
             match res {
+                Ok((Some(0), false, _)) if only_on_failure => {
+                    let _ = kernel
+                        .append(
+                            &thread,
+                            ThreadEvent::QueueRemoved(QueueRemoved {
+                                entry: id,
+                                reason: QueueRemoval::ConditionNotMet,
+                            }),
+                        )
+                        .await;
+                }
                 Ok((code, timed_out, out)) => {
                     let status = if timed_out {
                         format!("timed out after {timeout_s}s")
@@ -1141,6 +1207,7 @@ mod tests {
                     argv,
                     cwd: None,
                     timeout_s: 30,
+                    only_on_failure: false,
                 },
             )
             .await
@@ -1211,6 +1278,7 @@ mod tests {
                     argv: vec!["cargo".into(), "test".into()],
                     cwd: None,
                     timeout_s: 60,
+                    only_on_failure: false,
                 },
                 "acme.helper".into(),
                 Grants::default(),
@@ -1218,6 +1286,77 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(err.code(), ErrorCode::PermissionDenied);
+        kernel.close().await;
+    }
+
+    #[tokio::test]
+    async fn after_command_only_on_failure_drops_passing_check_and_limit_resumes_at_reset() {
+        let (_dir, kernel, _provider, t1, _) = setup().await;
+        let pass_argv: Vec<String> = if cfg!(windows) {
+            vec!["cmd".into(), "/C".into(), "exit 0".into()]
+        } else {
+            vec!["sh".into(), "-c".into(), "exit 0".into()]
+        };
+        kernel
+            .thread_defer(
+                &t1,
+                UserInput::text("fix check"),
+                QueueTrigger::AfterCommand {
+                    argv: pass_argv,
+                    cwd: None,
+                    timeout_s: 30,
+                    only_on_failure: true,
+                },
+            )
+            .await
+            .unwrap();
+        // Passing command is silently removed with condition_not_met and never starts a turn.
+        wait_events(&kernel, &t1, 0, "queue.removed").await;
+        let snap = kernel.thread_get(&t1).await.unwrap();
+        assert!(snap.turns.is_empty());
+        assert!(snap.queue.is_empty());
+
+        // Arming limit.reached sets status = limited and auto-resumes when reset_at passes.
+        let reset = kumikit_protocol::model::Timestamp("2026-11-15T10:30:00.000Z".into());
+        kernel.schedule_limit_resume(&t1, &reset);
+        kernel
+            .append(
+                &t1,
+                ThreadEvent::LimitReached(kumikit_protocol::event::LimitReached {
+                    reset_at: Some(reset),
+                    message: "Usage limit reached".into(),
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            kernel.thread_get(&t1).await.unwrap().thread.status,
+            kumikit_protocol::model::ThreadStatus::Limited
+        );
+        // Before reset: still limited.
+        assert_eq!(
+            kernel
+                .defer_tick("2026-11-15T10:29:00Z".parse().unwrap())
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            kernel.thread_get(&t1).await.unwrap().thread.status,
+            kumikit_protocol::model::ThreadStatus::Limited
+        );
+        // At reset: auto-resumes back to idle!
+        assert_eq!(
+            kernel
+                .defer_tick("2026-11-15T10:30:01Z".parse().unwrap())
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            kernel.thread_get(&t1).await.unwrap().thread.status,
+            kumikit_protocol::model::ThreadStatus::Idle
+        );
         kernel.close().await;
     }
 }

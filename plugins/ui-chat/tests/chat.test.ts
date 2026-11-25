@@ -622,3 +622,60 @@ describe('composer and transcript polish (M7 step 7)', () => {
     unmount(c);
   });
 });
+
+describe('usage limits and post-turn checks (M7 step 8)', () => {
+  it('shows the limited banner with Resume now and schedules a failing-only check when opted in', () => {
+    const stored = new Map<string, string>([
+      [`turncheck:${address.workspace}`, JSON.stringify({ enabled: true, cmd: 'cargo test' })],
+    ]);
+    const limitedView: ThreadView = {
+      ...base,
+      status: 'limited',
+      limit: { resetAt: '2026-11-15T14:30:00.000Z', message: 'Quota hit' },
+      turns: [
+        {
+          id: 'u1',
+          input: 'edit file',
+          started: '2026-11-15T10:00:00Z',
+          ended: '2026-11-15T10:00:02Z',
+          outcome: 'done',
+          items: [{ kind: 'file.changed', path: 'src/lib.rs' }],
+        },
+      ],
+    };
+    const { ctx, ran } = fakeCtx(limitedView);
+    ctx.storage = {
+      get: (k) => stored.get(k),
+      set: (k, v) => {
+        stored.set(k, v);
+      },
+      delete: (k) => {
+        stored.delete(k);
+      },
+    };
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address } });
+    flushSync();
+
+    // Post-turn check auto-scheduled deferred after_command with onlyOnFailure: true.
+    expect(ran[0]).toEqual([
+      'thread.defer',
+      {
+        address,
+        text: 'The post-turn check failed. Fix the reported issue.',
+        trigger: { kind: 'after_command', argv: ['cargo', 'test'], timeoutS: 300, onlyOnFailure: true },
+      },
+    ]);
+
+    // Limited banner with reset time and Resume now button.
+    expect(target.textContent).toContain('Usage limit reached');
+    expect(target.textContent).toContain('14:30 UTC');
+    const resumeBtn = Array.from(target.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Resume now'),
+    )!;
+    resumeBtn.click();
+    flushSync();
+    expect(ran[1]).toEqual(['thread.queue.resume', { address }]);
+    unmount(c);
+  });
+});

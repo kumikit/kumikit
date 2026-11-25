@@ -176,7 +176,8 @@ kbd {
   background: var(--kk-state-info, Highlight);
 }
 
-.kk-status.awaiting_approval {
+.kk-status.awaiting_approval,
+.kk-status.limited {
   background: var(--kk-state-warning, Mark);
 }
 

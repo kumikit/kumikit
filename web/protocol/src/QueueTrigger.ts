@@ -30,7 +30,11 @@ cwd?: string,
 /**
  * Maximum wall time in seconds before the command is killed.
  */
-timeoutS: number, } | { "kind": "poll_command", 
+timeoutS: number, 
+/**
+ * Fire only when the command exits non-zero or times out (for post-turn checks; since 0.9).
+ */
+onlyOnFailure?: boolean, } | { "kind": "poll_command", 
 /**
  * Bare program name (`argv[0]`) and its arguments.
  */

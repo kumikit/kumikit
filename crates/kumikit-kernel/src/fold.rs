@@ -20,10 +20,18 @@ pub fn next_status(
         ThreadEvent::ApprovalRequested(_) => ThreadStatus::AwaitingApproval,
         ThreadEvent::ApprovalResolved(_) if pending_after == 0 => ThreadStatus::Running,
         ThreadEvent::ApprovalResolved(_) => ThreadStatus::AwaitingApproval,
-        ThreadEvent::TurnEnded(e) => match e.outcome {
-            TurnOutcome::Failed => ThreadStatus::Failed,
-            TurnOutcome::Done | TurnOutcome::Cancelled => ThreadStatus::Idle,
-        },
+        ThreadEvent::LimitReached(_) => ThreadStatus::Limited,
+        ThreadEvent::QueueResumed(_) if current == ThreadStatus::Limited => ThreadStatus::Idle,
+        ThreadEvent::TurnEnded(e) => {
+            if current == ThreadStatus::Limited {
+                ThreadStatus::Limited
+            } else {
+                match e.outcome {
+                    TurnOutcome::Failed => ThreadStatus::Failed,
+                    TurnOutcome::Done | TurnOutcome::Cancelled => ThreadStatus::Idle,
+                }
+            }
+        }
         _ => current,
     }
 }

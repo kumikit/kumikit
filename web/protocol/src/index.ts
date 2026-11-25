@@ -41,6 +41,7 @@ export type * from "./HelloParams";
 export type * from "./HelloResult";
 export type * from "./InputSteered";
 export type * from "./InstalledPlugin";
+export type * from "./LimitReached";
 export type * from "./Limits";
 export type * from "./MessageFrom";
 export type * from "./ModelInfo";

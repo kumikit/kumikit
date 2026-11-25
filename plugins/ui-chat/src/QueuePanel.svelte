@@ -29,6 +29,7 @@
     stopped: 'Paused after you stopped the run',
     failed: 'Paused after the run failed',
     restarted: 'Paused after the core restarted',
+    limited: 'Paused after reaching a usage limit',
   };
 
   let editing = $state<string | undefined>();

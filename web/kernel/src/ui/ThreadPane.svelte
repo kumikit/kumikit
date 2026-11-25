@@ -45,6 +45,7 @@
     idle: 'Idle',
     running: 'Running',
     awaiting_approval: 'Waiting for your approval',
+    limited: 'Usage limit reached',
     failed: 'Failed',
     archived: 'Archived',
   };

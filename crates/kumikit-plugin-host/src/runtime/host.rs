@@ -595,9 +595,17 @@ impl super::bindings::session_events::kumikit::session::events::Host for HostSta
     }
 
     async fn emit_limit(&mut self, reset_at: Option<String>, message: String) -> Result<(), Error> {
-        let _ = self.turn_sink()?;
-        tracing::info!(plugin = %self.id.plugin, ?reset_at, %message, "provider reported usage limit");
-        Ok(())
+        let sink = self.turn_sink()?;
+        if self.session.take_cancel() {
+            return Err(cancelled());
+        }
+        sink.emit(ProviderEvent::LimitReached {
+            reset_at: reset_at.map(kumikit_protocol::model::Timestamp),
+            message,
+        })
+        .await
+        .map(|_| ())
+        .map_err(kernel_err)
     }
 }
 

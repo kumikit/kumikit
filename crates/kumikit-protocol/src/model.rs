@@ -135,6 +135,8 @@ pub enum ThreadStatus {
     AwaitingApproval,
     /// The last turn failed.
     Failed,
+    /// The provider reached a usage or rate limit (since 0.9).
+    Limited,
     /// Archived; hidden from `thread.list` by default.
     Archived,
 }
@@ -147,6 +149,7 @@ impl ThreadStatus {
             ThreadStatus::Running => "running",
             ThreadStatus::AwaitingApproval => "awaiting_approval",
             ThreadStatus::Failed => "failed",
+            ThreadStatus::Limited => "limited",
             ThreadStatus::Archived => "archived",
         }
     }
@@ -158,6 +161,7 @@ impl ThreadStatus {
             ThreadStatus::Running,
             ThreadStatus::AwaitingApproval,
             ThreadStatus::Failed,
+            ThreadStatus::Limited,
             ThreadStatus::Archived,
         ]
         .into_iter()

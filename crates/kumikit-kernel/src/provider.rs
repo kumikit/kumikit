@@ -14,11 +14,12 @@ use std::sync::{Arc, Mutex};
 
 use kumikit_protocol::ThreadEvent;
 use kumikit_protocol::event::{
-    ApprovalRequested, CommandsAvailable, FileChanged, InputSteered, PluginEvent, ToolFinished,
-    ToolOutput, ToolStarted, TurnText, Usage,
+    ApprovalRequested, CommandsAvailable, FileChanged, InputSteered, LimitReached, PluginEvent,
+    ToolFinished, ToolOutput, ToolStarted, TurnText, Usage,
 };
 use kumikit_protocol::model::{
-    Approval, ApprovalId, ApprovalStatus, Decision, SlashCommand, ThreadId, TurnId, UserInput,
+    Approval, ApprovalId, ApprovalStatus, Decision, SlashCommand, ThreadId, Timestamp, TurnId,
+    UserInput,
 };
 use serde_json::Value;
 use tokio::sync::Notify;
@@ -218,6 +219,13 @@ pub enum ProviderEvent {
     CommandsAvailable {
         /// Available commands.
         commands: Vec<SlashCommand>,
+    },
+    /// `limit.reached`: the provider hit a rate or usage limit.
+    LimitReached {
+        /// Optional RFC 3339 timestamp when the limit resets.
+        reset_at: Option<Timestamp>,
+        /// Human-readable message from the provider.
+        message: String,
     },
 }
 
@@ -422,6 +430,12 @@ impl EventSink {
             }),
             ProviderEvent::CommandsAvailable { commands } => {
                 ThreadEvent::CommandsAvailable(CommandsAvailable { commands })
+            }
+            ProviderEvent::LimitReached { reset_at, message } => {
+                if let Some(ref ts) = reset_at {
+                    self.kernel.schedule_limit_resume(&self.thread, ts);
+                }
+                ThreadEvent::LimitReached(LimitReached { reset_at, message })
             }
         };
         self.kernel.append(&self.thread, event).await

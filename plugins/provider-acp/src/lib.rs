@@ -113,10 +113,12 @@ fn wit_event(e: acp::Event) -> Event {
             kind,
             data: json(&data),
         }),
-        A::CommandsAvailable { .. } => Event::Plugin(events::PluginEvent {
-            kind: "acp.commands".into(),
-            data: "null".into(),
-        }),
+        A::CommandsAvailable { .. } | A::LimitReached { .. } => {
+            Event::Plugin(events::PluginEvent {
+                kind: "acp.session".into(),
+                data: "null".into(),
+            })
+        }
     }
 }
 
@@ -203,6 +205,17 @@ impl State {
                         })
                         .collect();
                     match provider_session::emit_commands(&list) {
+                        Ok(()) => {}
+                        Err(_) if cancelled => {}
+                        Err(e) if is_cancelled(&e) => {
+                            cancelled = true;
+                            queue.extend(self.session.cancel().into_iter().rev());
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+                Action::Emit(acp::Event::LimitReached { reset_at, message }) => {
+                    match provider_session::emit_limit(reset_at.as_deref(), &message) {
                         Ok(()) => {}
                         Err(_) if cancelled => {}
                         Err(e) if is_cancelled(&e) => {
