@@ -247,6 +247,15 @@ mod tests {
         archive
     }
 
+    fn file_url(path: &Path) -> String {
+        let s = path.to_string_lossy().replace('\\', "/");
+        if s.starts_with('/') {
+            format!("file://{s}")
+        } else {
+            format!("file:///{s}")
+        }
+    }
+
     #[tokio::test]
     async fn self_update_verifies_and_replaces_binary() {
         let dir = tempfile::tempdir().unwrap();
@@ -259,7 +268,7 @@ mod tests {
         core.insert(
             current_target().to_owned(),
             ReleaseAsset {
-                url: format!("file://{}", archive.display()),
+                url: file_url(&archive),
                 sha256: sha256_bytes_hex(&archive_bytes),
                 size: archive_bytes.len() as u64,
                 format: "tar.gz".into(),
@@ -280,11 +289,8 @@ mod tests {
         std::fs::write(&manifest_path, &json).unwrap();
         std::fs::write(dir.path().join("release.json.sig"), &sig).unwrap();
 
-        let client = ReleaseClient::with_config(
-            Fetcher::default(),
-            format!("file://{}", manifest_path.display()),
-            key.public(),
-        );
+        let client =
+            ReleaseClient::with_config(Fetcher::default(), file_url(&manifest_path), key.public());
 
         let target_exe = dir.path().join("kumikit");
         std::fs::write(&target_exe, b"old-binary").unwrap();

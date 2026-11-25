@@ -10,7 +10,9 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::io;
-use std::path::{Component, Path, PathBuf};
+#[cfg(feature = "archive")]
+use std::path::Component;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use kumikit_package::signature::{PublicKey, SigningKey, sign_file_bytes, verify_file_bytes};
@@ -569,6 +571,7 @@ pub fn build_manifest_from_dir(
 
 /// Extracts the `kumikit` (or `kumikit.exe`) binary from a verified core archive into
 /// `dest_dir`, refusing path traversal or symlinks.
+#[cfg(feature = "archive")]
 pub fn extract_core_binary(
     archive: &Path,
     format: &str,
@@ -776,13 +779,22 @@ mod tests {
         ));
     }
 
+    fn file_url(path: &Path) -> String {
+        let s = path.to_string_lossy().replace('\\', "/");
+        if s.starts_with('/') {
+            format!("file://{s}")
+        } else {
+            format!("file:///{s}")
+        }
+    }
+
     #[tokio::test]
     async fn client_fetches_verifies_and_downloads_from_file_mirror() {
         let dir = tempfile::tempdir().unwrap();
         let (key, _) = SigningKey::generate().unwrap();
 
-        // Build a valid tar.gz containing a fake `kumikit` binary.
         let archive_path = dir.path().join("kumikit-v0.1.0-m8.tar.gz");
+        #[cfg(feature = "archive")]
         {
             let f = std::fs::File::create(&archive_path).unwrap();
             let enc = flate2::write::GzEncoder::new(f, flate2::Compression::default());
@@ -800,15 +812,18 @@ mod tests {
             tar.append_data(&mut header, name, &body[..]).unwrap();
             tar.into_inner().unwrap().finish().unwrap();
         }
+        #[cfg(not(feature = "archive"))]
+        std::fs::write(&archive_path, b"fake-archive-bytes").unwrap();
+
         let archive_bytes = std::fs::read(&archive_path).unwrap();
-        let archive_url = format!("file://{}", archive_path.display());
+        let archive_url = file_url(&archive_path);
         let manifest = sample_manifest("0.1.0-m8", &archive_url, &archive_bytes);
         let (json, sig) = sign_manifest(&manifest, &key).unwrap();
         let manifest_path = dir.path().join("release.json");
         std::fs::write(&manifest_path, &json).unwrap();
         std::fs::write(dir.path().join("release.json.sig"), &sig).unwrap();
 
-        let manifest_url = format!("file://{}", manifest_path.display());
+        let manifest_url = file_url(&manifest_path);
         let client = ReleaseClient::with_config(Fetcher::default(), manifest_url, key.public());
         let check = client.check_update("0.1.0-m7.4").await.unwrap();
         assert!(check.update_available);
@@ -817,9 +832,13 @@ mod tests {
         let asset = check.manifest.core.get(current_target()).unwrap();
         let dest = dir.path().join("cache/archive.tar.gz");
         client.download_verified(asset, &dest).await.unwrap();
-        let extracted =
-            extract_core_binary(&dest, &asset.format, &dir.path().join("extract")).unwrap();
-        assert!(extracted.is_file());
+        assert_eq!(std::fs::read(&dest).unwrap(), archive_bytes);
+        #[cfg(feature = "archive")]
+        {
+            let extracted =
+                extract_core_binary(&dest, &asset.format, &dir.path().join("extract")).unwrap();
+            assert!(extracted.is_file());
+        }
 
         // Bad hash fails verification.
         let mut bad_asset = asset.clone();

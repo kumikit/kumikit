@@ -47,7 +47,7 @@ kumikit-assets.workspace = true
 kumikit-kernel.workspace = true
 kumikit-plugin-host.workspace = true
 kumikit-protocol.workspace = true
-kumikit-registry.workspace = true
+kumikit-registry = { workspace = true, features = ["archive"] }
 kumikit-theme = { path = "../kumikit-theme" }
 semver = "1.0.28"
 jiff = { version = "0.2.46", default-features = false, features = ["std"] }

@@ -412,9 +412,9 @@ impl AppUpdater {
         };
         let file_name = asset
             .url
-            .rsplit('/')
+            .rsplit(['/', '\\'])
             .next()
-            .filter(|s| !s.is_empty() && !s.contains(".."))
+            .filter(|s| !s.is_empty() && !s.contains("..") && !s.contains(':'))
             .unwrap_or("kumikit-update")
             .to_owned();
         let ver_dir = self.updates_dir.join(&manifest.version);
@@ -701,10 +701,17 @@ fn replace_macos_app(tar_gz: &Path, app_bundle: &Path) -> std::io::Result<()> {
         .parent()
         .unwrap_or_else(|| Path::new("/Applications"));
     let stage = tempfile::tempdir_in(parent)?;
-    let file = std::fs::File::open(tar_gz)?;
-    let gz = flate2::read::GzDecoder::new(file);
-    let mut archive = tar::Archive::new(gz);
-    archive.unpack(stage.path())?;
+    let status = std::process::Command::new("/usr/bin/tar")
+        .arg("-xzf")
+        .arg(tar_gz)
+        .arg("-C")
+        .arg(stage.path())
+        .status()?;
+    if !status.success() {
+        return Err(std::io::Error::other(
+            "failed to extract macOS update archive",
+        ));
+    }
     let mut extracted_app = None;
     for entry in std::fs::read_dir(stage.path())? {
         let entry = entry?;
@@ -785,6 +792,15 @@ mod tests {
 
     use super::*;
 
+    fn file_url(path: &Path) -> String {
+        let s = path.to_string_lossy().replace('\\', "/");
+        if s.starts_with('/') {
+            format!("file://{s}")
+        } else {
+            format!("file:///{s}")
+        }
+    }
+
     #[tokio::test]
     async fn appimage_check_download_and_atomic_apply() {
         let dir = tempfile::tempdir().unwrap();
@@ -801,7 +817,7 @@ mod tests {
         desktop.insert(
             "linux-x86_64-appimage".into(),
             ReleaseAsset {
-                url: format!("file://{}", asset_path.display()),
+                url: file_url(&asset_path),
                 sha256: sha256_bytes_hex(new_payload),
                 size: new_payload.len() as u64,
                 format: "appimage".into(),
@@ -822,11 +838,8 @@ mod tests {
         std::fs::write(&manifest_path, &json).unwrap();
         std::fs::write(dir.path().join("release.json.sig"), &sig).unwrap();
 
-        let client = ReleaseClient::with_config(
-            Fetcher::default(),
-            format!("file://{}", manifest_path.display()),
-            key.public(),
-        );
+        let client =
+            ReleaseClient::with_config(Fetcher::default(), file_url(&manifest_path), key.public());
         let updater = AppUpdater::with_client(
             &dir.path().join("client"),
             dir.path()
@@ -870,7 +883,7 @@ mod tests {
         desktop.insert(
             "linux-x86_64-deb".into(),
             ReleaseAsset {
-                url: format!("file://{}", deb_path.display()),
+                url: file_url(&deb_path),
                 sha256: sha256_bytes_hex(deb_bytes),
                 size: deb_bytes.len() as u64,
                 format: "deb".into(),
@@ -891,11 +904,8 @@ mod tests {
         std::fs::write(&manifest_path, &json).unwrap();
         std::fs::write(dir.path().join("release.json.sig"), &sig).unwrap();
 
-        let client = ReleaseClient::with_config(
-            Fetcher::default(),
-            format!("file://{}", manifest_path.display()),
-            key.public(),
-        );
+        let client =
+            ReleaseClient::with_config(Fetcher::default(), file_url(&manifest_path), key.public());
         let updater = AppUpdater::with_client(
             &dir.path().join("client"),
             dir.path()

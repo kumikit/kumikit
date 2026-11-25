@@ -11,15 +11,19 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Enables `.tar.gz` extraction (`extract_core_binary`) for `kumikit update`.
+archive = ["dep:flate2", "dep:tar"]
+
 [dependencies]
-flate2 = "1"
+flate2 = { version = "1", optional = true }
 kumikit-package.workspace = true
 kumikit-protocol.workspace = true
 semver = "1.0.28"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.10.9"
-tar = "0.4.46"
+tar = { version = "0.4.46", optional = true }
 tempfile = "3.27.0"
 toml = "1"
 http-body-util = "0.1.5"

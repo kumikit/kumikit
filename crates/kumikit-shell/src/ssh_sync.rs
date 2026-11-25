@@ -565,7 +565,8 @@ mod tests {
         use kumikit_package::signature::SigningKey;
         use kumikit_registry::fetch::Fetcher;
         use kumikit_registry::release::{
-            RELEASE_MANIFEST_FORMAT, ReleaseAsset, ReleaseManifest, sha256_bytes_hex, sign_manifest,
+            RELEASE_MANIFEST_FORMAT, ReleaseAsset, ReleaseManifest, current_target,
+            sha256_bytes_hex, sign_manifest,
         };
 
         let dir = tempfile::tempdir().unwrap();
@@ -610,7 +611,7 @@ fi
         let archive_bytes = std::fs::read(&archive).unwrap();
         let mut core = BTreeMap::new();
         core.insert(
-            "x86_64-unknown-linux-gnu".into(),
+            current_target().to_owned(),
             ReleaseAsset {
                 url: format!("file://{}", archive.display()),
                 sha256: sha256_bytes_hex(&archive_bytes),
