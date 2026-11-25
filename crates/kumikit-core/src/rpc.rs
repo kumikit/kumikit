@@ -546,6 +546,19 @@ impl Conn {
                     .map_err(kernel_err)?;
                 reply::<m::WorkspaceGitWorktreeCreate>(created)
             }
+            m::WorkspaceFilesList::NAME => {
+                let p = parse::<m::WorkspaceFilesList>(params)?;
+                let (files, truncated) = k
+                    .workspace_files_list(
+                        &p.workspace,
+                        p.path.as_deref(),
+                        p.query.as_deref(),
+                        p.limit,
+                    )
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::WorkspaceFilesList>(m::WorkspaceFilesListResult { files, truncated })
+            }
             m::ThreadList::NAME => {
                 let p = parse::<m::ThreadList>(params)?;
                 let threads = k

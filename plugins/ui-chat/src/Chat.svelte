@@ -27,6 +27,16 @@
   import BranchPicker from './BranchPicker.svelte';
   import PermissionModePicker from './PermissionModePicker.svelte';
   import QueuePanel from './QueuePanel.svelte';
+  import {
+    collectTurnFiles,
+    formatElapsed,
+    formatMentionPath,
+    groupTurnItems,
+    matchSlashCommands,
+    parseMentionAt,
+    type MentionMatch,
+    type SlashMenuEntry,
+  } from './transcript';
 
   let {
     ctx,
@@ -58,10 +68,20 @@
   let laterMinutes = $state(15);
   let laterTime = $state('');
   let laterCmd = $state('');
+  let nowMs = $state(Date.now());
+  let slashIndex = $state(0);
+  let mention = $state<MentionMatch | undefined>();
+  let mentionFiles = $state.raw<string[]>([]);
+  let mentionIndex = $state(0);
+  let historyIndex = $state(-1);
+  let findOpen = $state(false);
+  let findQuery = $state('');
+  let findIndex = $state(0);
+  let findInput: HTMLInputElement | undefined = $state();
+  let stuck = $state(true);
   let log: HTMLElement;
   let textarea: HTMLTextAreaElement | undefined = $state();
   let fileInput: HTMLInputElement | undefined = $state();
-  let stuck = true;
 
   // Claim `#kk-chat-input` after DOM commit so any outgoing tab's composer has already
   // unmounted, while keeping every split pane's textarea id unique.
@@ -76,39 +96,152 @@
 
   $effect(() => ctx.threads.watch(address, (v) => (view = v)));
 
-  // Restore any preloaded edit-fork draft (text, attachments, calm notice) saved for this thread.
+  // Restore any preloaded edit-fork draft (text, attachments, calm notice) or saved draft.
   $effect(() => {
-    const key = `preload:${address.thread}`;
-    const raw = ctx.storage?.get(key);
-    if (!raw) {
-      forkNote = undefined;
+    const preloadKey = `preload:${address.thread}`;
+    const rawPreload = ctx.storage?.get(preloadKey);
+    if (rawPreload) {
+      ctx.storage?.delete(preloadKey);
+      try {
+        const parsed = JSON.parse(rawPreload) as {
+          text?: string;
+          attachments?: import('@kumikit/protocol').Attachment[];
+          note?: string;
+        };
+        if (typeof parsed.text === 'string') text = parsed.text;
+        if (Array.isArray(parsed.attachments) && parsed.attachments.length > 0) {
+          attachments = parsed.attachments.map((att, i) => {
+            const item: PendingAttachment = {
+              ...att,
+              id: `fork-att-${i}-${Date.now()}`,
+              size: Math.floor((att.data.length * 3) / 4),
+            };
+            const url = attachmentImageUrl(att);
+            if (url) item.previewUrl = url;
+            return item;
+          });
+        }
+        forkNote = parsed.note;
+        return;
+      } catch {
+        // Ignore malformed preload payload.
+      }
+    }
+    forkNote = undefined;
+    const savedDraft = ctx.storage?.get(`draft:${address.thread}`);
+    text = savedDraft ?? '';
+    historyIndex = -1;
+  });
+
+  // Persist per-thread composer draft in client storage.
+  $effect(() => {
+    const key = `draft:${address.thread}`;
+    const current = text;
+    if (current.length > 0) ctx.storage?.set(key, current);
+    else ctx.storage?.delete(key);
+  });
+
+  // Tick elapsed timer once per second only while a turn is running.
+  $effect(() => {
+    const hasOpen = (view?.turns ?? []).some((t) => !t.ended);
+    if (!hasOpen) return;
+    nowMs = Date.now();
+    const id = setInterval(() => {
+      nowMs = Date.now();
+    }, 1000);
+    return () => clearInterval(id);
+  });
+
+  const slashEntries = $derived<SlashMenuEntry[]>(
+    view?.status === 'archived' ? [] : matchSlashCommands(text, view?.commands),
+  );
+  $effect(() => {
+    void slashEntries.length;
+    if (slashIndex >= slashEntries.length) slashIndex = 0;
+  });
+
+  // Fetch matching workspace files whenever an `@query` mention is active.
+  $effect(() => {
+    const m = mention;
+    const conn = activeConn;
+    if (!m || !conn?.ready || archived) {
+      mentionFiles = [];
       return;
     }
-    ctx.storage?.delete(key);
-    try {
-      const parsed = JSON.parse(raw) as {
-        text?: string;
-        attachments?: import('@kumikit/protocol').Attachment[];
-        note?: string;
-      };
-      if (typeof parsed.text === 'string') text = parsed.text;
-      if (Array.isArray(parsed.attachments) && parsed.attachments.length > 0) {
-        attachments = parsed.attachments.map((att, i) => {
-          const item: PendingAttachment = {
-            ...att,
-            id: `fork-att-${i}-${Date.now()}`,
-            size: Math.floor((att.data.length * 3) / 4),
-          };
-          const url = attachmentImageUrl(att);
-          if (url) item.previewUrl = url;
-          return item;
-        });
-      }
-      forkNote = parsed.note;
-    } catch {
-      // Ignore malformed preload payload.
-    }
+    let alive = true;
+    const params: { workspace: string; path?: string; query?: string; limit: number } = {
+      workspace: address.workspace,
+      limit: 20,
+    };
+    if (view?.thread?.worktreePath) params.path = view.thread.worktreePath;
+    if (m.query) params.query = m.query;
+    conn.call('workspace.files.list', params).then(
+      (res) => {
+        if (!alive) return;
+        mentionFiles = Array.isArray(res?.files) ? res.files : [];
+        mentionIndex = 0;
+      },
+      () => {
+        if (alive) mentionFiles = [];
+      },
+    );
+    return () => {
+      alive = false;
+    };
   });
+
+  const findMatches = $derived.by(() => {
+    const q = findQuery.trim().toLowerCase();
+    if (!findOpen || !q) return [] as string[];
+    const ids: string[] = [];
+    for (const t of view?.turns ?? []) {
+      const hay = `${t.input}\n${assistantText(t)}`.toLowerCase();
+      if (hay.includes(q)) ids.push(t.id);
+    }
+    return ids;
+  });
+
+  $effect(() => {
+    if (findIndex >= findMatches.length) findIndex = 0;
+  });
+
+  function scrollToFindMatch(idx: number) {
+    const id = findMatches[idx];
+    if (!id || !log) return;
+    const el = log.querySelector<HTMLElement>(`[data-turn-id="${id}"]`);
+    el?.scrollIntoView({ block: 'center' });
+  }
+
+  function insertAtCursor(snippet: string) {
+    if (!textarea) {
+      text = text ? `${text}${snippet}` : snippet;
+      return;
+    }
+    const start = textarea.selectionStart ?? text.length;
+    const end = textarea.selectionEnd ?? text.length;
+    text = `${text.slice(0, start)}${snippet}${text.slice(end)}`;
+    void tick().then(() => {
+      if (!textarea) return;
+      const pos = start + snippet.length;
+      textarea.focus();
+      textarea.setSelectionRange(pos, pos);
+    });
+  }
+
+  function mountAccessories(el: HTMLElement) {
+    const conn = activeConn;
+    if (!conn || !ctx.ui.renderAccessories) return {};
+    const dispose = ctx.ui.renderAccessories(el, {
+      address,
+      connection: conn,
+      insert: insertAtCursor,
+    });
+    return {
+      destroy() {
+        if (typeof dispose === 'function') dispose();
+      },
+    };
+  }
 
   // Allow side threads or accessories to insert text into this thread's composer.
   $effect(() => {
@@ -429,6 +562,22 @@
       void forkFrom();
       return;
     }
+    if (message.startsWith('/rename ')) {
+      const nextTitle = message.slice(8).trim();
+      if (nextTitle) {
+        text = '';
+        void run('thread.update', { address, title: nextTitle });
+      }
+      return;
+    }
+    if (message.startsWith('/model ')) {
+      const nextModel = message.slice(7).trim();
+      if (nextModel) {
+        text = '';
+        void run('thread.update', { address, model: nextModel });
+      }
+      return;
+    }
     if (message === '/btw' || message.startsWith('/btw ')) {
       text = '';
       void openBtw(message.slice(4).trim());
@@ -519,13 +668,131 @@
     void run('thread.update', { address, permissionMode: mode });
   }
 
+  function pickSlash(entry: SlashMenuEntry) {
+    text = `/${entry.name} `;
+    slashIndex = 0;
+    textarea?.focus();
+  }
+
+  function pickMention(path: string) {
+    if (!mention) return;
+    const formatted = `${formatMentionPath(path)} `;
+    const before = text.slice(0, mention.start);
+    const after = text.slice(mention.end);
+    text = `${before}${formatted}${after}`;
+    const pos = before.length + formatted.length;
+    mention = undefined;
+    mentionFiles = [];
+    void tick().then(() => {
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(pos, pos);
+    });
+  }
+
+  function updateMentionFromCursor() {
+    if (!textarea) {
+      mention = undefined;
+      return;
+    }
+    mention = parseMentionAt(text, textarea.selectionStart ?? text.length);
+  }
+
+  async function approveAll() {
+    const list = view?.pendingApprovals ?? [];
+    for (const ap of list) {
+      await run('approval.respond', { address, approval: ap.id, decision: 'allow' });
+    }
+  }
+
+  function onPaneKey(e: KeyboardEvent) {
+    if (isComposing(e)) return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+      e.preventDefault();
+      findOpen = true;
+      void tick().then(() => findInput?.focus());
+    } else if (e.key === 'Escape' && findOpen) {
+      e.preventDefault();
+      findOpen = false;
+      findQuery = '';
+    }
+  }
+
   function onKey(e: KeyboardEvent) {
     if (isComposing(e)) return;
+    if (slashEntries.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        slashIndex = (slashIndex + 1) % slashEntries.length;
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        slashIndex = (slashIndex - 1 + slashEntries.length) % slashEntries.length;
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        const picked = slashEntries[slashIndex];
+        if (picked) pickSlash(picked);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        text = '';
+        return;
+      }
+    }
+    if (mention && mentionFiles.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        mentionIndex = (mentionIndex + 1) % mentionFiles.length;
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        mentionIndex = (mentionIndex - 1 + mentionFiles.length) % mentionFiles.length;
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        const picked = mentionFiles[mentionIndex];
+        if (picked) pickMention(picked);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        mention = undefined;
+        mentionFiles = [];
+        return;
+      }
+    }
+    // Recall previous prompts on Up/Down when composer is empty or browsing history.
+    const prompts = (view?.turns ?? []).map((t) => t.input).filter((s) => s.length > 0);
+    if (e.key === 'ArrowUp' && prompts.length > 0 && (text === '' || historyIndex >= 0)) {
+      e.preventDefault();
+      const next = historyIndex < 0 ? prompts.length - 1 : Math.max(0, historyIndex - 1);
+      historyIndex = next;
+      text = prompts[next] ?? '';
+      return;
+    }
+    if (e.key === 'ArrowDown' && historyIndex >= 0) {
+      e.preventDefault();
+      if (historyIndex + 1 < prompts.length) {
+        historyIndex += 1;
+        text = prompts[historyIndex] ?? '';
+      } else {
+        historyIndex = -1;
+        text = '';
+      }
+      return;
+    }
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && busy) {
       e.preventDefault();
       steer();
     } else if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      historyIndex = -1;
       send();
     } else if (e.key === 'Escape' && busy) {
       e.preventDefault();
@@ -537,6 +804,7 @@
       }
     } else {
       armedCancel = false;
+      historyIndex = -1;
     }
   }
 
@@ -547,7 +815,64 @@
   const outcomeText: Record<string, string> = { done: '', cancelled: 'Cancelled', failed: 'Failed' };
 </script>
 
-<div class="kk-chat">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="kk-chat" onkeydown={onPaneKey}>
+  {#if findOpen}
+    <div class="find-bar" role="search" aria-label="Find in thread">
+      <input
+        bind:this={findInput}
+        class="later-input"
+        type="search"
+        placeholder="Find in thread…"
+        aria-label="Find in thread"
+        bind:value={findQuery}
+        onkeydown={(e) => {
+          if (isComposing(e)) return;
+          if (e.key === 'Enter' && findMatches.length > 0) {
+            e.preventDefault();
+            findIndex = (findIndex + (e.shiftKey ? findMatches.length - 1 : 1)) % findMatches.length;
+            scrollToFindMatch(findIndex);
+          }
+        }}
+      />
+      <span class="later-unit" role="status">
+        {findMatches.length > 0 ? `${findIndex + 1} / ${findMatches.length}` : findQuery.trim() ? '0 matches' : ''}
+      </span>
+      <button
+        type="button"
+        class="turn-action"
+        disabled={findMatches.length === 0}
+        onclick={() => {
+          findIndex = (findIndex + findMatches.length - 1) % findMatches.length;
+          scrollToFindMatch(findIndex);
+        }}
+      >
+        Prev
+      </button>
+      <button
+        type="button"
+        class="turn-action"
+        disabled={findMatches.length === 0}
+        onclick={() => {
+          findIndex = (findIndex + 1) % findMatches.length;
+          scrollToFindMatch(findIndex);
+        }}
+      >
+        Next
+      </button>
+      <button
+        type="button"
+        class="turn-action"
+        aria-label="Close find"
+        onclick={() => {
+          findOpen = false;
+          findQuery = '';
+        }}
+      >
+        ×
+      </button>
+    </div>
+  {/if}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div class="log" tabindex="0" bind:this={log} onscroll={onScroll} role="log" aria-live="polite" aria-relevant="additions" aria-label="Transcript">
     <div class="column">
@@ -591,7 +916,11 @@
             </div>
           </details>
         {:else}
-          <article class="turn" aria-label="Turn">
+          {@const elapsed = formatElapsed(turn.started, turn.ended, nowMs)}
+          {@const displayEntries = groupTurnItems(turn.items)}
+          {@const changedFiles = collectTurnFiles(turn.items)}
+          {@const isMatch = findMatches.includes(turn.id)}
+          <article class="turn" class:find-hit={isMatch} data-turn-id={turn.id} aria-label="Turn">
             <div class="you">
               <span class="kk-sr-only">You</span>
               {#if turn.attachments && turn.attachments.length > 0}
@@ -641,19 +970,61 @@
               {/if}
             </div>
             <div class="agent">
-              {#if turn.provider}
+              {#if turn.provider || elapsed}
                 <div class="turn-author" aria-label="Agent">
-                  {turn.model ? `${providerName(turn.provider)} · ${turn.model}` : providerName(turn.provider)}
+                  {#if turn.provider}
+                    {turn.model ? `${providerName(turn.provider)} · ${turn.model}` : providerName(turn.provider)}
+                  {/if}
+                  {#if elapsed}
+                    <span class="turn-elapsed">{turn.provider ? ` · ${elapsed}` : elapsed}</span>
+                  {/if}
                 </div>
               {/if}
-              {#each turn.items as it, i (i)}
-                <div class="item" use:item={{ item: it, address, run }}></div>
+              {#each displayEntries as entry (entry.kind === 'item' ? `i-${entry.index}` : `g-${entry.startIndex}`)}
+                {#if entry.kind === 'tool-group'}
+                  <details class="tool-group">
+                    <summary>
+                      {`${entry.items.length} tool calls${entry.failed > 0 ? ` · ${entry.failed} failed` : ''}${entry.pending > 0 ? ` · ${entry.pending} running` : ''}`}
+                    </summary>
+                    <div class="tool-group-body">
+                      {#each entry.items as toolIt, idx (idx)}
+                        <div class="item" use:item={{ item: toolIt, address, run }}></div>
+                      {/each}
+                    </div>
+                  </details>
+                {:else}
+                  <div class="item" use:item={{ item: entry.item, address, run }}></div>
+                {/if}
               {/each}
               {#if !turn.ended && turn.items.length === 0}
                 <p class="working" aria-label="Working">Working…</p>
               {/if}
               {#if turn.outcome && turn.outcome !== 'done'}
                 <p class="outcome {turn.outcome}">{outcomeText[turn.outcome]}{turn.error ? `: ${turn.error}` : ''}</p>
+              {/if}
+              {#if changedFiles.length > 0}
+                <details class="changes-footer" aria-label="Changed files">
+                  <summary>
+                    {changedFiles.length} {changedFiles.length === 1 ? 'file' : 'files'} changed
+                  </summary>
+                  <ul class="changes-list">
+                    {#each changedFiles as f (f.path)}
+                      <li>
+                        <details>
+                          <summary>
+                            <span class="change-path">{f.path}</span>
+                            {#if f.added > 0 || f.removed > 0}
+                              <span class="change-stat">+{f.added} -{f.removed}</span>
+                            {/if}
+                          </summary>
+                          {#if f.diff}
+                            <pre class="change-diff">{f.diff}</pre>
+                          {/if}
+                        </details>
+                      </li>
+                    {/each}
+                  </ul>
+                </details>
               {/if}
               {#if turn.ended}
                 {@const reply = assistantText(turn)}
@@ -690,6 +1061,89 @@
   </div>
 
   <div class="composer-wrap">
+    {#if !stuck && (view?.turns.length ?? 0) > 0}
+      <div class="jump-wrap">
+        <button
+          type="button"
+          class="turn-action"
+          onclick={() => {
+            stuck = true;
+            if (log) log.scrollTop = log.scrollHeight;
+          }}
+        >
+          Jump to bottom
+        </button>
+      </div>
+    {/if}
+    {#if (view?.pendingApprovals.length ?? 0) > 0}
+      <div class="approval-bar" role="region" aria-label="Pending approvals">
+        <div class="approval-bar-head">
+          <span>
+            {view!.pendingApprovals.length} pending {view!.pendingApprovals.length === 1 ? 'approval' : 'approvals'}
+          </span>
+          {#if view!.pendingApprovals.length > 1}
+            <button type="button" class="handoff-btn primary" onclick={() => void approveAll()}>
+              Approve all
+            </button>
+          {/if}
+        </div>
+        {#each view!.pendingApprovals as ap (ap.id)}
+          <div class="approval-row">
+            <span class="approval-summary">{ap.summary}</span>
+            <div class="approval-row-actions">
+              <button
+                type="button"
+                class="turn-action primary"
+                onclick={() => void run('approval.respond', { address, approval: ap.id, decision: 'allow' })}
+              >
+                Allow
+              </button>
+              <button
+                type="button"
+                class="turn-action"
+                onclick={() => void run('approval.respond', { address, approval: ap.id, decision: 'deny' })}
+              >
+                Deny
+              </button>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+    {#if slashEntries.length > 0}
+      <div class="picker-menu" role="listbox" aria-label="Slash commands">
+        {#each slashEntries as entry, idx (entry.name)}
+          <button
+            type="button"
+            role="option"
+            aria-selected={idx === slashIndex}
+            class="picker-item"
+            class:active={idx === slashIndex}
+            onclick={() => pickSlash(entry)}
+          >
+            <span class="picker-name">/{entry.name}{#if entry.hint} <span class="picker-hint">{entry.hint}</span>{/if}</span>
+            {#if entry.description}
+              <span class="picker-desc">{entry.description}</span>
+            {/if}
+          </button>
+        {/each}
+      </div>
+    {:else if mention && mentionFiles.length > 0}
+      <div class="picker-menu" role="listbox" aria-label="Mention file">
+        {#each mentionFiles as file, idx (file)}
+          <button
+            type="button"
+            role="option"
+            aria-selected={idx === mentionIndex}
+            class="picker-item"
+            class:active={idx === mentionIndex}
+            onclick={() => pickMention(file)}
+          >
+            <span class="picker-name">{file}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
     {#if pendingSwitch}
       <div class="handoff-bar" role="region" aria-label="Confirm provider handoff">
         <span class="handoff-title">Hand off to {pendingSwitch.name}?</span>
@@ -822,6 +1276,8 @@
           disabled={archived}
           placeholder={busy ? (canSteer ? 'Queue (Enter) or steer (Ctrl/⌘+Enter)…' : 'Queue a follow-up message…') : 'Ask for follow-up changes…'}
           bind:value={text}
+          oninput={updateMentionFromCursor}
+          onclick={updateMentionFromCursor}
           onkeydown={onKey}
           onpaste={onPaste}
         ></textarea>
@@ -950,6 +1406,7 @@
             disabled={busy || archived || !connReady}
             onChange={onPermissionChange}
           />
+          <span class="accessories" use:mountAccessories></span>
         </div>
         <div class="footer-right">
           {#if armedCancel}
@@ -1506,6 +1963,172 @@
   .turn-action.primary {
     border-color: var(--kk-accent, Highlight);
     color: var(--kk-accent, Highlight);
+  }
+  .turn-elapsed {
+    color: var(--kk-text-muted, GrayText);
+  }
+  .turn.find-hit {
+    outline: 1px solid var(--kk-accent, Highlight);
+    border-radius: var(--kk-radius-medium, 0);
+  }
+  .find-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--kk-border-subtle, CanvasText);
+    background: var(--kk-surface-raised, Canvas);
+  }
+  .jump-wrap {
+    max-width: 760px;
+    margin: 0 auto 6px;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+  }
+  .tool-group {
+    margin: 6px 0;
+    padding: 6px 10px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-medium, 0);
+    background: var(--kk-surface-raised, Canvas);
+    font-size: var(--kk-font-size-small, small);
+  }
+  .tool-group > summary {
+    cursor: pointer;
+    color: var(--kk-text-secondary, CanvasText);
+  }
+  .tool-group-body {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .changes-footer {
+    margin-top: 8px;
+    padding: 6px 10px;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-medium, 0);
+    background: var(--kk-surface-raised, Canvas);
+    font-size: var(--kk-font-size-small, small);
+  }
+  .changes-footer > summary {
+    cursor: pointer;
+    color: var(--kk-text-secondary, CanvasText);
+  }
+  .changes-list {
+    list-style: none;
+    margin: 6px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .change-path {
+    font-family: var(--kk-font-mono, monospace);
+    color: var(--kk-text-primary, CanvasText);
+  }
+  .change-stat {
+    margin-left: 8px;
+    font-family: var(--kk-font-mono, monospace);
+    color: var(--kk-text-muted, GrayText);
+  }
+  .change-diff {
+    margin: 4px 0 0;
+    padding: 6px 8px;
+    overflow: auto;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-small, 0);
+    background: var(--kk-code-background, Canvas);
+    color: var(--kk-code-text, CanvasText);
+    font-family: var(--kk-font-mono, monospace);
+    font-size: var(--kk-font-size-small, small);
+  }
+  .approval-bar {
+    max-width: 760px;
+    margin: 0 auto 8px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 12px;
+    border: 1px solid var(--kk-border-strong, CanvasText);
+    border-radius: var(--kk-radius-medium, 0);
+    background: var(--kk-surface-raised, Canvas);
+    font-size: var(--kk-font-size-small, small);
+  }
+  .approval-bar-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--kk-text-primary, CanvasText);
+    font-weight: var(--kk-font-weight-strong, bold);
+  }
+  .approval-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .approval-summary {
+    color: var(--kk-text-secondary, CanvasText);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .approval-row-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .picker-menu {
+    max-width: 760px;
+    margin: 0 auto 6px;
+    width: 100%;
+    max-height: 200px;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+    border-radius: var(--kk-radius-medium, 0);
+    background: var(--kk-surface-raised, Canvas);
+  }
+  .picker-item {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 10px;
+    border: 0;
+    background: transparent;
+    color: var(--kk-text-primary, CanvasText);
+    font: inherit;
+    font-size: var(--kk-font-size-small, small);
+    text-align: left;
+    cursor: pointer;
+  }
+  .picker-item:hover,
+  .picker-item.active {
+    background: var(--kk-surface-hover, ButtonFace);
+  }
+  .picker-name {
+    font-family: var(--kk-font-mono, monospace);
+    white-space: nowrap;
+  }
+  .picker-hint {
+    color: var(--kk-text-muted, GrayText);
+  }
+  .picker-desc {
+    color: var(--kk-text-secondary, CanvasText);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .accessories {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
   }
   @media (prefers-reduced-motion: reduce) {
     .log {

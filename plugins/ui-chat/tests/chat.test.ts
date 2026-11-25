@@ -548,3 +548,77 @@ describe('forks, edit-and-resend, and side threads', () => {
     unmount(c);
   });
 });
+
+describe('composer and transcript polish (M7 step 7)', () => {
+  it('shows slash command menu (agent + client), inserts without running, and supports Approve all + grouped tools + changed files', async () => {
+    const toolItems = Array.from({ length: 5 }, (_, i) => ({
+      kind: 'tool' as const,
+      call: `c${i}`,
+      name: `tool_${i}`,
+      input: {},
+      output: '',
+      ok: i !== 2,
+    }));
+    const richView: ThreadView = {
+      ...base,
+      status: 'awaiting_approval',
+      commands: [{ name: 'review', description: 'Review changes' }],
+      pendingApprovals: [
+        { id: 'ap1', thread: 'th', turn: 'u1', kind: 'tool', summary: 'Run tests', status: 'pending' },
+        { id: 'ap2', thread: 'th', turn: 'u1', kind: 'tool', summary: 'Write file', status: 'pending' },
+      ],
+      turns: [
+        {
+          id: 'u1',
+          input: 'check everything',
+          started: '2026-11-15T10:00:00Z',
+          ended: '2026-11-15T10:00:05Z',
+          outcome: 'done',
+          items: [
+            ...toolItems,
+            { kind: 'file.changed', path: 'src/app.ts', diff: '--- a/src/app.ts\n+++ b/src/app.ts\n-old\n+new\n+more' },
+            { kind: 'message', text: 'All checked.', done: true },
+          ],
+        },
+      ],
+    };
+    const { ctx, ran } = fakeCtx(richView);
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address } });
+    flushSync();
+
+    // Grouped tools (5 consecutive tool calls collapsed with failure count).
+    expect(target.textContent).toContain('5 tool calls · 1 failed');
+    // Per-turn changed files footer with +/- counts.
+    expect(target.textContent).toContain('1 file changed');
+    expect(target.textContent).toContain('src/app.ts');
+    expect(target.textContent).toContain('+2 -1');
+    // Elapsed time shown on turn.
+    expect(target.textContent).toContain('5s');
+
+    // Approve all calls approval.respond once per pending approval.
+    const approveAllBtn = Array.from(target.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Approve all'),
+    )!;
+    approveAllBtn.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(ran).toEqual([
+      ['approval.respond', { address, approval: 'ap1', decision: 'allow' }],
+      ['approval.respond', { address, approval: 'ap2', decision: 'allow' }],
+    ]);
+
+    // Typing `/rev` opens the slash menu; Enter inserts `/review ` without sending.
+    const ta = target.querySelector<HTMLTextAreaElement>('textarea')!;
+    ta.value = '/rev';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    expect(target.querySelector('[role="listbox"][aria-label="Slash commands"]')?.textContent).toContain('/review');
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    flushSync();
+    expect(ta.value).toBe('/review ');
+    expect(ran.length).toBe(2);
+
+    unmount(c);
+  });
+});

@@ -7,8 +7,8 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use crate::model::{
-    Approval, ApprovalId, HandoffMode, ProviderModel, QueueEntryId, Resolution, Thread, ThreadId,
-    Timestamp, TurnId, TurnOutcome, TurnPurpose, UserInput,
+    Approval, ApprovalId, HandoffMode, ProviderModel, QueueEntryId, Resolution, SlashCommand,
+    Thread, ThreadId, Timestamp, TurnId, TurnOutcome, TurnPurpose, UserInput,
 };
 
 /// `turn.started`: the kernel started a turn for a user message.
@@ -503,11 +503,22 @@ pub enum ThreadEvent {
     /// `handoff.delivered`
     #[serde(rename = "handoff.delivered")]
     HandoffDelivered(HandoffDelivered),
+    /// `commands.available`: slash commands reported by the agent provider (since 0.9).
+    #[serde(rename = "commands.available")]
+    CommandsAvailable(CommandsAvailable),
+}
+
+/// `commands.available`: the slash commands offered by the thread's provider (since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandsAvailable {
+    /// Available slash commands, in display order.
+    pub commands: Vec<SlashCommand>,
 }
 
 impl ThreadEvent {
     /// Every kind string, in spec table order.
-    pub const KINDS: [&'static str; 22] = [
+    pub const KINDS: [&'static str; 23] = [
         "turn.started",
         "text.delta",
         "text.done",
@@ -530,6 +541,7 @@ impl ThreadEvent {
         "input.steered",
         "thread.switched",
         "handoff.delivered",
+        "commands.available",
     ];
 
     /// This event's kind string.
@@ -557,6 +569,7 @@ impl ThreadEvent {
             ThreadEvent::InputSteered(_) => "input.steered",
             ThreadEvent::ThreadSwitched(_) => "thread.switched",
             ThreadEvent::HandoffDelivered(_) => "handoff.delivered",
+            ThreadEvent::CommandsAvailable(_) => "commands.available",
         }
     }
 
@@ -584,7 +597,8 @@ impl ThreadEvent {
             | ThreadEvent::QueueMoved(_)
             | ThreadEvent::QueueHeld(_)
             | ThreadEvent::QueueResumed(_)
-            | ThreadEvent::ThreadSwitched(_) => None,
+            | ThreadEvent::ThreadSwitched(_)
+            | ThreadEvent::CommandsAvailable(_) => None,
         }
     }
 }

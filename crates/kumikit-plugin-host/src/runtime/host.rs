@@ -571,6 +571,36 @@ impl events::Host for HostState {
 
 impl super::bindings::provider::kumikit::provider::types::Host for HostState {}
 
+impl super::bindings::session_events::kumikit::session::events::Host for HostState {
+    async fn emit_commands(
+        &mut self,
+        commands: Vec<super::bindings::session_events::kumikit::session::events::CommandInfo>,
+    ) -> Result<(), Error> {
+        let sink = self.turn_sink()?;
+        if self.session.take_cancel() {
+            return Err(cancelled());
+        }
+        let commands = commands
+            .into_iter()
+            .map(|c| kumikit_protocol::model::SlashCommand {
+                name: c.name,
+                description: c.description,
+                hint: c.hint,
+            })
+            .collect();
+        sink.emit(ProviderEvent::CommandsAvailable { commands })
+            .await
+            .map(|_| ())
+            .map_err(kernel_err)
+    }
+
+    async fn emit_limit(&mut self, reset_at: Option<String>, message: String) -> Result<(), Error> {
+        let _ = self.turn_sink()?;
+        tracing::info!(plugin = %self.id.plugin, ?reset_at, %message, "provider reported usage limit");
+        Ok(())
+    }
+}
+
 // ---- WASI stdout/stderr to the log ----
 
 /// Sends a guest's stdout or stderr to the core's log at debug level.

@@ -18,6 +18,7 @@ import type {
   QueueHold,
   QueueTrigger,
   Resolution,
+  SlashCommand,
   Thread,
   ThreadStatus,
   TurnOutcome,
@@ -33,6 +34,7 @@ export type {
   QueueEntry,
   QueueHold,
   QueueTrigger,
+  SlashCommand,
   TurnPurpose,
 };
 
@@ -149,6 +151,8 @@ export interface ThreadView {
   /** Queue entry ids that fell back from `thread.steer` (`reason: "not_steered"`; since
    * 0.1.4). */
   notSteered?: string[];
+  /** Slash commands reported by the thread's provider (`commands.available`; since 0.1.5). */
+  commands?: SlashCommand[];
   /** Whether the connection is live (false while reconnecting). */
   live: boolean;
 }
@@ -336,6 +340,8 @@ export interface PluginContext {
     /** Mounts the registered `transcript.renderer` for an item (from any plugin), or a
      * plain fallback, into `el`. */
     renderItem(el: HTMLElement, props: RendererProps): Unmount;
+    /** Mounts every registered `composer.accessory` contribution into `el` (since 0.1.5). */
+    renderAccessories?(el: HTMLElement, props: ComposerProps): Unmount;
   };
 }
 

@@ -126,3 +126,20 @@ pub mod threads_client {
         },
     });
 }
+
+/// `kumikit:session/provider-events@0.1.0`: additive provider session events
+/// (`commands.available` and `limit.reached`, M7 steps 7-8), linked for every provider.
+#[allow(missing_docs, clippy::all)]
+pub mod session_events {
+    wasmtime::component::bindgen!({
+        path: [
+            "../../wit/kumikit-host@0.2.0",
+            "../../wit/kumikit-session@0.1.0",
+        ],
+        world: "kumikit:session/provider-events",
+        imports: { default: async },
+        with: {
+            "kumikit:host/types": super::base::kumikit::host::types,
+        },
+    });
+}

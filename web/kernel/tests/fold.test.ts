@@ -233,4 +233,19 @@ describe('the transcript', () => {
       },
     ]);
   });
+
+  it('folds commands.available onto ThreadView.commands', () => {
+    const v = foldEvents(
+      emptyView(address),
+      stamp([
+        {
+          kind: 'commands.available',
+          data: {
+            commands: [{ name: 'review', description: 'Review diff', hint: '[branch]' }],
+          },
+        },
+      ]),
+    );
+    expect(v.commands).toEqual([{ name: 'review', description: 'Review diff', hint: '[branch]' }]);
+  });
 });

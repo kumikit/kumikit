@@ -1,0 +1,29 @@
+package kumikit:session@0.1.0;
+
+/// Additional provider session events (`commands.available` and `limit.reached`, M7 steps 7-8).
+/// Additive to `kumikit:provider/plugin@0.2.0` so published 0.2.0 interfaces stay unchanged.
+interface events {
+  use kumikit:host/types@0.2.0.{error};
+
+  /// A slash command offered by the provider's agent.
+  record command-info {
+    /// Command name without the leading `/`.
+    name: string,
+    /// Short description shown in the slash menu.
+    description: option<string>,
+    /// Optional argument hint (e.g. `<file>`).
+    hint: option<string>,
+  }
+
+  /// Reports the slash commands currently available in this session.
+  emit-commands: func(commands: list<command-info>) -> result<_, error>;
+
+  /// Reports that the provider hit a rate or usage limit, with an optional RFC 3339 reset time.
+  emit-limit: func(reset-at: option<string>, message: string) -> result<_, error>;
+}
+
+/// Imported by providers that report slash commands or usage limits alongside
+/// `kumikit:provider/plugin@0.2.0`.
+world provider-events {
+  import events;
+}

@@ -4,7 +4,7 @@
  * plugins can compare by reference. The status rules match the kernel's
  * (`crates/kumikit-kernel/src/fold.rs`); a shared fixture checks both.
  */
-import type { Approval, EventNotification, ThreadStatus } from '@kumikit/protocol';
+import type { Approval, EventNotification, SlashCommand, ThreadStatus } from '@kumikit/protocol';
 import type { ThreadAddress, ThreadSwitchView, ThreadView, TranscriptItem, TurnView } from '@kumikit/ui-sdk';
 
 /** A view with nothing folded in yet. */
@@ -80,6 +80,7 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
   let queueHold = view.queueHold;
   let notSteered = view.notSteered;
   let switches: ThreadSwitchView[] | undefined = view.switches;
+  let commands: SlashCommand[] | undefined = view.commands;
   let status = view.status;
   let seq = view.seq;
 
@@ -136,6 +137,9 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
             rendered: e.data.rendered,
           });
         });
+        break;
+      case 'commands.available':
+        commands = e.data.commands;
         break;
       case 'queue.added':
         queue = e.data.front ? [e.data.entry, ...queue] : [...queue, e.data.entry];
@@ -298,5 +302,6 @@ export function foldEvents(view: ThreadView, events: readonly EventNotification[
   if (notSteered === undefined) delete next.notSteered;
   else next.notSteered = notSteered;
   if (switches !== undefined) next.switches = switches;
+  if (commands !== undefined) next.commands = commands;
   return next;
 }

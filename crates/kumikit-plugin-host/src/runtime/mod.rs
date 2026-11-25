@@ -173,6 +173,12 @@ impl Runtime {
                     |s| s,
                 )
                 .map_err(|e| e.to_string())?;
+                // Providers reporting commands or limits import it; others never see it.
+                bindings::session_events::kumikit::session::events::add_to_linker::<
+                    HostState,
+                    HasSelf<HostState>,
+                >(&mut provider, |s| s)
+                .map_err(|e| e.to_string())?;
                 let mut tool = wasi_linker(engine.engine()).map_err(|e| e.to_string())?;
                 bindings::tool::Plugin::add_to_linker::<HostState, HasSelf<HostState>>(
                     &mut tool,

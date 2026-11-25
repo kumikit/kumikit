@@ -122,6 +122,8 @@ methods! {
         WorkspaceGitCheckout = "workspace.git.checkout" (WorkspaceGitCheckoutParams) -> WorkspaceGitInfo;
         /// `workspace.git.worktreeCreate`: creates a Git worktree under `<homeDir>/worktrees/` for a thread in this workspace.
         WorkspaceGitWorktreeCreate = "workspace.git.worktreeCreate" (WorkspaceWorktreeCreateParams) -> WorkspaceWorktreeCreateResult;
+        /// `workspace.files.list`: lists workspace-relative file paths for `@` mentions (since 0.9).
+        WorkspaceFilesList = "workspace.files.list" (WorkspaceFilesListParams) -> WorkspaceFilesListResult;
         /// `thread.list`: threads of a workspace.
         ThreadList = "thread.list" (ThreadListParams) -> ThreadListResult;
         /// `thread.create`: a new thread.
@@ -882,6 +884,35 @@ pub struct WorkspaceOpenResult {
 pub struct WorkspaceRef {
     /// The workspace.
     pub workspace: WorkspaceId,
+}
+
+/// Params of `workspace.files.list` (since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct WorkspaceFilesListParams {
+    /// Workspace to search.
+    pub workspace: WorkspaceId,
+    /// Optional linked worktree directory; defaults to the workspace root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Case-insensitive substring filter on relative file paths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    /// Maximum number of paths to return (default 50, capped at 500).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// Result of `workspace.files.list` (since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceFilesListResult {
+    /// Relative paths using forward slashes.
+    pub files: Vec<String>,
+    /// True when more files matched than `limit`.
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 /// Params of `thread.list`.

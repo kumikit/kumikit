@@ -233,7 +233,9 @@ Provider switching and bounded conversation handoff ([03](03-kernel.md#thread-ev
   `condition_not_met`; `Thread` gains `titleSource?` (`auto`, `agent`, `user`),
   `forkedFrom?`, `parent?`, and `side?`.
 - `turn.started` and `Turn` carry `provider?`, `model?` and `purpose?` (`handoff_summary`).
-- New thread events: `thread.switched` and `handoff.delivered`.
+- `workspace.files.list { workspace, path?, query?, limit? }` → `{ files, truncated }`
+  lists workspace-relative paths (worktree-aware) for `@` file mentions.
+- New thread events: `thread.switched`, `handoff.delivered`, and `commands.available`.
 
 ### Methods added in 0.8
 

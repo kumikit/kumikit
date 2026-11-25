@@ -62,6 +62,30 @@ pub mod turn_bindings {
     });
 }
 
+/// Generated bindings for `kumikit:session/provider-events@0.1.0` (slash commands and
+/// usage limits, M7 steps 7-8).
+#[allow(missing_docs, clippy::all, unsafe_code)]
+pub mod session_bindings {
+    wit_bindgen::generate!({
+        path: [
+            "../../wit/kumikit-host@0.2.0",
+            "../../wit/kumikit-session@0.1.0",
+        ],
+        world: "kumikit:session/provider-events",
+        with: {
+            "kumikit:host/types@0.2.0": kumikit_plugin::bindings::kumikit::host::types,
+        },
+        generate_all,
+    });
+}
+
+/// Additional session events (`commands.available` and `limit.reached`).
+pub mod session {
+    pub use crate::session_bindings::kumikit::session::events::{
+        CommandInfo, emit_commands, emit_limit,
+    };
+}
+
 /// Steering: messages a user sends while a turn runs (`docs/spec/05-providers.md#steering`).
 ///
 /// Only meaningful inside [`Provider::send`]. Report the `steer` capability on models

@@ -67,6 +67,8 @@ import type { ThreadSteerResult } from "./ThreadSteerResult";
 import type { ThreadUpdateParams } from "./ThreadUpdateParams";
 import type { ThreadUpdateResult } from "./ThreadUpdateResult";
 import type { UnsubscribeParams } from "./UnsubscribeParams";
+import type { WorkspaceFilesListParams } from "./WorkspaceFilesListParams";
+import type { WorkspaceFilesListResult } from "./WorkspaceFilesListResult";
 import type { WorkspaceGitCheckoutParams } from "./WorkspaceGitCheckoutParams";
 import type { WorkspaceGitInfo } from "./WorkspaceGitInfo";
 import type { WorkspaceGitStatusParams } from "./WorkspaceGitStatusParams";
@@ -105,6 +107,7 @@ export type Methods = {
   "workspace.git.status": { params: WorkspaceGitStatusParams; result: WorkspaceGitInfo };
   "workspace.git.checkout": { params: WorkspaceGitCheckoutParams; result: WorkspaceGitInfo };
   "workspace.git.worktreeCreate": { params: WorkspaceWorktreeCreateParams; result: WorkspaceWorktreeCreateResult };
+  "workspace.files.list": { params: WorkspaceFilesListParams; result: WorkspaceFilesListResult };
   "thread.list": { params: ThreadListParams; result: ThreadListResult };
   "thread.create": { params: ThreadCreateParams; result: ThreadCreateResult };
   "thread.fork": { params: ThreadForkParams; result: ThreadCreateResult };

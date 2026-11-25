@@ -399,6 +399,28 @@ impl Kernel {
         self.inner.store.read(repo::workspace_list).await
     }
 
+    /// Lists workspace-relative file paths for `@` mentions, optionally scoped to a linked
+    /// worktree `path`. Skips common build/VCS directories and respects top-level `.gitignore`
+    /// patterns. Results are sorted and capped at `limit` (default 50, max 500).
+    pub async fn workspace_files_list(
+        &self,
+        workspace: &WorkspaceId,
+        worktree_path: Option<&str>,
+        query: Option<&str>,
+        limit: Option<u32>,
+    ) -> KernelResult<(Vec<String>, bool)> {
+        let ws = self.workspace_get(workspace).await?;
+        let root = match worktree_path.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(p) => PathBuf::from(canonical_dir(p).await?),
+            None => PathBuf::from(&ws.root),
+        };
+        let query = query.unwrap_or("").trim().to_ascii_lowercase();
+        let cap = usize::try_from(limit.unwrap_or(50).clamp(1, 500)).unwrap_or(50);
+        tokio::task::spawn_blocking(move || list_files_under(&root, &query, cap))
+            .await
+            .map_err(|e| StoreError::Task(e.to_string()))?
+    }
+
     /// An open workspace: `not_found` if there is none with this id, `conflict` if it is
     /// closed.
     pub async fn workspace_get(&self, id: &WorkspaceId) -> KernelResult<Workspace> {
@@ -1054,6 +1076,107 @@ fn expand_tilde(path: &str) -> String {
         return Path::new(&home).join(rest).to_string_lossy().into_owned();
     }
     path.to_owned()
+}
+
+/// Lists workspace-relative paths under `root` for `@` file mentions. Skips VCS and
+/// build artifact directories and top-level `.gitignore` entries, matching `query_lower`
+/// case-insensitively up to `limit` paths.
+fn list_files_under(
+    root: &Path,
+    query_lower: &str,
+    limit: usize,
+) -> KernelResult<(Vec<String>, bool)> {
+    const SKIP_DIRS: &[&str] = &[
+        ".git",
+        "node_modules",
+        "target",
+        "dist",
+        "build",
+        ".svelte-kit",
+        ".next",
+        ".nuxt",
+        "__pycache__",
+        ".venv",
+        "venv",
+    ];
+    let ignored = load_simple_gitignore(root);
+    let mut stack = vec![root.to_path_buf()];
+    let mut matches = Vec::new();
+    let mut visited = 0usize;
+    const MAX_VISIT: usize = 20_000;
+
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut children: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|x| x.path())).collect();
+        children.sort();
+        for path in children {
+            visited += 1;
+            if visited > MAX_VISIT {
+                matches.sort();
+                matches.truncate(limit);
+                return Ok((matches, true));
+            }
+            let Ok(rel) = path.strip_prefix(root) else {
+                continue;
+            };
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            let is_dir = path.is_dir();
+            if is_dir && SKIP_DIRS.contains(&name) {
+                continue;
+            }
+            if is_ignored(&rel_str, name, is_dir, &ignored) {
+                continue;
+            }
+            if is_dir {
+                stack.push(path);
+            } else if query_lower.is_empty() || rel_str.to_ascii_lowercase().contains(query_lower) {
+                matches.push(rel_str);
+            }
+        }
+    }
+
+    matches.sort();
+    let truncated = matches.len() > limit;
+    matches.truncate(limit);
+    Ok((matches, truncated))
+}
+
+fn load_simple_gitignore(root: &Path) -> Vec<String> {
+    let Ok(raw) = std::fs::read_to_string(root.join(".gitignore")) else {
+        return Vec::new();
+    };
+    raw.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with('!'))
+        .map(|l| l.trim_start_matches('/').to_owned())
+        .collect()
+}
+
+fn is_ignored(rel: &str, name: &str, is_dir: bool, patterns: &[String]) -> bool {
+    for pat in patterns {
+        let dir_only = pat.ends_with('/');
+        let p = pat.trim_end_matches('/');
+        if dir_only && !is_dir {
+            continue;
+        }
+        if let Some(ext) = p.strip_prefix("*.") {
+            if name.ends_with(&format!(".{ext}")) {
+                return true;
+            }
+        } else if p.contains('/') {
+            if rel == p || rel.starts_with(&format!("{p}/")) {
+                return true;
+            }
+        } else if name == p {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]

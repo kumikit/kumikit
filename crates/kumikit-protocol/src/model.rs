@@ -237,6 +237,21 @@ impl TitleSource {
     }
 }
 
+/// A slash command reported by an agent provider (since 0.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct SlashCommand {
+    /// Command name without a leading `/`.
+    pub name: String,
+    /// Short human-readable description.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Optional argument hint shown in the composer menu.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+}
+
 /// Where a forked thread branched from (since 0.9).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

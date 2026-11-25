@@ -14,11 +14,11 @@ use std::sync::{Arc, Mutex};
 
 use kumikit_protocol::ThreadEvent;
 use kumikit_protocol::event::{
-    ApprovalRequested, FileChanged, InputSteered, PluginEvent, ToolFinished, ToolOutput,
-    ToolStarted, TurnText, Usage,
+    ApprovalRequested, CommandsAvailable, FileChanged, InputSteered, PluginEvent, ToolFinished,
+    ToolOutput, ToolStarted, TurnText, Usage,
 };
 use kumikit_protocol::model::{
-    Approval, ApprovalId, ApprovalStatus, Decision, ThreadId, TurnId, UserInput,
+    Approval, ApprovalId, ApprovalStatus, Decision, SlashCommand, ThreadId, TurnId, UserInput,
 };
 use serde_json::Value;
 use tokio::sync::Notify;
@@ -213,6 +213,11 @@ pub enum ProviderEvent {
         kind: String,
         /// Its data.
         data: Value,
+    },
+    /// `commands.available`: slash commands offered by the provider's agent.
+    CommandsAvailable {
+        /// Available commands.
+        commands: Vec<SlashCommand>,
     },
 }
 
@@ -415,6 +420,9 @@ impl EventSink {
                 kind,
                 data,
             }),
+            ProviderEvent::CommandsAvailable { commands } => {
+                ThreadEvent::CommandsAvailable(CommandsAvailable { commands })
+            }
         };
         self.kernel.append(&self.thread, event).await
     }

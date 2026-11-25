@@ -1,0 +1,20 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "workspace.files.list",
+    "params": {
+      "workspace": "01JCWS00000000000000000001",
+      "query": "main",
+      "limit": 20
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "files": ["src/main.rs"],
+      "truncated": false
+    }
+  }
+]
