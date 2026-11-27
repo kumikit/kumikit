@@ -2825,6 +2825,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumikit-threads"
+version = "0.1.0"
+dependencies = [
+ "kumikit-tool",
+ "serde_json",
+]
+
+[[package]]
 name = "kumikit-tool"
 version = "0.1.0"
 dependencies = [

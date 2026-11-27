@@ -17,10 +17,10 @@ pub enum Seeded {
     Enabled(String),
     /// Installed; it waits for the user to grant its permissions.
     Installed(String),
-    /// A newer bundled version replaced the bundled copy; enabled again with the same
-    /// grant (`true`), or waiting for a grant because it asks for more (`false`).
+    /// The distribution's bundled copy replaced the installed bundled copy; enabled again
+    /// with the same grant (`true`), or waiting for a grant because it asks for more (`false`).
     Updated(String, bool),
-    /// Seeded before (possibly removed since) or already installed; left alone.
+    /// Already up to date, or installed from a non-bundled source; left alone.
     Skipped(String),
     /// Could not be read or installed; logged.
     Failed(PathBuf, String),
@@ -56,37 +56,38 @@ pub async fn seed(host: PluginHost, dir: PathBuf) -> Vec<Seeded> {
 }
 
 async fn seed_one(host: &PluginHost, file: &Path) -> Result<Seeded, String> {
-    let manifest = {
+    let (manifest, sha256) = {
         let file = file.to_owned();
-        tokio::task::spawn_blocking(move || crate::plugins::peek_manifest(&file))
-            .await
-            .map_err(|e| e.to_string())??
+        tokio::task::spawn_blocking(move || -> Result<(Manifest, String), String> {
+            let manifest = crate::plugins::peek_manifest(&file)?;
+            let sha256 = kumikit_plugin_host::package::sha256_file(&file)
+                .map_err(|e| format!("cannot read {}: {e}", file.display()))?;
+            Ok((manifest, sha256))
+        })
+        .await
+        .map_err(|e| e.to_string())??
     };
     let kernel = host.manager().kernel().clone();
     let id = manifest.id.clone();
-    if kernel
-        .plugin_was_seeded(&id)
-        .await
-        .map_err(|e| e.to_string())?
-    {
-        return match host.manager().get(&id) {
-            Ok(view)
-                if view.record.source == PluginSource::Bundled
-                    && newer(&manifest.version, &view.record.version) =>
-            {
-                update(host, file, &manifest, &view).await
-            }
-            _ => Ok(Seeded::Skipped(id)),
+    if let Ok(view) = host.manager().get(&id) {
+        if view.record.source != PluginSource::Bundled {
+            // Installed by the user from a file or registry: theirs to manage.
+            kernel
+                .plugin_mark_seeded(&id, &manifest.version)
+                .await
+                .map_err(|e| e.to_string())?;
+            return Ok(Seeded::Skipped(id));
+        }
+        let differs = view.record.version != manifest.version
+            || view.record.sha256 != sha256
+            || view.error.is_some();
+        return if differs {
+            update(host, file, &manifest, &view).await
+        } else {
+            Ok(Seeded::Skipped(id))
         };
     }
-    if host.manager().get(&id).is_ok() {
-        // Installed by the user before the bundle reached it: theirs to manage.
-        kernel
-            .plugin_mark_seeded(&id, &manifest.version)
-            .await
-            .map_err(|e| e.to_string())?;
-        return Ok(Seeded::Skipped(id));
-    }
+    // Not installed (first run or previously removed): install the bundled copy.
     let view = host
         .install(file, PluginSource::Bundled)
         .await
@@ -107,17 +108,7 @@ async fn seed_one(host: &PluginHost, file: &Path) -> Result<Seeded, String> {
     }
 }
 
-fn newer(candidate: &str, installed: &str) -> bool {
-    match (
-        semver::Version::parse(candidate),
-        semver::Version::parse(installed),
-    ) {
-        (Ok(c), Ok(i)) => c > i,
-        _ => false,
-    }
-}
-
-/// Replaces the bundled copy with a newer bundled version
+/// Replaces the bundled copy with the distribution's bundled package
 /// (`docs/spec/10-distribution.md#bundled-core-plugins`): the grant is kept when the new
 /// version asks for no more; otherwise it is installed without one and waits for the user.
 async fn update(

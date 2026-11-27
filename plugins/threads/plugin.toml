@@ -1,0 +1,88 @@
+# Thread coordination and wake-up tools for agents (via Kumikit's MCP tool gateway).
+id = "kumikit.threads"
+name = "Threads"
+version = "0.1.0"
+description = "Agent tools for scheduling wake-ups, reading and messaging threads, managing queues, and suggesting titles."
+license = "MIT"
+repository = "https://github.com/kumikit/kumikit"
+kind = ["tool"]
+api = "^0.2"
+
+[runtime]
+wasm = "plugin.wasm"
+worlds = ["kumikit:tool/plugin@0.1.0"]
+
+[permissions]
+client = [
+  "workspaces.list",
+  "threads.read",
+  "threads.send",
+  "threads.steer",
+  "threads.defer",
+  "threads.queue",
+  "threads.title.suggest",
+]
+workspaces = "linked"
+
+[[contributes.tools]]
+name = "wake_me"
+title = "Wake this thread later"
+description = "Schedule a deferred message to wake the calling thread at a time, after another thread finishes, after a command exits, or when a polled command succeeds."
+input = "tools/wake_me.schema.json"
+effect = "read"
+
+[[contributes.tools]]
+name = "list_threads"
+title = "List threads"
+description = "List threads in the calling thread's workspace."
+input = "tools/list_threads.schema.json"
+effect = "read"
+
+[[contributes.tools]]
+name = "read_thread"
+title = "Read thread history"
+description = "Read a bounded, paged slice of messages and events from a thread."
+input = "tools/read_thread.schema.json"
+effect = "read"
+
+[[contributes.tools]]
+name = "list_queue"
+title = "List queued messages"
+description = "List queued and deferred messages waiting on a thread."
+input = "tools/list_queue.schema.json"
+effect = "read"
+
+[[contributes.tools]]
+name = "suggest_title"
+title = "Suggest thread title"
+description = "Suggest a concise title for a thread. Ignored if the user already renamed the thread."
+input = "tools/suggest_title.schema.json"
+effect = "read"
+
+[[contributes.tools]]
+name = "message_thread"
+title = "Message another thread"
+description = "Send a message to another thread in the workspace."
+input = "tools/message_thread.schema.json"
+effect = "write"
+
+[[contributes.tools]]
+name = "queue_message"
+title = "Queue or defer a message"
+description = "Queue a message on a thread, optionally with a deferred trigger."
+input = "tools/queue_message.schema.json"
+effect = "write"
+
+[[contributes.tools]]
+name = "steer_thread"
+title = "Steer a running thread"
+description = "Steer a running thread mid-turn, or queue the message if it is idle or cannot steer."
+input = "tools/steer_thread.schema.json"
+effect = "write"
+
+[[contributes.tools]]
+name = "cancel_deferred"
+title = "Cancel a queued or deferred message"
+description = "Remove a queued or deferred message entry from a thread."
+input = "tools/cancel_deferred.schema.json"
+effect = "write"

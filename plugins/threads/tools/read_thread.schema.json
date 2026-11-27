@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["thread"],
+  "properties": {
+    "thread": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Thread ID to read."
+    },
+    "after": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Return events with seq strictly greater than this value (default 0)."
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200,
+      "description": "Maximum number of events to inspect (default 50, max 200)."
+    }
+  }
+}

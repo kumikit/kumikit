@@ -4,6 +4,7 @@
 <script lang="ts">
   import type { Kernel } from '../app.svelte';
   import { LEFT_MAX, LEFT_MIN, RIGHT_MAX, RIGHT_MIN } from '../layout/layout';
+  import type { ResizeDirection } from '../platform/index';
   import ConfirmDialog from './ConfirmDialog.svelte';
   import CoreView from './CoreView.svelte';
   import CoresView from './CoresView.svelte';
@@ -100,6 +101,22 @@
     }
     e.preventDefault();
   }
+  const RESIZE_EDGES: { dir: ResizeDirection; cls: string }[] = [
+    { dir: 'North', cls: 'edge-n' },
+    { dir: 'South', cls: 'edge-s' },
+    { dir: 'West', cls: 'edge-w' },
+    { dir: 'East', cls: 'edge-e' },
+    { dir: 'NorthWest', cls: 'edge-nw' },
+    { dir: 'NorthEast', cls: 'edge-ne' },
+    { dir: 'SouthWest', cls: 'edge-sw' },
+    { dir: 'SouthEast', cls: 'edge-se' },
+  ];
+
+  function startEdgeResize(e: MouseEvent, dir: ResizeDirection) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    void kernel.platform.window?.startResizeDragging(dir);
+  }
 </script>
 
 <svelte:window onkeydown={onKey} oncontextmenu={onContextMenu} />
@@ -107,7 +124,19 @@
 {#if pairing}
   <PairBrowser {kernel} />
 {:else}
-  <div class="frame" class:resizing>
+  <div
+    class="frame"
+    class:resizing
+    class:undecorated-outline={Boolean(
+      kernel.windowChrome?.borderless && !kernel.windowChrome.tiling && !kernel.windowMaximized && !kernel.windowFullscreen,
+    )}
+  >
+    {#if kernel.showCustomResizeHandles}
+      {#each RESIZE_EDGES as edge (edge.dir)}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="win-edge {edge.cls}" aria-hidden="true" onmousedown={(e) => startEdgeResize(e, edge.dir)}></div>
+      {/each}
+    {/if}
     <TopBar {kernel} />
     <div class="workspace">
       {#if kernel.leftSidebarOpen}
@@ -231,6 +260,70 @@
     flex-direction: column;
     height: 100%;
     min-height: 0;
+    box-sizing: border-box;
+  }
+  .frame.undecorated-outline {
+    border: 1px solid var(--kk-border-subtle, CanvasText);
+  }
+  .win-edge {
+    position: fixed;
+    z-index: 60;
+  }
+  .edge-n {
+    top: 0;
+    left: 8px;
+    right: 8px;
+    height: 4px;
+    cursor: n-resize;
+  }
+  .edge-s {
+    bottom: 0;
+    left: 8px;
+    right: 8px;
+    height: 4px;
+    cursor: s-resize;
+  }
+  .edge-w {
+    left: 0;
+    top: 8px;
+    bottom: 8px;
+    width: 4px;
+    cursor: w-resize;
+  }
+  .edge-e {
+    right: 0;
+    top: 8px;
+    bottom: 8px;
+    width: 4px;
+    cursor: e-resize;
+  }
+  .edge-nw {
+    top: 0;
+    left: 0;
+    width: 8px;
+    height: 8px;
+    cursor: nw-resize;
+  }
+  .edge-ne {
+    top: 0;
+    right: 0;
+    width: 8px;
+    height: 8px;
+    cursor: ne-resize;
+  }
+  .edge-sw {
+    bottom: 0;
+    left: 0;
+    width: 8px;
+    height: 8px;
+    cursor: sw-resize;
+  }
+  .edge-se {
+    bottom: 0;
+    right: 0;
+    width: 8px;
+    height: 8px;
+    cursor: se-resize;
   }
   .frame.resizing {
     user-select: none;

@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entry"],
+  "properties": {
+    "thread": {
+      "type": "string",
+      "description": "Optional thread ID. Defaults to the calling thread."
+    },
+    "entry": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Queue or deferred entry ID to remove."
+    }
+  }
+}

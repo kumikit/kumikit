@@ -121,7 +121,7 @@ jobs:
         with:
           key: release-${{ matrix.target }}
 
-      - name: Build production binaries (kumikit, kumikit-registry, fake-acp-agent)
+      - name: Build production binaries (kumikit, kumikit-registry, fake-acp-agent) and bundled WASM plugins
         env:
           KUMIKIT_RELEASE_VERSION: ${{ steps.tag.outputs.tag }}
         run: |
@@ -129,6 +129,10 @@ jobs:
             -p kumikit-core \
             -p kumikit-registry-tool \
             -p kumikit-fake-acp-agent
+          cargo build --locked --release --target wasm32-wasip2 \
+            -p kumikit-provider-acp \
+            -p kumikit-threads \
+            -p kumikit-test-probe
 
       - name: Stage and pack production kumikit and kumikit-registry
         env:
@@ -138,7 +142,7 @@ jobs:
           BIN_EXT: ${{ matrix.bin_ext }}
         run: |
           set -euo pipefail
-          mkdir -p dist stage/cli stage/registry
+          mkdir -p dist stage/cli/core-plugins stage/registry
 
           cp "target/release/kumikit${BIN_EXT}" LICENSE stage/cli/
           cp "target/release/kumikit-registry${BIN_EXT}" LICENSE stage/registry/
@@ -146,6 +150,29 @@ jobs:
           # Smoke-check the production binaries.
           "./stage/cli/kumikit${BIN_EXT}" --version
           "./stage/registry/kumikit-registry${BIN_EXT}" --help >/dev/null
+
+          # Pack bundled core plugins (provider-acp, threads) alongside the CLI binary so
+          # headless servers and SSH-synced remote cores have them out of the box.
+          pack_core_plugin() {
+            local src="$1"
+            local wasm="$2"
+            shift 2
+            local id ver tmp
+            id=$(sed -n 's/^id *= *"\([^"]*\)".*/\1/p' "$src/plugin.toml" | head -n 1)
+            ver=$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' "$src/plugin.toml" | head -n 1)
+            tmp="stage/pack-${id}"
+            rm -rf "$tmp"
+            mkdir -p "$tmp"
+            cp "$src/plugin.toml" "$tmp/plugin.toml"
+            for extra in "$@"; do
+              cp -r "$src/$extra" "$tmp/$extra"
+            done
+            cp "$wasm" "$tmp/plugin.wasm"
+            "./stage/cli/kumikit${BIN_EXT}" plugin pack "$tmp" -o "stage/cli/core-plugins/${id}-${ver}.kkp"
+            rm -rf "$tmp"
+          }
+          pack_core_plugin plugins/provider-acp target/wasm32-wasip2/release/kumikit_provider_acp.wasm acp.schema.json
+          pack_core_plugin plugins/threads target/wasm32-wasip2/release/kumikit_threads.wasm tools
 
           pack_dir() {
             local src="$1"
@@ -160,13 +187,10 @@ jobs:
           pack_dir stage/cli "dist/kumikit-${TAG}-${TARGET}.${EXT}"
           pack_dir stage/registry "dist/kumikit-registry-${TAG}-${TARGET}.${EXT}"
 
-      - name: Build test-kit WASM plugins and test-hooks core
+      - name: Build test-hooks core for test-kit
         env:
           KUMIKIT_RELEASE_VERSION: ${{ steps.tag.outputs.tag }}
         run: |
-          cargo build --locked --release --target wasm32-wasip2 \
-            -p kumikit-provider-acp \
-            -p kumikit-test-probe
           # Reuses compiled dependencies; only recompiles kumikit-plugin-host and kumikit-core.
           cargo build --locked --release -p kumikit-core --features test-hooks
 

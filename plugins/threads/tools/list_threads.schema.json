@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "workspace": {
+      "type": "string",
+      "description": "Optional workspace ID. Defaults to the calling thread's workspace."
+    }
+  }
+}

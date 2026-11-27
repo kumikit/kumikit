@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "thread": {
+      "type": "string",
+      "description": "Optional thread ID. Defaults to the calling thread."
+    }
+  }
+}

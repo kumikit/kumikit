@@ -20,7 +20,7 @@ repository; the first-party ones should be built the same way.
 - They depend on the SDKs by git, pinned to a commit of this repository (crates.io and
   npm releases of the SDKs are a later decision), and their CI builds `kumikit` from the
   same pin for end-to-end tests.
-- This repository keeps the framework, the preinstalled plugins (`provider-acp`,
+- This repository keeps the framework, the preinstalled plugins (`provider-acp`, `threads`,
   `ui-chat`, `ui-settings`, `theme-default`), the templates and the test plugins that
   prove each general API. Its exit tests use those test plugins.
 - Each plugin repository publishes its packages as GitHub releases and to the registry

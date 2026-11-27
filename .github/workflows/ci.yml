@@ -44,6 +44,7 @@ jobs:
               - 'sdk/**'
               - 'wit/**'
               - 'plugins/provider-acp/**'
+              - 'plugins/threads/**'
               - 'test-plugins/**'
               - '.github/workflows/ci.yml'
             web:
@@ -191,7 +192,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       # Guest crates (SDK, plugins, test plugins) also build for the plugin target.
-      - run: cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-tool -p kumikit-test-hello -p kumikit-test-probe -p kumikit-test-client -p kumikit-test-tool -p kumikit-provider-acp -- -D warnings
+      - run: cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-tool -p kumikit-test-hello -p kumikit-test-probe -p kumikit-test-client -p kumikit-test-tool -p kumikit-provider-acp -p kumikit-threads -- -D warnings
       - run: cargo nextest run --workspace --no-fail-fast
       - run: cargo test --workspace --doc
 

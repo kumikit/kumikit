@@ -7,26 +7,35 @@ disabled; the UI kernel works (with an empty state) without any of them.
 
 | Plugin | Side | Why it is preinstalled |
 |---|---|---|
-| `kumikit.provider-acp` | core | Runs any ACP agent from a manifest; gives a working agent with no code. Shipped with the desktop app and preinstalled through `--bundled-plugins` (below). |
+| `kumikit.provider-acp` | core | Runs any ACP agent from a manifest; gives a working agent with no code. Shipped in `core-plugins/` with desktop installers and CLI archives (below). |
+| `kumikit.threads` | core | Agent tools for wake-ups, thread coordination, queues, and title suggestions via the MCP tool gateway. Shipped in `core-plugins/` alongside `provider-acp` (waits for the user's permission grant). |
 | `kumikit.ui-chat` | client | Transcript and composer |
 | `kumikit.ui-settings` | client | Settings pages for the kernel and declarative plugin settings |
 | `kumikit.theme-default` | client | Light and dark themes; the fallback for missing tokens |
 
 ### Bundled core plugins
 
-`kumikit serve --bundled-plugins <dir>` preinstalls the core plugins shipped with an
-installer. The desktop app passes its own directory when it starts the core. At start the
-core installs every `.kkp` in the directory whose id it has not seeded before, and records
-the id and version as seeded, so a plugin the user removed is not installed again. It
-enables a seeded plugin only if it requests no permissions; any other stays installed
-until the user grants it. The core names no plugin: the directory decides. A core started
-without the flag (for example from the CLI) preinstalls nothing.
+`kumikit serve --bundled-plugins <dir>` keeps the core plugins shipped with a distribution
+in sync. Desktop installers pass their bundled `core-plugins/` directory when starting the
+local core; standalone CLI archives (`kumikit-v*-<target>.tar.gz`/`.zip`) and SSH remote
+sync also ship `core-plugins/` alongside the `kumikit` binary. When `--bundled-plugins` is
+omitted (and `--no-bundled-plugins` is not passed), `kumikit serve` checks
+`<exe dir>/core-plugins` and `<exe dir>/../share/kumikit/core-plugins` automatically. At
+start the core checks every `.kkp` in the directory:
 
-A bundled package whose version is higher than the installed copy, when that copy came
-from the bundle (`source = bundled`), replaces it at start like an update
-([Updates](#updates)): it keeps the grant and stays enabled if it asks for no more;
-otherwise it is installed without a grant and waits, disabled, until the user grants the
-new permissions. A copy the user installed from elsewhere is left alone.
+- If the plugin is not installed, it installs it with `source = bundled` and enables it
+  only if it requests no permissions; any other stays installed until the user grants it.
+  Bundled core plugins can be disabled (their disabled state persists across restarts and
+  upgrades), rather than permanently removed, matching bundled client plugins.
+- If the plugin is already installed from the bundle (`source = bundled`) and its version
+  or package hash differs from the bundled `.kkp`, or its installed copy failed to load,
+  the bundled package replaces it at start like an update ([Updates](#updates)): it keeps
+  the grant and enabled/disabled state if it asks for no more; otherwise it is installed
+  without a grant and waits, disabled, until the user grants the new permissions.
+- A copy the user installed from elsewhere (`file` or a registry) is left alone.
+
+The core names no plugin: the directory decides. Pass `--no-bundled-plugins` to disable
+auto-discovery.
 
 ### Starter pack
 
@@ -54,6 +63,10 @@ The AppImage carries WebKitGTK and GTK, so it is larger than the other installer
 outside the installer budget ([00](00-overview.md#footprint-budgets)). It uses the host's
 Wayland and EGL libraries rather than bundled ones, which do not work with current Mesa. It
 starts on X11 (or Xwayland) by default; `GDK_BACKEND=wayland` selects GTK's Wayland backend.
+Running the AppImage with no arguments (or `--safe`) opens the desktop app; passing any
+other arguments (such as `--help`, `serve`, `plugin`, or `update`) forwards directly to the
+bundled `kumikit` CLI without loading GTK or WebKit libraries, and `update` replaces the
+AppImage file itself.
 
 ## Package format
 

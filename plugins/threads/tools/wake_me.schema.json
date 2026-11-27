@@ -1,0 +1,68 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["text"],
+  "properties": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Message delivered to this thread when the wake-up fires."
+    },
+    "trigger": {
+      "type": "object",
+      "description": "Structured QueueTrigger: { kind: 'at', time }, { kind: 'after_turn', thread, onlyOnSuccess? }, { kind: 'after_command', argv, cwd?, timeoutS? }, or { kind: 'poll_command', argv, cwd?, everyS, maxTries, timeoutS? }."
+    },
+    "inMinutes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10080,
+      "description": "Shortcut for an 'at' trigger N minutes from now."
+    },
+    "at": {
+      "type": "string",
+      "description": "Shortcut for an 'at' trigger at an RFC 3339 UTC timestamp."
+    },
+    "afterThread": {
+      "type": "string",
+      "description": "Shortcut for an 'after_turn' trigger waiting for another thread's turn to end."
+    },
+    "onlyOnSuccess": {
+      "type": "boolean",
+      "description": "Used with afterThread: fire only if that turn ends done."
+    },
+    "afterCommand": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Shortcut for an 'after_command' trigger: program and arguments."
+    },
+    "pollCommand": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Shortcut for a 'poll_command' trigger: program and arguments polled until exit 0."
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Optional workspace-relative working directory for afterCommand or pollCommand."
+    },
+    "timeoutS": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 86400,
+      "description": "Per-run command timeout in seconds (default 300)."
+    },
+    "everyS": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 3600,
+      "description": "Poll interval in seconds for pollCommand (default 60)."
+    },
+    "maxTries": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000,
+      "description": "Maximum poll attempts for pollCommand (default 30)."
+    }
+  }
+}

@@ -144,7 +144,7 @@
             <div class="card-top">
               <div class="title-col">
                 <strong>{p.name}</strong>
-                <span class="sub-id">{p.id} · v{p.version}</span>
+                <span class="sub-id">{p.id} · v{p.version}{p.source === 'bundled' ? ' · bundled' : ''}</span>
               </div>
               <span class="badge {p.state}">
                 <span class="badge-dot {p.state}" aria-hidden="true"></span>
@@ -166,7 +166,9 @@
               {:else}
                 <button type="button" class="kk-button" onclick={() => core.disable(p.id)}>Disable</button>
               {/if}
-              <button type="button" class="kk-button danger" onclick={() => (removing = p)}>Remove…</button>
+              {#if p.source !== 'bundled'}
+                <button type="button" class="kk-button danger" onclick={() => (removing = p)}>Remove…</button>
+              {/if}
             </div>
           </li>
         {/each}

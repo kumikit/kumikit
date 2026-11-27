@@ -1,5 +1,6 @@
 /** The desktop shell's bridge (ADR 0013). */
 import { Channel, invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 
 import type {
@@ -17,6 +18,7 @@ import type {
   Removed,
   SshProbeResult,
   SshSyncResult,
+  WindowChrome,
 } from './index';
 import { asConnectError, pickWithInput, safeModeFromUrl } from './index';
 
@@ -88,6 +90,17 @@ export function tauriPlatform(): Platform {
       check: () => call<AppUpdateCheckResult>('app_update_check'),
       download: () => call<AppUpdateDownloadResult>('app_update_download'),
       apply: (version, ifIdle) => call<AppUpdateApplyResult>('app_update_apply', { request: { version, ifIdle } }),
+    },
+    window: {
+      chrome: () => call<WindowChrome>('window_chrome'),
+      minimize: () => getCurrentWindow().minimize(),
+      toggleMaximize: () => getCurrentWindow().toggleMaximize(),
+      close: () => getCurrentWindow().close(),
+      startDragging: () => getCurrentWindow().startDragging(),
+      startResizeDragging: (direction) => getCurrentWindow().startResizeDragging(direction),
+      isMaximized: () => getCurrentWindow().isMaximized(),
+      isFullscreen: () => getCurrentWindow().isFullscreen(),
+      onStateChange: (cb) => getCurrentWindow().onResized(() => cb()),
     },
     safeMode: safeModeFromUrl(location.href),
   };

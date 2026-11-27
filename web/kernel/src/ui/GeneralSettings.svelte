@@ -3,8 +3,41 @@
 <script lang="ts">
   import type { PermissionMode } from '@kumikit/protocol';
   import type { Kernel } from '../app.svelte';
+  import type { WindowButtonsMode } from '../settings/settings.svelte';
 
   let { kernel }: { kernel: Kernel } = $props();
+
+  interface WindowButtonsOption {
+    id: WindowButtonsMode;
+    label: string;
+    description: string;
+  }
+
+  const windowButtonsMode = $derived(kernel.settings.value.windowButtons);
+  const windowButtonsOptions = $derived.by<WindowButtonsOption[]>(() => {
+    const detected = kernel.windowChrome?.tiling ? 'tiling window manager' : 'stacking desktop';
+    return [
+      {
+        id: 'auto',
+        label: 'Auto',
+        description: `Show on stacking desktops and hide on tiling window managers (detected: ${detected}).`,
+      },
+      {
+        id: 'show',
+        label: 'Show',
+        description: 'Always show minimize, maximize, and close buttons in the top bar.',
+      },
+      {
+        id: 'hide',
+        label: 'Hide',
+        description: 'Never show window buttons in the top bar.',
+      },
+    ];
+  });
+
+  function setWindowButtons(mode: WindowButtonsMode) {
+    kernel.settings.update({ windowButtons: mode });
+  }
 
   interface ModeOption {
     id: PermissionMode;
@@ -223,6 +256,33 @@
       <p class="err" role="alert">{homeError}</p>
     {/if}
   </section>
+
+  {#if kernel.platform.window && kernel.windowChrome?.borderless}
+    <fieldset class="section">
+      <legend>Window buttons</legend>
+      <p class="hint">Control minimize, maximize, and close buttons in the top bar.</p>
+      <div class="options">
+        {#each windowButtonsOptions as opt (opt.id)}
+          <label class="option" class:selected={windowButtonsMode === opt.id}>
+            <input
+              type="radio"
+              name="kk-window-buttons"
+              value={opt.id}
+              checked={windowButtonsMode === opt.id}
+              onchange={() => setWindowButtons(opt.id)}
+            />
+            <div class="opt-body">
+              <span class="opt-title">{opt.label}</span>
+              <span class="opt-desc">{opt.description}</span>
+            </div>
+            {#if opt.id === 'auto'}
+              <span class="chip">Default</span>
+            {/if}
+          </label>
+        {/each}
+      </div>
+    </fieldset>
+  {/if}
 </div>
 
 <style>

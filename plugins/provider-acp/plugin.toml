@@ -1,6 +1,6 @@
 id = "kumikit.provider-acp"
 name = "ACP agents"
-version = "0.1.0"
+version = "0.2.0"
 description = "Runs any agent that speaks the Agent Client Protocol, from a manifest entry."
 license = "MIT"
 repository = "https://github.com/kumikit/kumikit"

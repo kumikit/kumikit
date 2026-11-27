@@ -24,9 +24,21 @@
     if (m.kind === 'view') return kernel.slots.in('view').find((v) => v.contribution.id === m.id)?.contribution.title ?? 'View';
     return undefined;
   });
+  function onTopBarMouseDown(e: MouseEvent) {
+    if (!kernel.canDragTopBar || e.button !== 0) return;
+    if (e.target instanceof Element && e.target.closest('button, a, input, select, textarea, [role="button"]')) {
+      return;
+    }
+    if (e.detail === 2) {
+      void kernel.platform.window?.toggleMaximize();
+    } else {
+      void kernel.platform.window?.startDragging();
+    }
+  }
 </script>
 
-<header class="topbar">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<header class="topbar" class:overlay-inset={kernel.nativeOverlayInset} onmousedown={onTopBarMouseDown}>
   <div class="group">
     <button
       type="button"
@@ -110,6 +122,38 @@
         <span class="dot" aria-hidden="true"></span>
       {/if}
     </button>
+    {#if kernel.showWindowButtons}
+      <span class="divider" aria-hidden="true"></span>
+      <div class="win-controls" role="group" aria-label="Window controls">
+        <button
+          type="button"
+          class="kk-icon-btn win-btn"
+          aria-label="Minimize window"
+          title="Minimize"
+          onclick={() => void kernel.platform.window?.minimize()}
+        >
+          <Icon name="win-minimize" size={12} />
+        </button>
+        <button
+          type="button"
+          class="kk-icon-btn win-btn"
+          aria-label={kernel.windowMaximized ? 'Restore window' : 'Maximize window'}
+          title={kernel.windowMaximized ? 'Restore' : 'Maximize'}
+          onclick={() => void kernel.platform.window?.toggleMaximize()}
+        >
+          <Icon name={kernel.windowMaximized ? 'win-restore' : 'win-maximize'} size={12} />
+        </button>
+        <button
+          type="button"
+          class="kk-icon-btn win-btn close"
+          aria-label="Close window"
+          title="Close"
+          onclick={() => void kernel.platform.window?.close()}
+        >
+          <Icon name="x" size={12} />
+        </button>
+      </div>
+    {/if}
   </div>
 </header>
 
@@ -125,6 +169,22 @@
     border-bottom: 1px solid var(--kk-border-subtle, CanvasText);
     user-select: none;
     flex: none;
+  }
+  .topbar.overlay-inset {
+    padding-left: 74px;
+  }
+  .win-controls {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+  }
+  .win-btn {
+    width: 26px;
+    height: 24px;
+  }
+  .win-btn.close:hover {
+    background: var(--kk-state-danger-tint, Mark);
+    color: var(--kk-state-danger, MarkText);
   }
   .group {
     display: flex;

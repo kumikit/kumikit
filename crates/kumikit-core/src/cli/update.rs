@@ -2,13 +2,13 @@
 //! (`docs/spec/10-distribution.md#application-updates`,
 //! [ADR 0031](../../../docs/decisions/0031-signed-release-manifest-and-updates.md)).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use kumikit_protocol::APP_VERSION;
 use kumikit_protocol::methods::{CoreActivity, CoreShutdown, Empty, ShutdownParams};
-use kumikit_registry::release::{ReleaseClient, current_target, extract_core_binary};
+use kumikit_registry::release::{ReleaseClient, current_target, extract_core_bundle};
 
 use super::{Out, Rpc, Target, confirm};
 
@@ -25,11 +25,26 @@ pub struct UpdateOptions {
     pub force: bool,
 }
 
-/// Checks for and installs a newer signed `kumikit` binary for the current platform.
+/// Checks for and installs a newer signed `kumikit` binary (or the enclosing AppImage
+/// when invoked through an AppImage's CLI forwarding) for the current platform.
 pub async fn self_update(target: &Target, options: UpdateOptions, out: &mut dyn Out) -> Result<()> {
     let client = ReleaseClient::from_env(&crate::paths::process_env)
         .context("cannot configure release client")?;
     let exe = std::env::current_exe().context("cannot determine current kumikit binary path")?;
+    if let Some((appimage_path, asset_key)) =
+        appimage_update_target(&exe, &crate::paths::process_env, current_target())
+    {
+        return self_update_appimage_with(
+            &client,
+            APP_VERSION,
+            asset_key,
+            &appimage_path,
+            target,
+            options,
+            out,
+        )
+        .await;
+    }
     self_update_with(
         &client,
         APP_VERSION,
@@ -40,6 +55,97 @@ pub async fn self_update(target: &Target, options: UpdateOptions, out: &mut dyn 
         out,
     )
     .await
+}
+
+/// Returns `(appimage_path, desktop_asset_key)` when `exe` is running from inside a
+/// mounted AppImage (`APPIMAGE` and `APPDIR` are set and `exe` lives under `APPDIR`).
+fn appimage_update_target(
+    exe: &Path,
+    env: &dyn Fn(&str) -> Option<String>,
+    target_triple: &str,
+) -> Option<(PathBuf, &'static str)> {
+    let appimage = env("APPIMAGE").filter(|s| !s.is_empty())?;
+    let appdir = env("APPDIR").filter(|s| !s.is_empty())?;
+    let appdir_path = Path::new(&appdir);
+    let exe_canon = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+    let dir_canon =
+        std::fs::canonicalize(appdir_path).unwrap_or_else(|_| appdir_path.to_path_buf());
+    if !exe_canon.starts_with(&dir_canon) {
+        return None;
+    }
+    let key = match target_triple {
+        "x86_64-unknown-linux-gnu" => "linux-x86_64-appimage",
+        "aarch64-unknown-linux-gnu" => "linux-aarch64-appimage",
+        _ => return None,
+    };
+    Some((PathBuf::from(appimage), key))
+}
+
+/// Testable AppImage self-update path used when `kumikit update` runs through an AppImage.
+pub async fn self_update_appimage_with(
+    client: &ReleaseClient,
+    current_version: &str,
+    asset_key: &str,
+    appimage_path: &Path,
+    core_target: &Target,
+    options: UpdateOptions,
+    out: &mut dyn Out,
+) -> Result<()> {
+    let check = client
+        .check_update(current_version)
+        .await
+        .context("update check failed")?;
+    if !check.update_available {
+        out.line(&format!(
+            "Kumikit {} is up to date (latest signed release: {}).",
+            check.current_version, check.latest_version
+        ));
+        return Ok(());
+    }
+    let Some(asset) = check.manifest.desktop.get(asset_key) else {
+        bail!(
+            "release {} does not include an AppImage for {asset_key}",
+            check.latest_version
+        );
+    };
+    out.line(&format!(
+        "Update available: {} -> {} ({})",
+        check.current_version, check.latest_version, check.manifest.notes_url
+    ));
+    if options.check {
+        return Ok(());
+    }
+    if !options.yes
+        && !confirm(&format!(
+            "Download and install Kumikit {} to {}?",
+            check.latest_version,
+            appimage_path.display()
+        ))
+    {
+        out.line("Update cancelled.");
+        return Ok(());
+    }
+
+    let stage = tempfile::tempdir().context("cannot create staging directory")?;
+    let downloaded = stage.path().join("Kumikit.AppImage");
+    out.line(&format!("Downloading and verifying {}...", asset.url));
+    client
+        .download_verified(asset, &downloaded)
+        .await
+        .context("failed to download or verify AppImage release")?;
+
+    let was_running = stop_running_core(core_target, options, out).await?;
+    replace_binary(&downloaded, appimage_path)
+        .with_context(|| format!("failed to replace {}", appimage_path.display()))?;
+    out.line(&format!(
+        "Installed Kumikit {} to {}.",
+        check.latest_version,
+        appimage_path.display()
+    ));
+    if was_running {
+        out.line("Stopped the previous running core. Start it again with `kumikit serve` (or relaunch the AppImage).");
+    }
+    Ok(())
 }
 
 /// Testable core of [`self_update`].
@@ -98,12 +204,21 @@ pub async fn self_update_with(
         .download_verified(asset, &archive_path)
         .await
         .context("failed to download or verify release archive")?;
-    let new_bin = extract_core_binary(&archive_path, &asset.format, &stage.path().join("bin"))
+    let extracted = extract_core_bundle(&archive_path, &asset.format, &stage.path().join("bin"))
         .context("failed to extract kumikit binary")?;
 
     let was_running = stop_running_core(core_target, options, out).await?;
-    replace_binary(&new_bin, target_exe)
+    replace_binary(&extracted.binary, target_exe)
         .with_context(|| format!("failed to replace {}", target_exe.display()))?;
+    if !extracted.core_plugins.is_empty() {
+        let dest_plugins = bundled_plugins_dest(target_exe);
+        sync_core_plugins(&extracted.core_plugins, &dest_plugins).with_context(|| {
+            format!(
+                "failed to update bundled core plugins in {}",
+                dest_plugins.display()
+            )
+        })?;
+    }
     out.line(&format!(
         "Installed Kumikit {} to {}.",
         check.latest_version,
@@ -176,6 +291,49 @@ async fn stop_running_core(
     Ok(true)
 }
 
+/// Chooses where bundled `core-plugins/*.kkp` from a CLI archive live relative to `target_exe`:
+/// `<prefix>/share/kumikit/core-plugins` when installed under a `bin/` directory (unless a
+/// sibling `core-plugins/` already exists), otherwise `<exe dir>/core-plugins`.
+fn bundled_plugins_dest(target_exe: &Path) -> PathBuf {
+    let exe_dir = target_exe
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let sibling = exe_dir.join("core-plugins");
+    if sibling.is_dir() {
+        return sibling;
+    }
+    if exe_dir.file_name().is_some_and(|n| n == "bin")
+        && let Some(prefix) = exe_dir.parent()
+    {
+        return prefix.join("share").join("kumikit").join("core-plugins");
+    }
+    sibling
+}
+
+/// Replaces the `.kkp` files in `dest_dir` with the verified bundled packages from `files`.
+fn sync_core_plugins(files: &[PathBuf], dest_dir: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dest_dir)?;
+    for entry in std::fs::read_dir(dest_dir)?.flatten() {
+        let path = entry.path();
+        if path.is_file() && path.extension().is_some_and(|e| e == "kkp") {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+    for src in files {
+        let Some(name) = src.file_name() else {
+            continue;
+        };
+        let dest = dest_dir.join(name);
+        let mut tmp = tempfile::NamedTempFile::new_in(dest_dir)?;
+        let mut reader = std::fs::File::open(src)?;
+        std::io::copy(&mut reader, tmp.as_file_mut())?;
+        tmp.as_file().sync_all()?;
+        tmp.persist(&dest).map_err(|e| e.error)?;
+    }
+    Ok(())
+}
+
 /// Atomically replaces `target_exe` with `new_bin` (creating the temp file in the same
 /// directory so `rename` stays on one filesystem).
 pub fn replace_binary(new_bin: &Path, target_exe: &Path) -> std::io::Result<()> {
@@ -243,6 +401,17 @@ mod tests {
             "kumikit"
         };
         tar.append_data(&mut header, name, payload).unwrap();
+        let plugin_bytes = b"bundled-plugin-kkp";
+        let mut pheader = tar::Header::new_gnu();
+        pheader.set_size(plugin_bytes.len() as u64);
+        pheader.set_mode(0o644);
+        pheader.set_cksum();
+        tar.append_data(
+            &mut pheader,
+            "core-plugins/example-0.2.0.kkp",
+            &plugin_bytes[..],
+        )
+        .unwrap();
         tar.into_inner().unwrap().finish().unwrap();
         archive
     }
@@ -347,5 +516,106 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(std::fs::read(&target_exe).unwrap(), payload);
+        assert_eq!(
+            std::fs::read(dir.path().join("core-plugins/example-0.2.0.kkp")).unwrap(),
+            b"bundled-plugin-kkp"
+        );
+    }
+
+    #[test]
+    fn appimage_target_requires_exe_inside_appdir() {
+        let dir = tempfile::tempdir().unwrap();
+        let appdir = dir.path().join("mount");
+        let bin_dir = appdir.join("usr/bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let inside = bin_dir.join("kumikit");
+        std::fs::write(&inside, b"").unwrap();
+        let outside = dir.path().join("kumikit");
+        std::fs::write(&outside, b"").unwrap();
+        let appimage = dir.path().join("Kumikit.AppImage");
+
+        let env = |k: &str| match k {
+            "APPIMAGE" => Some(appimage.to_string_lossy().into_owned()),
+            "APPDIR" => Some(appdir.to_string_lossy().into_owned()),
+            _ => None,
+        };
+        assert_eq!(
+            appimage_update_target(&inside, &env, "x86_64-unknown-linux-gnu"),
+            Some((appimage.clone(), "linux-x86_64-appimage"))
+        );
+        assert_eq!(
+            appimage_update_target(&outside, &env, "x86_64-unknown-linux-gnu"),
+            None
+        );
+        assert_eq!(
+            appimage_update_target(&inside, &env, "aarch64-apple-darwin"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn self_update_appimage_verifies_and_replaces_appimage_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let (key, _) = SigningKey::generate().unwrap();
+        let new_image_bytes = b"#!/bin/sh\necho new-appimage\n";
+        let source_image = dir.path().join("Kumikit-0.2.0.AppImage");
+        std::fs::write(&source_image, new_image_bytes).unwrap();
+
+        let mut desktop = BTreeMap::new();
+        desktop.insert(
+            "linux-x86_64-appimage".to_owned(),
+            ReleaseAsset {
+                url: file_url(&source_image),
+                sha256: sha256_bytes_hex(new_image_bytes),
+                size: new_image_bytes.len() as u64,
+                format: "appimage".into(),
+            },
+        );
+        let manifest = ReleaseManifest {
+            format: RELEASE_MANIFEST_FORMAT,
+            version: "0.2.0".into(),
+            tag: "v0.2.0".into(),
+            published_at: "2026-11-27T00:00:00Z".into(),
+            notes_url: "https://github.com/kumikit/kumikit/releases/tag/v0.2.0".into(),
+            notes: None,
+            core: BTreeMap::new(),
+            desktop,
+        };
+        let (json, sig) = sign_manifest(&manifest, &key).unwrap();
+        let manifest_path = dir.path().join("release.json");
+        std::fs::write(&manifest_path, &json).unwrap();
+        std::fs::write(dir.path().join("release.json.sig"), &sig).unwrap();
+
+        let client =
+            ReleaseClient::with_config(Fetcher::default(), file_url(&manifest_path), key.public());
+        let appimage_path = dir.path().join("Kumikit.AppImage");
+        std::fs::write(&appimage_path, b"old-appimage").unwrap();
+        let core_target = Target {
+            data_dir: dir.path().join("data"),
+            address: dir
+                .path()
+                .join("no-core.sock")
+                .to_string_lossy()
+                .into_owned(),
+        };
+
+        let mut out = Capture(Vec::new());
+        self_update_appimage_with(
+            &client,
+            "0.1.0",
+            "linux-x86_64-appimage",
+            &appimage_path,
+            &core_target,
+            UpdateOptions {
+                check: false,
+                yes: true,
+                wait_idle: false,
+                force: false,
+            },
+            &mut out,
+        )
+        .await
+        .unwrap();
+        assert_eq!(std::fs::read(&appimage_path).unwrap(), new_image_bytes);
     }
 }

@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["thread", "text"],
+  "properties": {
+    "thread": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Target thread ID (must be another thread)."
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Message text to send to the target thread."
+    }
+  }
+}

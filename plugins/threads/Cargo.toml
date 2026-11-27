@@ -1,0 +1,19 @@
+[package]
+name = "kumikit-threads"
+description = "Agent tools for scheduling wake-ups and coordinating threads in Kumikit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+kumikit-tool.workspace = true
+serde_json = "1.0.154"

@@ -7,8 +7,11 @@
 use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use kumikit_protocol::local::{Env, Platform, default_address};
+use kumikit_protocol::{APP_VERSION, PROTOCOL_VERSION};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
 use crate::transport::{self, Stream};
 
@@ -93,9 +96,18 @@ pub enum LocalError {
 }
 
 /// Connects to the local core, starting it first if nothing answers.
+///
+/// If an older local core is already running and completely idle, it is asked to shut down
+/// (`core.shutdown { ifIdle: true }`) so the app starts its matching bundled core binary and
+/// upgrades bundled plugins. Busy cores (with active turns or ready queued messages) are left
+/// untouched.
 pub async fn connect_or_start(core: &LocalCore) -> Result<(Stream, Found), LocalError> {
     if let Ok(stream) = transport::connect(&core.address).await {
-        return Ok((stream, Found::Running));
+        if core.core_bin.is_file() && maybe_restart_older_idle_core(stream, &core.address).await {
+            // The older idle core shut down; fall through to start the bundled binary.
+        } else if let Ok(fresh) = transport::connect(&core.address).await {
+            return Ok((fresh, Found::Running));
+        }
     }
     let started = {
         let core = core.clone();
@@ -113,7 +125,7 @@ pub async fn connect_or_start(core: &LocalCore) -> Result<(Stream, Found), Local
                 if let Ok(stream) = transport::connect(&core.address).await {
                     return Ok((stream, Found::Running));
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                tokio::time::sleep(Duration::from_millis(25)).await;
             }
             return Err(e);
         }
@@ -125,6 +137,91 @@ pub async fn connect_or_start(core: &LocalCore) -> Result<(Stream, Found), Local
             address: core.address.clone(),
             source,
         })
+}
+
+/// Returns `true` if `running` is a strictly older semver version than `bundled`.
+fn is_older_version(running: &str, bundled: &str) -> bool {
+    let parse = |s: &str| semver::Version::parse(s.trim().trim_start_matches('v')).ok();
+    match (parse(running), parse(bundled)) {
+        (Some(r), Some(b)) => r < b,
+        _ => false,
+    }
+}
+
+/// Probes an already-running local core via `core.hello`. If it reports an older version than
+/// this desktop build, requests `core.shutdown { ifIdle: true }` and waits for it to stop.
+/// Returns `true` only when the old core accepted shutdown and stopped.
+async fn maybe_restart_older_idle_core(stream: Stream, address: &str) -> bool {
+    let (read, mut write) = tokio::io::split(stream);
+    let mut lines = tokio::io::BufReader::new(read).lines();
+    let hello = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "core.hello",
+        "params": {
+            "protocol": PROTOCOL_VERSION.to_string(),
+            "client": { "name": "kumikit-desktop", "version": APP_VERSION }
+        }
+    });
+    if write
+        .write_all(format!("{hello}\n").as_bytes())
+        .await
+        .is_err()
+        || write.flush().await.is_err()
+    {
+        return false;
+    }
+    let Ok(Ok(Some(line))) = tokio::time::timeout(Duration::from_secs(2), lines.next_line()).await
+    else {
+        return false;
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
+        return false;
+    };
+    let Some(running_ver) = v["result"]["core"]["version"].as_str() else {
+        return false;
+    };
+    if !is_older_version(running_ver, APP_VERSION) {
+        return false;
+    }
+    let shutdown = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "core.shutdown",
+        "params": { "ifIdle": true }
+    });
+    if write
+        .write_all(format!("{shutdown}\n").as_bytes())
+        .await
+        .is_err()
+        || write.flush().await.is_err()
+    {
+        return false;
+    }
+    let mut accepted = false;
+    while let Ok(Ok(Some(reply))) =
+        tokio::time::timeout(Duration::from_secs(2), lines.next_line()).await
+    {
+        let Ok(msg) = serde_json::from_str::<serde_json::Value>(&reply) else {
+            continue;
+        };
+        if msg["id"] != 2 {
+            continue;
+        }
+        accepted = msg.get("error").is_none();
+        break;
+    }
+    if !accepted {
+        return false;
+    }
+    // Wait until the old core finishes closing its socket and releasing the data-dir lock.
+    for _ in 0..80 {
+        if transport::connect(address).await.is_err() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    false
 }
 
 /// Starts the core detached and waits for its `ready <address>` line. Blocking.
@@ -287,5 +384,16 @@ mod tests {
                 bundled_plugins: Some("/r".into()),
             }
         );
+    }
+
+    #[test]
+    fn older_version_comparison() {
+        assert!(is_older_version("0.1.0-m7", "0.1.0-m8"));
+        assert!(is_older_version("0.1.0-m8", "0.1.0-m8.1"));
+        assert!(is_older_version("0.1.0-m8.1", "0.1.0"));
+        assert!(is_older_version("v0.1.0-m8", "0.1.0-m8.1"));
+        assert!(!is_older_version("0.1.0-m8.1", "0.1.0-m8.1"));
+        assert!(!is_older_version("0.1.0-m9", "0.1.0-m8.1"));
+        assert!(!is_older_version("not-a-version", "0.1.0-m8.1"));
     }
 }

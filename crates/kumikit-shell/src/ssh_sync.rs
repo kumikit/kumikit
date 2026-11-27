@@ -105,6 +105,13 @@ const INSTALL_STREAM_SCRIPT: &str = concat!(
     "tar -xzf - -C \"$tmp\"; ",
     "chmod 755 \"$tmp/kumikit\"; ",
     "mv -f \"$tmp/kumikit\" \"$HOME/.local/bin/kumikit\"; ",
+    "if [ -d \"$tmp/core-plugins\" ]; then ",
+    "mkdir -p \"$HOME/.local/share/kumikit/core-plugins\"; ",
+    "rm -f \"$HOME/.local/share/kumikit/core-plugins\"/*.kkp; ",
+    "for f in \"$tmp/core-plugins\"/*.kkp; do ",
+    "[ -f \"$f\" ] && mv -f \"$f\" \"$HOME/.local/share/kumikit/core-plugins/\"; ",
+    "done; ",
+    "fi; ",
     "printf 'BIN=%s\\n' \"$HOME/.local/bin/kumikit\"; ",
     "printf 'VER=%s\\n' \"$(\"$HOME/.local/bin/kumikit\" --version 2>/dev/null | head -n 1 || true)\""
 );
@@ -606,6 +613,17 @@ fi
             header.set_cksum();
             tar.append_data(&mut header, "kumikit", &script[..])
                 .unwrap();
+            let plugin_bytes = b"fake-kkp-payload";
+            let mut pheader = tar::Header::new_gnu();
+            pheader.set_size(plugin_bytes.len() as u64);
+            pheader.set_mode(0o644);
+            pheader.set_cksum();
+            tar.append_data(
+                &mut pheader,
+                "core-plugins/example-0.1.0.kkp",
+                &plugin_bytes[..],
+            )
+            .unwrap();
             tar.into_inner().unwrap().finish().unwrap();
         }
         let archive_bytes = std::fs::read(&archive).unwrap();
@@ -679,6 +697,11 @@ fi
         assert_eq!(synced.installed_version, "0.1.0-m8");
         assert!(synced.started_core);
         assert!(remote_home.join(".local/bin/kumikit").is_file());
+        assert_eq!(
+            std::fs::read(remote_home.join(".local/share/kumikit/core-plugins/example-0.1.0.kkp"))
+                .unwrap(),
+            b"fake-kkp-payload"
+        );
 
         let after = probe(&fake_ssh, &profiles, "0.1.0-m8", &req).await.unwrap();
         assert_eq!(after.status, "match");

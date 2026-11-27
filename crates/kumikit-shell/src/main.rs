@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use kumikit_protocol::local::Platform;
 use kumikit_shell::assets::{self, APP_SCHEME, Asset, PLUGIN_SCHEME, SchemeForm};
 use kumikit_shell::bridge::{Bridge, Incoming};
+use kumikit_shell::chrome::WindowChrome;
 use kumikit_shell::client_registry::{
     ClientError, ClientRef, ClientRegistry, ClientResult, ClientUpdate,
 };
@@ -40,6 +41,8 @@ struct Shell {
     connections: Connections,
     /// Signed application updates and release client.
     updater: AppUpdater,
+    /// Desktop window chrome metadata (borderless, macOS overlay, tiling WM detection).
+    chrome: WindowChrome,
     /// Client data directory (for remote SSH archive cache).
     client_dir: PathBuf,
     /// The UI kernel's files.
@@ -224,6 +227,12 @@ async fn app_update_apply(
     request: UpdateApplyRequest,
 ) -> Result<UpdateApplyResult, CommandError> {
     shell.updater.apply(request).await
+}
+
+/// Window decoration and tiling WM metadata for the UI kernel's title bar.
+#[tauri::command]
+fn window_chrome(shell: State<'_, Shell>) -> WindowChrome {
+    shell.chrome
 }
 
 /// Forgets a core (revoking this device there when it answers).
@@ -557,6 +566,7 @@ fn main() {
         app_update_check,
         app_update_download,
         app_update_apply,
+        window_chrome,
         pick_attachments,
         test_report
     ]);
@@ -587,6 +597,7 @@ fn main() {
         app_update_check,
         app_update_download,
         app_update_apply,
+        window_chrome,
         pick_attachments
     ]);
     let result = builder
@@ -640,6 +651,7 @@ fn main() {
                 device_name: local::host_name(),
             };
             let updater = AppUpdater::from_env(&client, local.address.clone(), &env, false);
+            let chrome = WindowChrome::current(&env);
             app.manage(Shell {
                 bridge: Bridge::default(),
                 local,
@@ -647,6 +659,7 @@ fn main() {
                 registry,
                 connections,
                 updater,
+                chrome,
                 client_dir: client.clone(),
                 ui,
             });
@@ -660,6 +673,16 @@ fn main() {
             )
             .title("Kumikit")
             .inner_size(1100.0, 760.0);
+            #[cfg(target_os = "macos")]
+            {
+                window = window
+                    .title_bar_style(tauri::TitleBarStyle::Overlay)
+                    .hidden_title(true);
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                window = window.decorations(false);
+            }
             // The webview's storage lives in the client data directory, unless WebView2 was
             // told where to keep it: msedgedriver does that (through these variables) and
             // then waits for a file in that folder.
