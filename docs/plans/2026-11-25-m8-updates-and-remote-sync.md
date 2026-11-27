@@ -73,6 +73,18 @@
   - Playwright E2E tests covering Settings Updates (version display, manual check, download, idle-gated
     auto-update waiting for active agent then applying when idle) and SSH sync prompt.
 
+- [x] **Step 7 — Release & M8.1 follow-ups (`v0.1.0-m8`, `v0.1.0-m8.1`):**
+  - Merged PR #19 (`v0.1.0-m8`) and verified signed `release.json` / `release.json.sig` on both
+    GitHub Releases and the `release-manifest` branch.
+  - Merged PR #20 (`v0.1.0-m8.1`): added Tauri ACL permissions for all new shell commands +
+    cross-file ACL regression test; bumped `kumikit.provider-acp` to `0.2.0` and enabled
+    bundled plugin auto-upgrade/auto-restore + idle local core rollover; added AppImage CLI
+    forwarding (`AppRun` → `AppRun.gui` / `usr/bin/kumikit`) and `Kumikit.AppImage update`;
+    added borderless window chrome (macOS native overlay traffic lights, Linux tiling WM
+    detection, **Window buttons: Auto / Show / Hide** setting); bundled `kumikit.threads`
+    alongside `kumikit.provider-acp` in `core-plugins/` across desktop installers, CLI archives,
+    SSH sync, and `kumikit update` with auto-discovery in `kumikit serve`.
+
 ## Exit criteria
 
 1. Settings → Updates displays the stamped version, detects a newer signed release, downloads and

@@ -313,14 +313,17 @@ Kumikit publishes a signed `release.json` manifest (with a sibling `release.json
   (zero active turns and zero unpaused ready queued messages) before shutting down the local core
   and installing.
 - **Core CLI (`kumikit update`).** `kumikit update [--check] [--yes] [--wait-idle] [--force]`
-  checks for and installs a newer signed `kumikit` binary on headless and TLS-paired machines,
-  refusing to interrupt active agents unless `--force` is passed (or waiting until idle with
-  `--wait-idle`).
+  checks for and installs a newer signed `kumikit` binary (and any bundled `core-plugins/*.kkp`
+  in the archive) on headless and TLS-paired machines, refusing to interrupt active agents
+  unless `--force` is passed (or waiting until idle with `--wait-idle`). When invoked through
+  AppImage CLI forwarding (`APPIMAGE` set and the running binary lives under `APPDIR`),
+  `kumikit update` verifies and atomically replaces the AppImage file itself.
 - **SSH remote sync.** When connecting over SSH to a machine where `kumikit` is missing or on a
   different version ([ADR 0032](../decisions/0032-ssh-remote-core-sync.md)), the desktop app can
   download and verify the matching `kumikit` archive locally and stream it over `ssh` into
-  `~/.local/bin/kumikit`, checking remote `core.activity` before restarting an older running core.
-  Prompted by default, with optional per-profile or global auto-sync.
+  `~/.local/bin/kumikit` (installing bundled `core-plugins/*.kkp` into
+  `~/.local/share/kumikit/core-plugins/`), checking remote `core.activity` before restarting an
+  older running core. Prompted by default, with optional per-profile or global auto-sync.
 
 ## Versioning
 

@@ -19,9 +19,9 @@
 ```
 
 - **`kumikit` (core binary).** Headless. `kumikit serve` runs the core; other subcommands
-  (`kumikit plugin add`, `kumikit pair`, `kumikit devices`, `kumikit bridge`) are thin clients of a running
-  core, or operate on its data directory when none runs. The same binary is used on a
-  laptop and on a server.
+  (`kumikit plugin`, `kumikit theme`, `kumikit pair`, `kumikit devices`, `kumikit bridge`,
+  `kumikit mcp`, `kumikit update`) are thin clients of a running core, or operate on its
+  data directory when none runs. The same binary is used on a laptop and on a server.
 - **Kumikit desktop (client).** A Tauri 2 app using the system webview (WKWebView,
   WebView2, WebKitGTK). It finds a local core on its socket or starts one, and connects to
   remote cores the user has paired with. It never opens project files or runs agents
@@ -40,14 +40,14 @@ crates/
   kumikit-protocol/      # protocol types, method table, local address; generates TypeScript
   kumikit-package/       # .kkp packing and defensive unpacking, shared by core and shell
   kumikit-assets/        # UI files: path checks, MIME types, CSPs, UI manifest structure; shell, core, registry checker
-  kumikit-registry/      # registry index, fetching, resolution, install-time checks
-  kumikit-registry-tool/ # `kumikit-registry check | build-index`, run by a registry's CI
+  kumikit-registry/      # registry index, signed release manifests, fetching, resolution, install-time checks
+  kumikit-registry-tool/ # `kumikit-registry check | build-index | release-manifest`, run by CI
   kumikit-theme/         # theme checks (token types, contrast, fonts) for `kumikit theme check`
   kumikit-kernel/        # domain model, event log, storage, secrets, processes, permissions
   kumikit-plugin-host/   # wasmtime component host, WIT bindings, sidecar host (later)
   kumikit-core/          # the `kumikit` binary: transports, auth, CLI
-  kumikit-shell/         # Tauri desktop shell: window, bridge, client plugin store
-wit/                     # WIT packages: kumikit:host, kumikit:plugin, kumikit:provider, kumikit:tool
+  kumikit-shell/         # Tauri desktop shell: window, bridge, updater, SSH sync, client plugin store
+wit/                     # WIT packages: kumikit:host, kumikit:plugin, kumikit:provider, kumikit:tool, kumikit:turn, kumikit:threads, kumikit:session
 web/
   kernel/                # Svelte 5 UI kernel
   sdk/                   # @kumikit/ui-sdk: types and helpers for UI plugin authors
@@ -59,8 +59,9 @@ sdk/
   rust-provider/         # kumikit-provider crate: the provider world, on top of kumikit-plugin
   rust-tool/             # kumikit-tool crate: the tool world (tool gateway), on top of kumikit-plugin
   schema/                # JSON Schema of plugin.toml
-plugins/                 # first-party plugins, built with the public SDKs only
+plugins/                 # preinstalled first-party plugins, built with the public SDKs only
   provider-acp/
+  threads/
   ui-chat/
   ui-settings/
   theme-default/
