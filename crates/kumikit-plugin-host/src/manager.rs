@@ -621,7 +621,11 @@ impl Manager {
                 staged.manifest.id
             )));
         }
-        if staged.manifest.version == current.record.version {
+        let same_version = staged.manifest.version == current.record.version;
+        let allow_same_version = same_version
+            && source == PluginSource::Bundled
+            && (staged.sha256 != current.record.sha256 || current.error.is_some());
+        if same_version && !allow_same_version {
             return Err(HostError::Conflict(format!(
                 "{id} {} is already installed",
                 current.record.version
@@ -658,18 +662,22 @@ impl Manager {
             source,
         };
         if let Err(e) = self.inner.kernel.plugin_replace(record.clone()).await {
-            let dir = self.inner.dirs.package(id, &manifest.version);
-            let _ = blocking(move || std::fs::remove_dir_all(dir).map_err(io)).await;
+            if current.record.version != manifest.version {
+                let dir = self.inner.dirs.package(id, &manifest.version);
+                let _ = blocking(move || std::fs::remove_dir_all(dir).map_err(io)).await;
+            }
             return Err(e.into());
         }
-        let old = self.inner.dirs.package(id, &current.record.version);
-        blocking(move || {
-            if old.exists() {
-                std::fs::remove_dir_all(&old).map_err(io)?;
-            }
-            Ok(())
-        })
-        .await?;
+        if current.record.version != record.version {
+            let old = self.inner.dirs.package(id, &current.record.version);
+            blocking(move || {
+                if old.exists() {
+                    std::fs::remove_dir_all(&old).map_err(io)?;
+                }
+                Ok(())
+            })
+            .await?;
+        }
         tracing::info!(plugin = %id, from = %current.record.version, to = %record.version, "plugin updated");
         let entry = Entry {
             record,

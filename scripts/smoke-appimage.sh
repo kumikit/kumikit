@@ -19,6 +19,9 @@ trap cleanup EXIT
 export KUMIKIT_SOCKET="$work/s.sock" KUMIKIT_CORE_DATA_DIR="$work/core" KUMIKIT_CLIENT_DATA_DIR="$work/client"
 # No FUSE needed: the runtime extracts itself.
 export APPIMAGE_EXTRACT_AND_RUN=1
+# CLI arguments forward directly to the bundled kumikit binary without needing a display.
+"$app" --help | grep -q "Usage: kumikit"
+"$app" --version | grep -q "^kumikit "
 xvfb-run -a "$app" > "$work/app.log" 2>&1 &
 pid=$!
 i=0
@@ -31,4 +34,6 @@ until "$kumikit" plugin list --socket "$KUMIKIT_SOCKET" --data-dir "$work/none" 
   fi
   sleep 0.5
 done
-echo "AppImage smoke test ok: the UI connected and the bundled core and plugins work"
+# Verify the AppImage CLI itself can also talk to the running core.
+"$app" plugin list --socket "$KUMIKIT_SOCKET" --data-dir "$work/none" | grep -q "kumikit.provider-acp .* enabled"
+echo "AppImage smoke test ok: the UI connected, CLI forwarding works, and the bundled core and plugins work"

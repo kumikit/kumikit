@@ -131,9 +131,10 @@ desktop app:
 
 - When adding an SSH core, Kumikit probes the remote host (`uname -s`, `uname -m`) and
   offers to download the matching `kumikit` archive **locally on your computer**, verify
-  its Ed25519 signature and SHA-256 hash, stream it over `ssh` into `~/.local/bin/kumikit`,
-  start `kumikit serve`, and connect — working even on firewalled hosts without direct
-  GitHub access.
+  its Ed25519 signature and SHA-256 hash, stream it over `ssh` into `~/.local/bin/kumikit`
+  (along with the bundled `core-plugins/*.kkp` packages in `~/.local/share/kumikit/core-plugins/`,
+  discovered automatically by `kumikit serve`), start `kumikit serve`, and connect — working
+  even on firewalled hosts without direct GitHub access.
 - On existing SSH cores in **Cores**, click **Install matching version…** whenever a core
   is on a different version, or opt into **Auto-sync matching Kumikit version** per host
   (or globally in **Settings → Updates**). An existing remote core is checked for idle

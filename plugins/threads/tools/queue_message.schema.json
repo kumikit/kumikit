@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["thread", "text"],
+  "properties": {
+    "thread": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Target thread ID."
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Message text to queue or defer."
+    },
+    "trigger": {
+      "type": "object",
+      "description": "Optional QueueTrigger for deferred delivery."
+    }
+  }
+}

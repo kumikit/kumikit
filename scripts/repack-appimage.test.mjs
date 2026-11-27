@@ -1,10 +1,11 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { respectGdkBackend, squashfsInfo } from './repack-appimage.mjs';
+import { installCliDispatch, respectGdkBackend, squashfsInfo } from './repack-appimage.mjs';
 
 describe('the GTK hook', () => {
   it('makes X11 a default the user can override, in every form Tauri has shipped', () => {
@@ -30,5 +31,43 @@ describe('the squashfs header', () => {
     writeFileSync(file, Buffer.concat([Buffer.alloc(100), header]));
     expect(squashfsInfo(file, 100)).toEqual({ compression: 'zstd', blockSize: 131072 });
     expect(() => squashfsInfo(file, 0)).toThrow(/no squashfs image/);
+  });
+});
+
+describe('AppRun CLI dispatch', () => {
+  const makeAppDir = () => {
+    const root = mkdtempSync(join(tmpdir(), 'kk-apprun-'));
+    mkdirSync(join(root, 'usr/bin'), { recursive: true });
+    writeFileSync(join(root, 'AppRun'), '#!/bin/sh\necho "DESKTOP:$*"\n');
+    chmodSync(join(root, 'AppRun'), 0o755);
+    writeFileSync(join(root, 'usr/bin/kumikit'), '#!/bin/sh\nprintf "CLI:"; printf "<%s>" "$@"; printf "\\n"\n');
+    chmodSync(join(root, 'usr/bin/kumikit'), 0o755);
+    return root;
+  };
+
+  it.skipIf(process.platform === 'win32')('launches desktop with no args or --safe and forwards all other args to kumikit', () => {
+    const root = makeAppDir();
+    installCliDispatch(root);
+    // Idempotent on a second repack: AppRun.gui keeps the original desktop script, and no
+    // extra `.desktop` file is created (which would confuse AppRun.wrapped's `*.desktop` glob).
+    installCliDispatch(root);
+    expect(readFileSync(join(root, 'AppRun.gui'), 'utf8')).toContain('DESKTOP:');
+    expect(readdirSync(root).filter((f) => f.endsWith('.desktop'))).toEqual([]);
+
+    const run = (args) => execFileSync(join(root, 'AppRun'), args, { encoding: 'utf8' }).trim();
+    expect(run([])).toBe('DESKTOP:');
+    expect(run(['--safe'])).toBe('DESKTOP:--safe');
+    expect(run(['--help'])).toBe('CLI:<--help>');
+    expect(run(['--version'])).toBe('CLI:<--version>');
+    expect(run(['plugin', 'list', '--socket', '/tmp/a b.sock'])).toBe('CLI:<plugin><list><--socket></tmp/a b.sock>');
+    expect(run(['--safe', 'serve'])).toBe('CLI:<--safe><serve>');
+  });
+
+  it('refuses an AppDir missing usr/bin/kumikit or AppRun', () => {
+    const empty = mkdtempSync(join(tmpdir(), 'kk-apprun-empty-'));
+    expect(() => installCliDispatch(empty)).toThrow(/bundled CLI binary missing/);
+    mkdirSync(join(empty, 'usr/bin'), { recursive: true });
+    writeFileSync(join(empty, 'usr/bin/kumikit'), '');
+    expect(() => installCliDispatch(empty)).toThrow(/AppRun missing/);
   });
 });

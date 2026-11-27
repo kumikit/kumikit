@@ -28,6 +28,8 @@ export interface TabSpec {
   worktreePath?: string;
 }
 
+export type WindowButtonsMode = 'auto' | 'show' | 'hide';
+
 export interface Settings {
   /** `<theme>:<variant>`, or absent to follow the appearance. */
   themeVariant?: string;
@@ -67,6 +69,8 @@ export interface Settings {
   autoUpdate: boolean;
   /** Opt-in automatic matching `kumikit` sync on SSH hosts (default false). */
   autoSyncSsh: boolean;
+  /** Whether to show custom minimize/maximize/close buttons in the top bar (borderless desktop). */
+  windowButtons: WindowButtonsMode;
 }
 
 export const DEFAULTS: Settings = {
@@ -88,6 +92,7 @@ export const DEFAULTS: Settings = {
   welcomeDone: false,
   autoUpdate: false,
   autoSyncSsh: false,
+  windowButtons: 'auto',
 };
 
 const KEY = 'kumikit.settings';
@@ -146,6 +151,7 @@ export function parseSettings(text: string | null): Settings {
     welcomeDone: r.welcomeDone === true,
     autoUpdate: r.autoUpdate === true,
     autoSyncSsh: r.autoSyncSsh === true,
+    windowButtons: r.windowButtons === 'show' || r.windowButtons === 'hide' ? r.windowButtons : 'auto',
   };
   if (typeof r.themeVariant === 'string') s.themeVariant = r.themeVariant;
   if (Array.isArray(r.openInspectorTabs)) s.openInspectorTabs = strings(r.openInspectorTabs);

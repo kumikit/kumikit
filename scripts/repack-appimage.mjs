@@ -1,4 +1,4 @@
-// Fixes two things in the AppImage Tauri builds:
+// Fixes three things in the AppImage Tauri builds:
 //
 // 1. Tauri copies the build host's Wayland libraries into usr/lib. On hosts with Mesa 25
 //    or newer, the host's libEGL then loads against these older copies, WebKit's web
@@ -7,12 +7,15 @@
 //    and GPU drivers.
 // 2. linuxdeploy's GTK hook sets GDK_BACKEND=x11 unconditionally. It becomes a default,
 //    so a user whose Xwayland cannot show the window can run with GDK_BACKEND=wayland.
+// 3. AppRun wraps linuxdeploy's entrypoint so passing CLI arguments (anything other than
+//    no args or `--safe`) execs the bundled `usr/bin/kumikit` CLI directly without
+//    loading GTK/WebKit hooks or polluting LD_LIBRARY_PATH.
 //
 // The image is extracted, changed and packed again with the same runtime, compression
 // and block size. Needs squashfs-tools (unsquashfs, mksquashfs).
 // Usage: node scripts/repack-appimage.mjs <file.AppImage>
 import { execFileSync } from 'node:child_process';
-import { chmodSync, closeSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -24,6 +27,18 @@ const FORCED = /^([ \t]*)(?:#[ \t]*)?export GDK_BACKEND=x11(?=[ \t]*(?:#.*)?$).*
 const DEFAULT = 'export GDK_BACKEND="${GDK_BACKEND:-x11}"';
 // squashfs superblock compression ids, as mksquashfs names them.
 const COMPRESSION = { 1: 'gzip', 2: 'lzma', 3: 'lzo', 4: 'xz', 5: 'lz4', 6: 'zstd' };
+const APPRUN_WRAPPER = `#!/bin/sh
+# Kumikit AppImage entrypoint:
+# - No arguments or --safe: launch the desktop app via linuxdeploy's AppRun.gui.
+# - Any other arguments: forward directly to the bundled kumikit CLI without running
+#   GTK/WebKit hooks or altering LD_LIBRARY_PATH.
+set -eu
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ "$#" -eq 0 ] || { [ "$#" -eq 1 ] && [ "$1" = "--safe" ]; }; then
+  exec "$here/AppRun.gui" "$@"
+fi
+exec "$here/usr/bin/kumikit" "$@"
+`;
 
 /** Where the runtime ends and the squashfs image starts, and how the image is packed. */
 export function squashfsInfo(file, offset) {
@@ -43,6 +58,26 @@ export function respectGdkBackend(script) {
   if (script.includes(DEFAULT)) return script;
   if (!FORCED.test(script)) throw new Error(`${HOOK} no longer sets GDK_BACKEND=x11; update scripts/repack-appimage.mjs`);
   return script.replace(FORCED, (_, indent) => `${indent}${DEFAULT}`);
+}
+
+/** Wraps AppRun so CLI arguments forward directly to usr/bin/kumikit (idempotent). */
+export function installCliDispatch(root) {
+  const appRun = join(root, 'AppRun');
+  // Do NOT end this name in `.desktop`: AppImage's AppRun.wrapped globs `$APPDIR/*.desktop`
+  // to locate the XDG desktop entry (`Exec=`).
+  const appRunGui = join(root, 'AppRun.gui');
+  const coreBin = join(root, 'usr/bin/kumikit');
+  if (!existsSync(coreBin)) {
+    throw new Error(`bundled CLI binary missing at ${coreBin}; cannot install AppRun CLI dispatch`);
+  }
+  if (!existsSync(appRunGui)) {
+    if (!existsSync(appRun)) {
+      throw new Error(`AppRun missing in ${root}`);
+    }
+    renameSync(appRun, appRunGui);
+  }
+  writeFileSync(appRun, APPRUN_WRAPPER);
+  chmodSync(appRun, 0o755);
 }
 
 export function repack(appImage) {
@@ -72,6 +107,7 @@ export function repack(appImage) {
     const hook = join(root, HOOK);
     const script = readFileSync(hook, 'utf8');
     writeFileSync(hook, respectGdkBackend(script));
+    installCliDispatch(root);
     const image = join(work, 'image.squashfs');
     run('mksquashfs', [root, image, '-noappend', '-root-owned', '-quiet', '-no-progress', '-comp', compression, '-b', String(blockSize)]);
     // The original runtime, then the new image.
@@ -86,7 +122,7 @@ export function repack(appImage) {
     closeSync(outFd);
     chmodSync(out, 0o755);
     renameSync(out, file);
-    console.log(`repacked ${file}: removed ${removed.length ? removed.join(', ') : 'no Wayland libraries'}; GDK_BACKEND is now a default`);
+    console.log(`repacked ${file}: removed ${removed.length ? removed.join(', ') : 'no Wayland libraries'}; GDK_BACKEND is now a default; AppRun forwards CLI arguments to usr/bin/kumikit`);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

@@ -8,11 +8,14 @@ mod registry;
 
 #[test]
 fn main_capability_allows_every_non_test_command() {
+    use std::collections::BTreeSet;
+
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let build_rs = std::fs::read_to_string(manifest_dir.join("build.rs")).unwrap();
+    let main_rs = std::fs::read_to_string(manifest_dir.join("src/main.rs")).unwrap();
     let main_cap = std::fs::read_to_string(manifest_dir.join("capabilities/main.json")).unwrap();
     let cap_json: serde_json::Value = serde_json::from_str(&main_cap).unwrap();
-    let perms: std::collections::BTreeSet<&str> = cap_json["permissions"]
+    let perms: BTreeSet<&str> = cap_json["permissions"]
         .as_array()
         .unwrap()
         .iter()
@@ -27,11 +30,11 @@ fn main_capability_allows_every_non_test_command() {
         .split("])")
         .next()
         .unwrap();
-    let mut seen = 0usize;
+    let mut build_cmds: BTreeSet<&str> = BTreeSet::new();
     for line in commands_block.lines() {
         let trimmed = line.trim().trim_end_matches(',');
         if let Some(cmd) = trimmed.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
-            seen += 1;
+            build_cmds.insert(cmd);
             if cmd == "test_report" {
                 continue;
             }
@@ -48,9 +51,64 @@ fn main_capability_allows_every_non_test_command() {
             );
         }
     }
-    assert!(seen > 0, "expected commands in build.rs");
+    assert!(!build_cmds.is_empty(), "expected commands in build.rs");
+
+    // Every app command registered in `fn main()`'s `tauri::generate_handler![...]` must
+    // also be declared in `build.rs` so Tauri's ACL allows it instead of rejecting at runtime.
+    let main_fn = main_rs.split("fn main()").nth(1).unwrap();
+    let mut handler_cmds: BTreeSet<&str> = BTreeSet::new();
+    for block in main_fn.split("tauri::generate_handler![").skip(1) {
+        let body = block.split("])").next().unwrap();
+        for line in body.lines() {
+            let cmd = line.trim().trim_end_matches(',');
+            if !cmd.is_empty() && !cmd.starts_with("//") {
+                handler_cmds.insert(cmd);
+            }
+        }
+    }
     assert!(
-        perms.contains("allow-pick-attachments"),
-        "pick_attachments must be allowed in capabilities/main.json"
+        !handler_cmds.is_empty(),
+        "expected commands in tauri::generate_handler! in src/main.rs"
+    );
+    let missing_in_build: Vec<&str> = handler_cmds.difference(&build_cmds).copied().collect();
+    assert!(
+        missing_in_build.is_empty(),
+        "commands registered in src/main.rs but missing from build.rs/capabilities: {missing_in_build:?}"
+    );
+    let extra_in_build: Vec<&str> = build_cmds.difference(&handler_cmds).copied().collect();
+    assert!(
+        extra_in_build.is_empty(),
+        "commands declared in build.rs but not registered in src/main.rs: {extra_in_build:?}"
+    );
+
+    // Every shell command invoked from `web/kernel/src/platform/tauri.ts` must exist in `build.rs`.
+    let tauri_ts_path = manifest_dir.join("../../web/kernel/src/platform/tauri.ts");
+    let tauri_ts = std::fs::read_to_string(&tauri_ts_path).unwrap();
+    let mut ts_cmds = 0usize;
+    for marker in ["call<", "invoke<", "invoke("] {
+        for part in tauri_ts.split(marker).skip(1) {
+            let after_paren = if marker == "invoke(" {
+                part
+            } else {
+                let Some((_, rest)) = part.split_once('(') else {
+                    continue;
+                };
+                rest
+            };
+            let trimmed = after_paren.trim_start();
+            if let Some(rest) = trimmed.strip_prefix('\'')
+                && let Some((cmd, _)) = rest.split_once('\'')
+            {
+                ts_cmds += 1;
+                assert!(
+                    build_cmds.contains(cmd),
+                    "command `{cmd}` invoked in tauri.ts is missing from build.rs/capabilities"
+                );
+            }
+        }
+    }
+    assert!(
+        ts_cmds >= 20,
+        "expected tauri.ts scan to check all desktop commands, found {ts_cmds}"
     );
 }

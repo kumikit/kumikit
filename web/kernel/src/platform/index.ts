@@ -191,6 +191,42 @@ export interface PickedFile {
   bytes: Uint8Array;
 }
 
+/** Edge or corner direction for custom borderless window resize dragging. */
+export type ResizeDirection =
+  | 'East'
+  | 'North'
+  | 'NorthEast'
+  | 'NorthWest'
+  | 'South'
+  | 'SouthEast'
+  | 'SouthWest'
+  | 'West';
+
+/** Desktop window chrome configuration reported by the shell. */
+export interface WindowChrome {
+  /** Whether the shell removed OS titlebar decorations (`decorations(false)`). */
+  borderless: boolean;
+  /** Whether macOS native overlay traffic lights sit inside the top-left of the bar. */
+  nativeOverlay: boolean;
+  /** Whether a Linux tiling window manager was detected. */
+  tiling: boolean;
+  /** Whether custom edge resize handles should be shown (undecorated Linux stacking DE). */
+  customResize: boolean;
+}
+
+/** Native window controls exposed by the desktop shell (absent in browsers/relay). */
+export interface WindowControls {
+  chrome(): Promise<WindowChrome>;
+  minimize(): Promise<void>;
+  toggleMaximize(): Promise<void>;
+  close(): Promise<void>;
+  startDragging(): Promise<void>;
+  startResizeDragging(direction: ResizeDirection): Promise<void>;
+  isMaximized(): Promise<boolean>;
+  isFullscreen(): Promise<boolean>;
+  onStateChange(cb: () => void): Promise<() => void>;
+}
+
 /** A file picked for attachment via a native OS file dialog rooted at a project directory. */
 export interface PickedAttachment {
   name: string;
@@ -253,6 +289,8 @@ export interface Platform {
     download(): Promise<AppUpdateDownloadResult>;
     apply(version: string, ifIdle: boolean): Promise<AppUpdateApplyResult>;
   };
+  /** Desktop window chrome and native window controls (absent in a browser). */
+  readonly window?: WindowControls;
   /** Whether to start without UI plugins (06-client, safe mode). */
   readonly safeMode: boolean;
   /** Only in a browser served by a core: pairing this browser, and signing out. */

@@ -28,7 +28,10 @@
     | 'archive'
     | 'archive-restore'
     | 'trash'
-    | 'worktree';
+    | 'worktree'
+    | 'win-minimize'
+    | 'win-maximize'
+    | 'win-restore';
 
   let { name, size = 14 }: { name: IconName; size?: number } = $props();
 </script>
@@ -131,6 +134,13 @@
     <rect x="2" y="2.25" width="4.75" height="4.75" rx="1" />
     <rect x="9.25" y="9" width="4.75" height="4.75" rx="1" />
     <path d="M6.75 4.6h2.75a2 2 0 0 1 2 2V9" />
+  {:else if name === 'win-minimize'}
+    <line x1="3" y1="8.5" x2="13" y2="8.5" />
+  {:else if name === 'win-maximize'}
+    <rect x="3.25" y="3.25" width="9.5" height="9.5" rx="1" />
+  {:else if name === 'win-restore'}
+    <rect x="2.75" y="5" width="7.75" height="7.75" rx="0.9" />
+    <path d="M5.5 5V3.75a0.75 0.75 0 0 1 0.75-.75h6a0.75 0.75 0 0 1 0.75.75v6a0.75 0.75 0 0 1-.75.75H10.5" />
   {/if}
 </svg>
 

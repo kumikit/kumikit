@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["thread", "text"],
+  "properties": {
+    "thread": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Target thread ID."
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Steering instruction to deliver mid-turn (or queue if idle/unsupported)."
+    }
+  }
+}

@@ -4,7 +4,7 @@
 //                  the browser build, bundled.json and the bundled UI plugins in ui-plugins/
 //   ui-browser-test/ the browser-test build, for Playwright
 //   ui-plugins/<id>/ the bundled UI plugins and themes, unpacked (read-only)
-//   core-plugins/  provider-acp as a .kkp, seeded on the core with --bundled-plugins
+//   core-plugins/  provider-acp and threads as .kkp packages, seeded with --bundled-plugins
 //   test-ui-plugins/<id>/ UI plugins for the tests only, unpacked (never shipped)
 // Usage: node scripts/bundle.mjs   (from the repository root)
 import { execFileSync } from 'node:child_process';
@@ -60,25 +60,44 @@ for (const dir of ['test-plugins/ui-panel']) {
 // The browser client serves the same UI plugins itself.
 cpSync(join(OUT, 'ui-plugins'), join(OUT, 'ui-browser', 'ui-plugins'), { recursive: true });
 
-// provider-acp: a release component, packed like `kumikit plugin pack`.
-// CI can pass KUMIKIT_BIN and KUMIKIT_PROVIDER_ACP_WASM to reuse already-built artifacts.
+// Bundled core plugins: release components, packed like `kumikit plugin pack`.
+// CI can pass KUMIKIT_BIN, KUMIKIT_PROVIDER_ACP_WASM, and KUMIKIT_THREADS_WASM to reuse
+// already-built artifacts.
 const target = process.env.CARGO_TARGET_DIR ?? 'target';
 let acpWasm = process.env.KUMIKIT_PROVIDER_ACP_WASM;
+let threadsWasm = process.env.KUMIKIT_THREADS_WASM;
+const toBuild = [];
 if (!acpWasm) {
-  run('cargo', ['build', '-q', '--release', '-p', 'kumikit-provider-acp', '--target', 'wasm32-wasip2']);
+  toBuild.push('-p', 'kumikit-provider-acp');
   acpWasm = join(target, 'wasm32-wasip2/release/kumikit_provider_acp.wasm');
+}
+if (!threadsWasm) {
+  toBuild.push('-p', 'kumikit-threads');
+  threadsWasm = join(target, 'wasm32-wasip2/release/kumikit_threads.wasm');
+}
+if (toBuild.length > 0) {
+  run('cargo', ['build', '-q', '--release', ...toBuild, '--target', 'wasm32-wasip2']);
 }
 let kumikit = process.env.KUMIKIT_BIN;
 if (!kumikit) {
   run('cargo', ['build', '-q', '-p', 'kumikit-core']);
   kumikit = join(target, 'debug', process.platform === 'win32' ? 'kumikit.exe' : 'kumikit');
 }
-const stage = join(OUT, 'stage-provider-acp');
-mkdirSync(stage, { recursive: true });
-for (const f of ['plugin.toml', 'acp.schema.json']) cpSync(join('plugins/provider-acp', f), join(stage, f));
-cpSync(acpWasm, join(stage, 'plugin.wasm'));
-const version = tomlString(readFileSync('plugins/provider-acp/plugin.toml', 'utf8'), 'version');
 mkdirSync(join(OUT, 'core-plugins'), { recursive: true });
-run(kumikit, ['plugin', 'pack', stage, '-o', join(OUT, 'core-plugins', `kumikit.provider-acp-${version}.kkp`)]);
-rmSync(stage, { recursive: true, force: true });
+
+function packCorePlugin(srcDir, wasmPath, extraFiles) {
+  const manifest = readFileSync(join(srcDir, 'plugin.toml'), 'utf8');
+  const id = tomlString(manifest, 'id');
+  const version = tomlString(manifest, 'version');
+  const stage = join(OUT, `stage-${id}`);
+  mkdirSync(stage, { recursive: true });
+  cpSync(join(srcDir, 'plugin.toml'), join(stage, 'plugin.toml'));
+  for (const f of extraFiles) cpSync(join(srcDir, f), join(stage, f), { recursive: true });
+  cpSync(wasmPath, join(stage, 'plugin.wasm'));
+  run(kumikit, ['plugin', 'pack', stage, '-o', join(OUT, 'core-plugins', `${id}-${version}.kkp`)]);
+  rmSync(stage, { recursive: true, force: true });
+}
+
+packCorePlugin('plugins/provider-acp', acpWasm, ['acp.schema.json']);
+packCorePlugin('plugins/threads', threadsWasm, ['tools']);
 console.log(`bundle ready in ${OUT}`);

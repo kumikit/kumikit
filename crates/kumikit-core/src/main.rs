@@ -26,10 +26,14 @@ enum Command {
         /// Data directory. Default: per platform.
         #[arg(long)]
         data_dir: Option<PathBuf>,
-        /// Preinstall the .kkp files in this directory once: each id is seeded only the
-        /// first time; plugins that request no permissions are also enabled.
+        /// Keep the bundled .kkp files in this directory installed and up to date;
+        /// plugins that request no permissions are also enabled. When omitted, `kumikit
+        /// serve` checks `<exe dir>/core-plugins` and `<exe dir>/../share/kumikit/core-plugins`.
         #[arg(long)]
         bundled_plugins: Option<PathBuf>,
+        /// Disable automatic discovery of bundled core plugins next to the `kumikit` binary.
+        #[arg(long, conflicts_with = "bundled_plugins")]
+        no_bundled_plugins: bool,
         /// Turn on remote access for this run: listen for paired clients on
         /// host[:port] (default port 7463), for example 0.0.0.0 for every interface.
         #[arg(long, value_name = "HOST[:PORT]")]
@@ -294,6 +298,7 @@ fn main() -> Result<()> {
             socket,
             data_dir,
             bundled_plugins,
+            no_bundled_plugins,
             listen,
             tls_cert,
             tls_key,
@@ -302,6 +307,11 @@ fn main() -> Result<()> {
             keepalive_ping_ms,
             keepalive_idle_ms,
         } => {
+            let bundled_plugins = if no_bundled_plugins {
+                None
+            } else {
+                bundled_plugins.or_else(discover_bundled_plugins)
+            };
             let remote = listen.map(|listen| {
                 let mut limits = kumikit_core::remote::Limits::default();
                 let ms = std::time::Duration::from_millis;
@@ -489,6 +499,27 @@ async fn run_plugin(
             cli::remove(&target(socket, data_dir)?, &id, yes, keep_data, out).await
         }
     }
+}
+
+/// Finds a bundled `core-plugins/` directory shipped alongside the `kumikit` binary:
+/// `<exe dir>/core-plugins` (extracted CLI archive) or `<exe dir>/../share/kumikit/core-plugins`
+/// (standard `$HOME/.local/bin` + `$HOME/.local/share/kumikit` install).
+fn discover_bundled_plugins() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let exe_dir = exe.parent()?;
+    let sibling = exe_dir.join("core-plugins");
+    if sibling.is_dir() {
+        return Some(sibling);
+    }
+    if exe_dir.file_name().is_some_and(|n| n == "bin")
+        && let Some(prefix) = exe_dir.parent()
+    {
+        let shared = prefix.join("share").join("kumikit").join("core-plugins");
+        if shared.is_dir() {
+            return Some(shared);
+        }
+    }
+    None
 }
 
 async fn run_serve(

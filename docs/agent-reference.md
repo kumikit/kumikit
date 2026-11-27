@@ -316,11 +316,13 @@ is about the code.
   `thread.updated`. A lagging listener resends every thread rather than dropping changes.
 - **`core.shutdown`** sets a flag; the connection closes after its reply is written and
   only then notifies the serve loop, so the client always gets the answer.
-- **Bundled plugins** (`bundled.rs`) seed after `ready`, in file-name order; ids are
-  remembered in `seeded_plugins` (migration 3) so removals stick. A seeded id whose copy
-  is still `bundled` is updated when the bundle holds a higher version. Installing without
-  enabling announces nothing, so tests that wait for seeding put a plugin that is enabled
-  (provider-acp) last.
+- **Bundled plugins** (`bundled.rs`) sync after `ready`, in file-name order. Any missing
+  bundled plugin is installed (restoring a removed bundled copy; users turn off bundled
+  plugins by disabling them, which persists across restarts and upgrades). An installed
+  `bundled` copy whose version or SHA-256 differs from the distribution's `.kkp`, or that
+  failed to load, is replaced automatically; non-bundled copies are left alone. Installing
+  without enabling announces nothing, so tests that wait for seeding put a plugin that is
+  enabled (provider-acp) last.
 - **One message loop for every transport.** `rpc::serve_messages` reads and writes whole
   messages through `messages::{MessageReader, MessageWriter}`: lines (`LineReader`) for
   sockets, pipes and `kumikit bridge`, WebSocket frames (`remote::ws`) for remote clients.

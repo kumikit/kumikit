@@ -18,8 +18,22 @@ The shell's jobs, and its only commands ([ADR 0013](../decisions/0013-desktop-sh
   and no network: `fetch` reaches only the app and plugin schemes and the shell's IPC.
   Files of a panel plugin carry that panel's own CSP instead. A path outside the plugin's
   directory is refused.
+- **Window chrome.** On Linux and Windows the main window runs without OS decorations
+  (`decorations(false)`); on macOS it uses native overlay traffic lights
+  (`TitleBarStyle::Overlay` with `hidden_title(true)` inset into the left of the top bar).
+  The shell exposes `window_chrome` (`{ borderless, nativeOverlay, tiling, customResize }`),
+  detecting Linux tiling window managers (Hyprland, Sway, i3, niri, river, bspwm, awesome,
+  dwm, xmonad, qtile, etc.) from session environment variables. In `auto` mode (the default),
+  the top bar shows custom minimize/maximize(restore)/close buttons only on borderless
+  stacking desktops (and hides them on tiling window managers and browsers); a
+  **Window buttons** setting (`auto` / `show` / `hide`) in Settings → General lets users
+  override detection. On undecorated Linux stacking desktops, thin edge strips call
+  `startResizeDragging` while not maximized.
 - **Local core.** Looks for the core on the local address ([02](02-protocol.md#local-transport-details)).
-  If no core answers, it starts the core binary bundled with it (never one from `PATH`) as
+  If an older core is already running and completely idle, the shell sends
+  `core.shutdown { ifIdle: true }` so it can start the matching bundled core binary and
+  upgrade bundled plugins (busy cores are left running). If no core answers, it starts
+  the core binary bundled with it (never one from `PATH`) as
   `kumikit serve --bundled-plugins <dir>`, detached so agents keep running when the window
   closes, and waits for its `ready` line. If two windows start a core at once, the second
   core fails on the data-directory lock and its window connects to the first.

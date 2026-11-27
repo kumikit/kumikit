@@ -15,6 +15,7 @@ members = [
   "sdk/rust-provider",
   "sdk/rust-tool",
   "plugins/provider-acp",
+  "plugins/threads",
   "test-plugins/fake-acp-agent",
   "test-plugins/fake-ssh",
   "test-plugins/net-cut",
@@ -45,6 +46,7 @@ kumikit-registry = { path = "crates/kumikit-registry" }
 kumikit-plugin-host = { path = "crates/kumikit-plugin-host" }
 kumikit-plugin = { path = "sdk/rust" }
 kumikit-provider = { path = "sdk/rust-provider" }
+kumikit-tool = { path = "sdk/rust-tool" }
 kumikit-test-plugins = { path = "test-plugins/kumikit-test-plugins" }
 
 [workspace.lints.rust]

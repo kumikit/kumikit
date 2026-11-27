@@ -248,7 +248,23 @@ async fn bundled_plugins_are_seeded_once() {
             ]
         );
 
-        // Removed plugins stay removed across restarts.
+        // Disabling a bundled plugin sticks across restarts.
+        c.call("plugin.disable", json!({"plugin": "kumikit.provider-acp"}))
+            .await;
+        core.stop().await;
+        let (core, _) = Core::start_with_args(&dirs, None, &args).await;
+        let mut c = Client::hello(&dirs.address).await;
+        let list = c.call("plugin.list", json!({})).await;
+        assert_eq!(
+            states(&list),
+            [
+                ("kumikit.provider-acp".to_owned(), "disabled".to_owned()),
+                ("test.probe".to_owned(), "installed".to_owned()),
+            ]
+        );
+
+        // Uninstalling a bundled plugin does not permanently lose it: the next start with
+        // `--bundled-plugins` restores the distribution's bundled copy.
         c.call(
             "plugin.uninstall",
             json!({"plugin": "kumikit.provider-acp"}),
@@ -257,10 +273,17 @@ async fn bundled_plugins_are_seeded_once() {
         core.stop().await;
         let (core, _) = Core::start_with_args(&dirs, None, &args).await;
         let mut c = Client::hello(&dirs.address).await;
-        let list = c.call("plugin.list", json!({})).await;
+        let mut list = c.call("plugin.list", json!({})).await;
+        while list["plugins"].as_array().unwrap().len() < 2 {
+            c.notification("core.pluginsChanged").await;
+            list = c.call("plugin.list", json!({})).await;
+        }
         assert_eq!(
             states(&list),
-            [("test.probe".to_owned(), "installed".to_owned())]
+            [
+                ("kumikit.provider-acp".to_owned(), "enabled".to_owned()),
+                ("test.probe".to_owned(), "installed".to_owned()),
+            ]
         );
         core.stop().await;
     })
@@ -274,16 +297,21 @@ async fn a_newer_bundled_version_replaces_the_bundled_copy() {
         let bundle = dirs.root().join("bundle");
         std::fs::create_dir_all(&bundle).unwrap();
         let wasm = std::fs::read(kumikit_test_plugins::PROBE_WASM).unwrap();
-        let version = |v: &str, extra: &str| {
+        let version = |v: &str, extra: &str, desc: &str| {
             let manifest = PROBE_MANIFEST
                 .replace("version = \"0.1.0\"", &format!("version = \"{v}\""))
                 .replace(
                     "spawn = [\"fake-acp-agent\"]",
                     &format!("spawn = [\"fake-acp-agent\"]\n{extra}"),
+                )
+                .replacen(
+                    "name = \"Probe\"",
+                    &format!("name = \"Probe\"\ndescription = \"{desc}\""),
+                    1,
                 );
             kkp(
                 &dirs,
-                &format!("probe-{v}"),
+                &format!("probe-{v}-{desc}"),
                 &manifest,
                 &[("plugin.wasm", &wasm)],
             )
@@ -292,7 +320,7 @@ async fn a_newer_bundled_version_replaces_the_bundled_copy() {
 
         // 0.1.0 is seeded and the user grants it. Seeding runs in file-name order and
         // provider-acp (seeded last) is enabled, so its announcement means both are done.
-        std::fs::copy(version("0.1.0", ""), bundle.join("probe.kkp")).unwrap();
+        std::fs::copy(version("0.1.0", "", "initial"), bundle.join("probe.kkp")).unwrap();
         std::fs::copy(provider_acp_kkp(&dirs), bundle.join("z-acp.kkp")).unwrap();
         let (core, _) = Core::start_with_args(&dirs, None, &args).await;
         let mut c = Client::hello(&dirs.address).await;
@@ -318,12 +346,41 @@ async fn a_newer_bundled_version_replaces_the_bundled_copy() {
         .await;
         core.stop().await;
 
-        // 0.2.0 asks for the same: it replaces 0.1.0 and stays enabled with the grant.
-        std::fs::copy(version("0.2.0", ""), bundle.join("probe.kkp")).unwrap();
+        // A rebuilt 0.1.0 (same version string, different package hash) still replaces the
+        // installed bundled copy and stays enabled with its grant.
+        std::fs::copy(version("0.1.0", "", "rebuilt"), bundle.join("probe.kkp")).unwrap();
         let (core, _) = Core::start_with_args(&dirs, None, &args).await;
         let mut c = Client::hello(&dirs.address).await;
-        // The update disables, replaces and enables again, so the list can show 0.2.0
-        // still disabled in between: wait for the end state, or for the changes to stop.
+        let mut p = plugin(&c.call("plugin.list", json!({})).await);
+        while !(p["description"] == "rebuilt" && p["state"] == "enabled") {
+            let quiet = std::time::Duration::from_secs(10);
+            if tokio::time::timeout(quiet, c.notification("core.pluginsChanged"))
+                .await
+                .is_err()
+            {
+                break;
+            }
+            p = plugin(&c.call("plugin.list", json!({})).await);
+        }
+        assert_eq!(p["version"], "0.1.0", "{p}");
+        assert_eq!(p["description"], "rebuilt", "{p}");
+        assert_eq!(p["state"], "enabled", "{p}");
+        assert_eq!(p["source"], "bundled", "{p}");
+
+        // Simulate an incompatible older installed manifest on disk (e.g. an api = "^0.1"
+        // plugin left over from an earlier release): restarting with the compatible bundled
+        // package automatically repairs it and keeps it enabled.
+        let installed_manifest = dirs.data().join("plugins/test.probe/0.1.0/plugin.toml");
+        let broken = std::fs::read_to_string(&installed_manifest)
+            .unwrap()
+            .replace("api = \"^0.2\"", "api = \"^0.1\"");
+        std::fs::write(&installed_manifest, broken).unwrap();
+        core.stop().await;
+
+        // 0.2.0 asks for the same: it replaces the broken 0.1.0 and stays enabled with the grant.
+        std::fs::copy(version("0.2.0", "", "upgraded"), bundle.join("probe.kkp")).unwrap();
+        let (core, _) = Core::start_with_args(&dirs, None, &args).await;
+        let mut c = Client::hello(&dirs.address).await;
         let mut p = plugin(&c.call("plugin.list", json!({})).await);
         while !(p["version"] == "0.2.0" && p["state"] == "enabled") {
             let quiet = std::time::Duration::from_secs(10);
@@ -338,11 +395,12 @@ async fn a_newer_bundled_version_replaces_the_bundled_copy() {
         assert_eq!(p["version"], "0.2.0", "{p}");
         assert_eq!(p["state"], "enabled", "{p}");
         assert_eq!(p["source"], "bundled", "{p}");
+        assert!(p.get("error").is_none_or(Value::is_null), "{p}");
         core.stop().await;
 
         // 0.3.0 asks for a secret too: it is installed but waits for a new grant.
         std::fs::copy(
-            version("0.3.0", "secrets = [\"probe-token\"]"),
+            version("0.3.0", "secrets = [\"probe-token\"]", "wider"),
             bundle.join("probe.kkp"),
         )
         .unwrap();

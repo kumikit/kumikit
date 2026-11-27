@@ -569,6 +569,16 @@ pub fn build_manifest_from_dir(
     Ok(manifest)
 }
 
+/// Extracted contents of a verified core release archive.
+#[cfg(feature = "archive")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtractedCore {
+    /// Path to the extracted `kumikit` (or `kumikit.exe`) binary.
+    pub binary: PathBuf,
+    /// Paths to any bundled `.kkp` files extracted from `core-plugins/`.
+    pub core_plugins: Vec<PathBuf>,
+}
+
 /// Extracts the `kumikit` (or `kumikit.exe`) binary from a verified core archive into
 /// `dest_dir`, refusing path traversal or symlinks.
 #[cfg(feature = "archive")]
@@ -577,6 +587,17 @@ pub fn extract_core_binary(
     format: &str,
     dest_dir: &Path,
 ) -> Result<PathBuf, ReleaseError> {
+    extract_core_bundle(archive, format, dest_dir).map(|b| b.binary)
+}
+
+/// Extracts the `kumikit` binary and any bundled `core-plugins/*.kkp` packages from a
+/// verified core archive into `dest_dir`, refusing path traversal or symlinks.
+#[cfg(feature = "archive")]
+pub fn extract_core_bundle(
+    archive: &Path,
+    format: &str,
+    dest_dir: &Path,
+) -> Result<ExtractedCore, ReleaseError> {
     std::fs::create_dir_all(dest_dir)?;
     let bin_name = if cfg!(windows) {
         "kumikit.exe"
@@ -588,6 +609,8 @@ pub fn extract_core_binary(
             let file = std::fs::File::open(archive)?;
             let gz = flate2::read::GzDecoder::new(file);
             let mut tar = tar::Archive::new(gz);
+            let mut binary = None;
+            let mut core_plugins = Vec::new();
             for entry in tar.entries()? {
                 let mut entry = entry?;
                 let path = entry
@@ -608,7 +631,14 @@ pub fn extract_core_binary(
                 if !entry.header().entry_type().is_file() {
                     continue;
                 }
-                if path.file_name().and_then(|n| n.to_str()) == Some(bin_name) {
+                let normal: Vec<&std::ffi::OsStr> = path
+                    .components()
+                    .filter_map(|c| match c {
+                        Component::Normal(s) => Some(s),
+                        _ => None,
+                    })
+                    .collect();
+                if normal.len() == 1 && normal[0] == bin_name {
                     let out = dest_dir.join(bin_name);
                     let mut f = std::fs::File::create(&out)?;
                     io::copy(&mut entry, &mut f)?;
@@ -618,13 +648,28 @@ pub fn extract_core_binary(
                         use std::os::unix::fs::PermissionsExt;
                         std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o755))?;
                     }
-                    return Ok(out);
+                    binary = Some(out);
+                } else if normal.len() == 2
+                    && normal[0] == "core-plugins"
+                    && Path::new(normal[1]).extension().is_some_and(|e| e == "kkp")
+                {
+                    let plugins_dir = dest_dir.join("core-plugins");
+                    std::fs::create_dir_all(&plugins_dir)?;
+                    let out = plugins_dir.join(normal[1]);
+                    let mut f = std::fs::File::create(&out)?;
+                    io::copy(&mut entry, &mut f)?;
+                    f.sync_all()?;
+                    core_plugins.push(out);
                 }
             }
-            Err(ReleaseError::Invalid(format!(
-                "{bin_name} was not found in {}",
-                archive.display()
-            )))
+            core_plugins.sort();
+            let binary = binary.ok_or_else(|| {
+                ReleaseError::Invalid(format!("{bin_name} was not found in {}", archive.display()))
+            })?;
+            Ok(ExtractedCore {
+                binary,
+                core_plugins,
+            })
         }
         "zip" => {
             // Windows 10+ ships bsdtar as `tar.exe`, which extracts `.zip` archives cleanly.
@@ -640,14 +685,28 @@ pub fn extract_core_binary(
                     archive.display()
                 )));
             }
-            let out = dest_dir.join(bin_name);
-            if !out.is_file() {
+            let binary = dest_dir.join(bin_name);
+            if !binary.is_file() {
                 return Err(ReleaseError::Invalid(format!(
                     "{bin_name} was not found in {}",
                     archive.display()
                 )));
             }
-            Ok(out)
+            let mut core_plugins = Vec::new();
+            let plugins_dir = dest_dir.join("core-plugins");
+            if let Ok(entries) = std::fs::read_dir(&plugins_dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_file() && p.extension().is_some_and(|e| e == "kkp") {
+                        core_plugins.push(p);
+                    }
+                }
+            }
+            core_plugins.sort();
+            Ok(ExtractedCore {
+                binary,
+                core_plugins,
+            })
         }
         other => Err(ReleaseError::Unsupported(format!(
             "unsupported core archive format `{other}`"

@@ -33,7 +33,7 @@ import {
   type LeftSidebarView,
   type SplitDirection,
 } from './layout/layout';
-import type { PickedAttachment, Platform, ProfileInfo } from './platform/index';
+import type { PickedAttachment, Platform, ProfileInfo, WindowChrome } from './platform/index';
 import { meetsRequirements } from './plugins/requires';
 import type { Command } from './commands/registry.svelte';
 import type { Entry } from './slots/registry.svelte';
@@ -108,12 +108,17 @@ export class Kernel {
   /** Core plugins' commands for the active tab's core. */
   readonly coreCommands: CoreCommands;
   dialog = $state.raw<Dialog>(undefined);
+  /** Desktop window chrome configuration (undefined in browser/relay). */
+  windowChrome = $state.raw<WindowChrome | undefined>(undefined);
+  windowMaximized = $state(false);
+  windowFullscreen = $state(false);
   /** Bumped whenever the user explicitly starts a draft thread so the inline composer focuses. */
   draftFocusNonce = $state(0);
   toasts = $state.raw<Toast[]>([]);
   #toastId = 0;
   #systemDark: () => boolean;
   #unwatch = new Map<string, () => void>();
+  #unlistenWindow: (() => void) | undefined;
   #timers: Timers | undefined;
   #doc: Document | undefined;
   #layoutSheet: CSSStyleSheet | undefined;
@@ -162,7 +167,61 @@ export class Kernel {
       for (const tab of leaf.tabs) this.#watch(tab.connection, tab.workspace);
     }
     const updates = this.updates.start();
-    await Promise.all([home, plugins, updates]);
+    const chrome = this.#initWindowChrome();
+    await Promise.all([home, plugins, updates, chrome]);
+  }
+
+  /** Whether custom minimize/maximize/close buttons should show in the top bar. */
+  get showWindowButtons(): boolean {
+    if (!this.platform.window || !this.windowChrome) return false;
+    if (this.windowChrome.nativeOverlay || !this.windowChrome.borderless) return false;
+    const mode = this.settings.value.windowButtons;
+    if (mode === 'show') return true;
+    if (mode === 'hide') return false;
+    return !this.windowChrome.tiling;
+  }
+
+  /** Whether to reserve left padding in the top bar for macOS native overlay traffic lights. */
+  get nativeOverlayInset(): boolean {
+    return Boolean(this.windowChrome?.nativeOverlay && !this.windowFullscreen);
+  }
+
+  /** Whether thin invisible edge strips should handle resizing (undecorated Linux stacking DE). */
+  get showCustomResizeHandles(): boolean {
+    return Boolean(this.platform.window && this.windowChrome?.customResize && !this.windowMaximized && !this.windowFullscreen);
+  }
+
+  /** Whether dragging empty space in the top bar moves the window. */
+  get canDragTopBar(): boolean {
+    return Boolean(this.platform.window && (this.windowChrome?.borderless || this.windowChrome?.nativeOverlay));
+  }
+
+  async #initWindowChrome(): Promise<void> {
+    const win = this.platform.window;
+    if (!win) return;
+    try {
+      this.windowChrome = await win.chrome();
+    } catch {
+      return;
+    }
+    const syncState = async () => {
+      try {
+        const [max, full] = await Promise.all([win.isMaximized(), win.isFullscreen()]);
+        this.windowMaximized = max;
+        this.windowFullscreen = full;
+      } catch {
+        // Window state read is best-effort.
+      }
+    };
+    await syncState();
+    try {
+      this.#unlistenWindow?.();
+      this.#unlistenWindow = await win.onStateChange(() => {
+        void syncState();
+      });
+    } catch {
+      // Resize listener is best-effort.
+    }
   }
 
   /** Updates the constructed stylesheet carrying sidebar widths and split ratios (CSP-safe). */

@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title"],
+  "properties": {
+    "thread": {
+      "type": "string",
+      "description": "Optional thread ID. Defaults to the calling thread."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "Concise title describing the thread's substantive topic."
+    }
+  }
+}

@@ -27,7 +27,8 @@ At the same time, an SSH sync must never kill active agent turns on the remote m
      `kumikit-<tag>-<target>.tar.gz` archive **locally on the client**, verifies its Ed25519
      manifest signature and SHA-256 hash (caching verified archives in `<client data>/remote-cache/`),
      and streams the archive over `ssh` `stdin` to extract and atomically install
-     `$HOME/.local/bin/kumikit`.
+     `$HOME/.local/bin/kumikit` and any bundled `core-plugins/*.kkp` packages into
+     `$HOME/.local/share/kumikit/core-plugins/` (discovered automatically by `kumikit serve`).
 
 2. **Idle check before restarting an existing remote core.**
    Before replacing a running remote core, `ssh_sync` queries `core.activity` and calls
