@@ -673,12 +673,15 @@ pub fn extract_core_bundle(
         }
         "zip" => {
             // Windows 10+ ships bsdtar as `tar.exe`, which extracts `.zip` archives cleanly.
-            let status = std::process::Command::new("tar")
-                .arg("-xf")
-                .arg(archive)
-                .arg("-C")
-                .arg(dest_dir)
-                .status()?;
+            let mut cmd = std::process::Command::new("tar");
+            cmd.arg("-xf").arg(archive).arg("-C").arg(dest_dir);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                cmd.creation_flags(CREATE_NO_WINDOW);
+            }
+            let status = cmd.status()?;
             if !status.success() {
                 return Err(ReleaseError::Invalid(format!(
                     "failed to extract {}",

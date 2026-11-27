@@ -115,21 +115,35 @@ impl Stderr {
     }
 }
 
+/// Suppresses spawning a visible console window for child CLI processes (such as
+/// `ssh.exe`) when called from the Windows GUI desktop shell.
+pub(crate) fn configure_no_window(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = cmd;
+    }
+}
+
 /// Starts `ssh`. The child is killed when its stream is dropped and it is reaped in the
 /// background.
 pub fn spawn(program: &Path, destination: &str, command: &str) -> std::io::Result<SshStream> {
     let args = args(destination, command)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
-    let mut child: Child = Command::new(program)
-        .args(args)
+    let mut cmd = Command::new(program);
+    cmd.args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| {
-            std::io::Error::new(e.kind(), format!("cannot start {}: {e}", program.display()))
-        })?;
+        .kill_on_drop(true);
+    configure_no_window(&mut cmd);
+    let mut child: Child = cmd.spawn().map_err(|e| {
+        std::io::Error::new(e.kind(), format!("cannot start {}: {e}", program.display()))
+    })?;
     let missing = || std::io::Error::other("ssh's pipes are missing");
     let stdin = child.stdin.take().ok_or_else(missing)?;
     let stdout = child.stdout.take().ok_or_else(missing)?;
