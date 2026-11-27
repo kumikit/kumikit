@@ -912,6 +912,7 @@ mod tests {
                 Ok(vec![Model {
                     id: "m1".into(),
                     label: "M1".into(),
+                    options: vec![],
                     capabilities: vec![],
                 }])
             })

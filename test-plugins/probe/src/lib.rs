@@ -18,6 +18,8 @@
 //! - `secret <name>`: reads a secret. `log-secret <name>`: reads one and logs its value.
 //! - `settings`: replies with its settings (`kumikit:host/settings`).
 //! - `mcp-info <thread>`: replies with the session's tool gateway record, or `null`.
+//! - `session-options <thread>`: replies with the `key=value` options the session started
+//!   with. `set-options`: calls `kumikit:models/options.set-options` outside `list-models`.
 //! - `http <url>`: GETs it and replies `<status> <body>` (`wasi:http`).
 //! - `kv`: a set/get/list/delete round trip in its own store.
 //! - `fs-own`: writes and reads a file in its data directory.
@@ -108,6 +110,23 @@ impl Plugin for Probe {
 
 impl Provider for Probe {
     fn list_models(_provider: ProviderRef) -> Result<Vec<Model>, Error> {
+        // The probe model has an effort setting (ADR 0033).
+        kumikit_provider::models::set_options(
+            "probe",
+            &[kumikit_provider::models::ModelOption {
+                id: "effort".into(),
+                label: "Effort".into(),
+                kind: Some("effort".into()),
+                values: ["low", "high"]
+                    .map(|v| kumikit_provider::models::OptionValue {
+                        value: v.into(),
+                        label: v.into(),
+                        description: None,
+                    })
+                    .to_vec(),
+                default: Some("low".into()),
+            }],
+        )?;
         Ok(["probe", "echo", "tool-approval", "fail"]
             .map(|id| Model {
                 id: id.into(),
@@ -139,6 +158,16 @@ impl Provider for Probe {
             None => "null".into(),
         };
         kv::set(&format!("mcp:{}", config.thread), mcp.as_bytes())?;
+        // Kept for `session-options`: the options this session started with.
+        let options: Vec<String> = config
+            .options
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect();
+        kv::set(
+            &format!("options:{}", config.thread),
+            options.join(",").as_bytes(),
+        )?;
         Ok(format!("{}:{}", config.model, config.thread))
     }
 
@@ -277,6 +306,15 @@ fn probe(command: &str) -> Result<(), Error> {
             let value = secrets::get(name)?.unwrap_or_default();
             log::log(log::Level::Warn, &format!("probe read {value}"));
             Ok(())
+        }
+        ["session-options", thread] => {
+            let v = kv::get(&format!("options:{thread}"))?.unwrap_or_default();
+            emit(Event::TextDone(String::from_utf8_lossy(&v).into_owned()))
+        }
+        ["set-options"] => {
+            // Outside list-models this must fail with invalid-argument.
+            kumikit_provider::models::set_options("probe", &[])?;
+            emit(Event::TextDone("set".into()))
         }
         ["kv"] => {
             kv::set("a/1", b"one")?;

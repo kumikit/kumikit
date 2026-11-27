@@ -287,3 +287,71 @@ fn the_steering_world_comes_with_the_provider_world() {
     );
     assert!(has(&alone, "list that world too"), "{alone:?}");
 }
+
+#[test]
+fn provider_icons_are_small_svg_or_png_files_in_the_package() {
+    // A declarative entry keeps its single backend key next to `icon`.
+    let m = Manifest::parse(&DECLARATIVE.replacen(
+        "name = \"Gemini CLI\", acp",
+        "name = \"Gemini CLI\", icon = \"gemini.svg\", acp",
+        1,
+    ))
+    .unwrap();
+    let entry = &m.contributes.providers[0];
+    assert_eq!(entry.icon.as_deref(), Some("gemini.svg"));
+    assert_eq!(entry.backend().map(|(k, _)| k), Some("acp"));
+    m.check(None).unwrap();
+
+    let p = with(
+        DECLARATIVE,
+        "name = \"Gemini CLI\", acp",
+        "name = \"Gemini CLI\", icon = \"gemini.gif\", acp",
+    );
+    assert!(has(&p, "must be an .svg or .png file"), "{p:?}");
+    let p = with(
+        DECLARATIVE,
+        "name = \"Gemini CLI\", acp",
+        "name = \"Gemini CLI\", icon = \"../gemini.svg\", acp",
+    );
+    assert!(has(&p, "must be a path inside the package"), "{p:?}");
+
+    let dir = tempfile::tempdir().unwrap();
+    let text = PROVIDER.replacen(
+        "{ id = \"claude\", name = \"Claude Code\" }",
+        "{ id = \"claude\", name = \"Claude Code\", icon = \"icon.svg\" }",
+        1,
+    );
+    std::fs::write(dir.path().join(MANIFEST_FILE), text).unwrap();
+    std::fs::write(dir.path().join("plugin.wasm"), b"").unwrap();
+    let err = Manifest::load(dir.path()).unwrap_err();
+    assert!(
+        has(
+            &err.problems,
+            "icon of provider `claude` `icon.svg` is not in the package"
+        ),
+        "{err:?}"
+    );
+    std::fs::write(
+        dir.path().join("icon.svg"),
+        vec![b' '; ICON_MAX_BYTES as usize + 1],
+    )
+    .unwrap();
+    let err = Manifest::load(dir.path()).unwrap_err();
+    assert!(has(&err.problems, "the limit is 32768"), "{err:?}");
+    std::fs::write(
+        dir.path().join("icon.svg"),
+        b"<svg xmlns='http://www.w3.org/2000/svg'/>",
+    )
+    .unwrap();
+    Manifest::load(dir.path()).unwrap();
+
+    let reserved = with(
+        PROVIDER,
+        "[contributes]",
+        "[contributes]\nprovider-backends = [{ key = \"icon\" }]",
+    );
+    assert!(
+        has(&reserved, "provider backend key `icon` is not valid"),
+        "{reserved:?}"
+    );
+}

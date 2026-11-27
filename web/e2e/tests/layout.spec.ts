@@ -13,7 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-import { ROOT, command, expect, mod, open, test } from './fixtures';
+import { ROOT, command, expect, mod, open, test, modelButton } from './fixtures';
 import { writeKkp } from './kkp';
 
 const PANEL = join(ROOT, 'target/bundle/test-ui-plugins/test.ui-panel');
@@ -111,8 +111,8 @@ test('sidebars resize and collapse, splits start new threads, and right inspecto
   await kk.pick(kk.project);
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
   await expect(page.getByRole('navigation', { name: 'Open workspaces' }).getByRole('button', { name: 'proj', exact: true })).toBeVisible();
-  await expect(page.getByLabel('Agent')).toBeVisible();
-  await expect(page.getByLabel('Model')).toBeEnabled();
+  await expect(modelButton(page)).toBeVisible();
+  await expect(modelButton(page)).toBeEnabled();
 
   // Send a message directly from the inline composer to create & run the first thread.
   await page.getByLabel('Message').fill('First thread hello');
@@ -163,7 +163,7 @@ test('sidebars resize and collapse, splits start new threads, and right inspecto
   await page.getByRole('button', { name: 'Split pane right' }).click();
   await expect(page.locator('[data-pane]')).toHaveCount(2);
   await expect(page.locator('[data-pane]').first().getByRole('log', { name: 'Transcript' })).toContainText('hello from kumikit');
-  await expect(page.locator('[data-pane]').nth(1).getByLabel('Agent')).toBeVisible();
+  await expect(modelButton(page.locator('[data-pane]').nth(1))).toBeVisible();
   await expect(footer).toContainText('2 panes');
 
   // Split down (vertical) as well.

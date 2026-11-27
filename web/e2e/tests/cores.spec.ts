@@ -7,7 +7,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 
-import { command, expect, open, test, type Kumikit } from './fixtures';
+import { command, expect, open, test, type Kumikit, modelButton } from './fixtures';
 
 test.use({ remote: true });
 
@@ -71,7 +71,7 @@ async function startThread(page: Page, kk: Kumikit, core: 'This computer' | 'Dev
     await dialog.getByRole('button', { name: 'Open' }).click();
   }
   await expect(tab(page, core === 'This computer' ? 'local' : 'dev-box')).toBeVisible();
-  await expect(page.getByLabel('Agent')).toBeVisible();
+  await expect(modelButton(page)).toBeVisible();
   await page.getByRole('button', { name: /Permissions:/ }).click();
   await page.getByRole('menuitemradio', { name: /Standard/ }).click();
   await page.getByLabel('Message').fill(message);

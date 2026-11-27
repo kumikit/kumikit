@@ -159,6 +159,91 @@ pub struct DiscoveredModel {
     pub label: String,
 }
 
+/// A setting reported by an ACP agent in `session/new` (`configOptions` of type `select`
+/// other than the model, mode and permissions), offered as a model setting (ADR 0033).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveredOption {
+    /// The config option id.
+    pub id: String,
+    /// Display label (`name`).
+    pub label: String,
+    /// Kind hint: `effort` for category `thought_level`, else the ACP category.
+    pub kind: Option<String>,
+    /// `(value, name, description)` of each choice, in order.
+    pub values: Vec<(String, String, Option<String>)>,
+    /// The agent's current value.
+    pub current: Option<String>,
+}
+
+/// Extracts the settings in an ACP `session/new` result that Kumikit offers as model
+/// settings: `select` config options other than the model, mode and permissions.
+pub fn extract_options(result: &Value) -> Vec<DiscoveredOption> {
+    let Some(opts) = result["configOptions"].as_array() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for o in opts {
+        let category = o["category"].as_str();
+        let Some(id) = o["id"].as_str().filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        if matches!(category, Some("model" | "mode" | "permissions"))
+            || matches!(id, "model" | "mode")
+            || o["type"].as_str().is_some_and(|t| t != "select")
+        {
+            continue;
+        }
+        let mut values = Vec::new();
+        collect_option_values(
+            o["options"].as_array().map_or(&[][..], Vec::as_slice),
+            &mut values,
+        );
+        if values.is_empty() {
+            continue;
+        }
+        out.push(DiscoveredOption {
+            id: id.to_owned(),
+            label: o["name"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .unwrap_or(id)
+                .to_owned(),
+            kind: match category {
+                Some("thought_level") => Some("effort".to_owned()),
+                Some(c) if !c.is_empty() => Some(c.to_owned()),
+                _ => None,
+            },
+            values,
+            current: o["currentValue"].as_str().map(str::to_owned),
+        });
+    }
+    out
+}
+
+fn collect_option_values(items: &[Value], out: &mut Vec<(String, String, Option<String>)>) {
+    for item in items {
+        if let Some(group) = item["options"].as_array() {
+            collect_option_values(group, out);
+            continue;
+        }
+        let Some(value) = item["value"].as_str().filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        if out.iter().any(|(v, _, _)| v == value) {
+            continue;
+        }
+        let label = item["name"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(value);
+        let description = item["description"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+        out.push((value.to_owned(), label.to_owned(), description));
+    }
+}
+
 /// Permission mode requested for the session (`SessionConfig.options["permission-mode"]`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PermissionMode {
@@ -207,6 +292,7 @@ enum Phase {
     SettingModel,
     SettingMode,
     SettingPermissions,
+    SettingOptions,
     Ready,
     Prompting,
 }
@@ -245,6 +331,9 @@ pub struct Options {
     /// Stop as soon as `session/new` answers (used by `list-models` probing; skips
     /// `session/set_model` and `session/set_mode`).
     pub probe_only: bool,
+    /// Chosen model settings `(config id, value)`, applied with
+    /// `session/set_config_option` after the mode and permissions (ADR 0033).
+    pub settings: Vec<(String, String)>,
 }
 
 /// A stdio MCP server for the agent to start (ACP `McpServer` stdio form).
@@ -285,6 +374,10 @@ pub struct Session {
     image_supported: bool,
     /// Models reported by the agent in `session/new` (first is the default).
     discovered_models: Vec<DiscoveredModel>,
+    /// Settings reported by the agent in `session/new`.
+    discovered_options: Vec<DiscoveredOption>,
+    /// Chosen settings still to send, once `session/new` has answered.
+    pending_settings: Vec<(String, String)>,
     /// Config option id for model selection (`session/set_config_option`), if advertised.
     model_config_id: Option<String>,
     /// Current model reported by the agent in `session/new`.
@@ -578,6 +671,8 @@ impl Session {
             load_supported: false,
             image_supported: false,
             discovered_models: Vec::new(),
+            discovered_options: Vec::new(),
+            pending_settings: Vec::new(),
             model_config_id: None,
             current_model: None,
             has_models_api: false,
@@ -603,6 +698,11 @@ impl Session {
     /// Models reported by the agent during `session/new`, if any.
     pub fn discovered_models(&self) -> &[DiscoveredModel] {
         &self.discovered_models
+    }
+
+    /// Settings reported by the agent during `session/new`, if any.
+    pub fn discovered_options(&self) -> &[DiscoveredOption] {
+        &self.discovered_options
     }
 
     fn request(&mut self, method: &'static str, params: Value) -> Action {
@@ -897,6 +997,23 @@ impl Session {
                 self.mode_config_id = modes.mode_config_id;
                 self.allow_all_config = modes.allow_all_config;
 
+                self.discovered_options = extract_options(result);
+                // Only settings the agent offers, with a valid value it is not already on.
+                self.pending_settings = self
+                    .options
+                    .settings
+                    .iter()
+                    .filter(|(id, value)| {
+                        self.discovered_options.iter().any(|o| {
+                            &o.id == id
+                                && o.values.iter().any(|(v, _, _)| v == value)
+                                && o.current.as_deref() != Some(value.as_str())
+                        })
+                    })
+                    .cloned()
+                    .rev()
+                    .collect();
+
                 if self.options.probe_only {
                     self.phase = Phase::Ready;
                     return vec![Action::Ready { session }];
@@ -908,9 +1025,8 @@ impl Session {
                 match self.phase {
                     Phase::SettingModel => self.maybe_set_mode(session),
                     Phase::SettingMode => self.maybe_set_permissions(session),
-                    Phase::SettingPermissions => {
-                        self.phase = Phase::Ready;
-                        vec![Action::Ready { session }]
+                    Phase::SettingPermissions | Phase::SettingOptions => {
+                        self.maybe_set_options(session)
                     }
                     _ => {
                         self.phase = Phase::Ready;
@@ -1017,6 +1133,18 @@ impl Session {
             && let Some((config_id, value)) = self.allow_all_config.clone()
         {
             self.phase = Phase::SettingPermissions;
+            return vec![self.request(
+                "session/set_config_option",
+                json!({"sessionId": session, "configId": config_id, "value": value}),
+            )];
+        }
+        self.maybe_set_options(session)
+    }
+
+    /// Sends the next chosen model setting, or reports the session ready.
+    fn maybe_set_options(&mut self, session: String) -> Vec<Action> {
+        if let Some((config_id, value)) = self.pending_settings.pop() {
+            self.phase = Phase::SettingOptions;
             return vec![self.request(
                 "session/set_config_option",
                 json!({"sessionId": session, "configId": config_id, "value": value}),
@@ -1681,5 +1809,89 @@ mod tests {
             ]
         );
         assert!(!s.is_prompting());
+    }
+
+    const NEW_WITH_EFFORT: &str = r#"{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s1","configOptions":[{"id":"mode","category":"mode","type":"select","currentValue":"default","options":[{"value":"default","name":"Manual"}]},{"id":"model","category":"model","type":"select","currentValue":"opus","options":[{"value":"opus","name":"Opus"}]},{"id":"effort","name":"Effort","category":"thought_level","type":"select","currentValue":"default","options":[{"value":"default","name":"Default"},{"value":"low","name":"Low"},{"value":"high","name":"High","description":"Think harder"}]}]}}"#;
+
+    #[test]
+    fn offers_select_config_options_other_than_model_mode_and_permissions() {
+        let v: Value = serde_json::from_str(NEW_WITH_EFFORT).unwrap();
+        let found = extract_options(&v["result"]);
+        assert_eq!(found.len(), 1, "{found:?}");
+        let effort = &found[0];
+        assert_eq!(effort.id, "effort");
+        assert_eq!(effort.label, "Effort");
+        assert_eq!(effort.kind.as_deref(), Some("effort"));
+        assert_eq!(effort.current.as_deref(), Some("default"));
+        assert_eq!(
+            effort.values,
+            [
+                ("default".into(), "Default".into(), None),
+                ("low".into(), "Low".into(), None),
+                ("high".into(), "High".into(), Some("Think harder".into())),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_recorded_claude_session_offers_effort() {
+        let text = include_str!("../tests/transcripts/claude-text.jsonl");
+        let found = text
+            .lines()
+            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .map(|v| extract_options(&v["message"]["result"]))
+            .find(|o| !o.is_empty())
+            .unwrap();
+        assert_eq!(found[0].id, "effort");
+        assert_eq!(found[0].kind.as_deref(), Some("effort"));
+        let values: Vec<&str> = found[0].values.iter().map(|(v, _, _)| v.as_str()).collect();
+        assert_eq!(values, ["default", "low", "medium", "high", "xhigh", "max"]);
+    }
+
+    #[test]
+    fn chosen_settings_are_sent_before_ready_and_unknown_or_current_ones_skipped() {
+        let mut s = Session::new(Options {
+            cwd: "/w".into(),
+            settings: vec![
+                ("effort".into(), "high".into()),
+                ("effort-typo".into(), "high".into()),
+                ("other".into(), "x".into()),
+            ],
+            ..Options::default()
+        });
+        s.start();
+        s.on_line(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}"#);
+        let out = s.on_line(NEW_WITH_EFFORT);
+        let [Action::Write(line)] = out.as_slice() else {
+            panic!("{out:?}");
+        };
+        let v: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(v["method"], "session/set_config_option");
+        assert_eq!(
+            v["params"],
+            json!({"sessionId": "s1", "configId": "effort", "value": "high"})
+        );
+        let out = s.on_line(r#"{"jsonrpc":"2.0","id":3,"result":{}}"#);
+        assert_eq!(
+            out,
+            [Action::Ready {
+                session: "s1".into()
+            }]
+        );
+
+        // The agent's current value is not sent again.
+        let mut s = Session::new(Options {
+            cwd: "/w".into(),
+            settings: vec![("effort".into(), "default".into())],
+            ..Options::default()
+        });
+        s.start();
+        s.on_line(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}"#);
+        assert_eq!(
+            s.on_line(NEW_WITH_EFFORT),
+            [Action::Ready {
+                session: "s1".into()
+            }]
+        );
     }
 }

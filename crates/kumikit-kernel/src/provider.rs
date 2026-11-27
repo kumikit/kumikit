@@ -17,6 +17,7 @@ use kumikit_protocol::event::{
     ApprovalRequested, CommandsAvailable, FileChanged, InputSteered, LimitReached, PluginEvent,
     ToolFinished, ToolOutput, ToolStarted, TurnText, Usage,
 };
+pub use kumikit_protocol::methods::{ModelOption, ModelOptionValue};
 use kumikit_protocol::model::{
     Approval, ApprovalId, ApprovalStatus, Decision, SlashCommand, ThreadId, Timestamp, TurnId,
     UserInput,
@@ -51,7 +52,7 @@ impl ProviderError {
 pub type ProviderResult<T> = Result<T, ProviderError>;
 
 /// A model a provider offers.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Model {
     /// Model id, passed back in [`SessionConfig::model`].
     pub id: String,
@@ -59,7 +60,13 @@ pub struct Model {
     pub label: String,
     /// Capability strings (`docs/spec/05-providers.md#capabilities`).
     pub capabilities: Vec<String>,
+    /// Settings the model offers (ADR 0033); chosen values reach the session as
+    /// `option.<id>` in [`SessionConfig::options`].
+    pub options: Vec<ModelOption>,
 }
+
+/// The prefix of a model setting's key in [`SessionConfig::options`].
+pub const MODEL_OPTION_PREFIX: &str = "option.";
 
 /// A stdio MCP server for a provider's agent to start.
 #[derive(Clone, PartialEq, Eq)]
@@ -119,6 +126,10 @@ pub trait Provider: Send + Sync + fmt::Debug {
     /// [`Provider::plugin_id`]; delegated providers return the contributing plugin.
     fn contributor(&self) -> &str {
         self.plugin_id()
+    }
+    /// The provider's icon as a `data:` URL, if its manifest has one (ADR 0033).
+    fn icon(&self) -> Option<&str> {
+        None
     }
     /// Models this provider offers; the first is the default.
     fn list_models(&self) -> BoxFuture<'_, ProviderResult<Vec<Model>>>;

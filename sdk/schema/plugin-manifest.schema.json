@@ -155,6 +155,10 @@
               },
               "name": {
                 "type": "string"
+              },
+              "icon": {
+                "type": "string",
+                "description": "Path inside the package of an .svg or .png icon, at most 32 KiB."
               }
             },
             "description": "Any other key names a provider backend; its value is a table checked against that backend's schema."

@@ -166,7 +166,13 @@ pub struct HostState {
     pub(crate) settings_schema: Option<PathBuf>,
     /// Workspace of the calling thread during a gateway `tool.call`, if any.
     pub(crate) call_workspace: Option<kumikit_protocol::model::WorkspaceId>,
+    /// Model settings reported during the running `list-models`; `None` outside it.
+    pub(crate) model_options: Option<ModelOptions>,
 }
+
+/// Model settings by model id, as reported through `kumikit:models/options`.
+pub type ModelOptions =
+    std::collections::HashMap<String, Vec<kumikit_protocol::methods::ModelOption>>;
 
 impl std::fmt::Debug for HostState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -606,6 +612,41 @@ impl super::bindings::session_events::kumikit::session::events::Host for HostSta
         .await
         .map(|_| ())
         .map_err(kernel_err)
+    }
+}
+
+impl super::bindings::models::kumikit::models::options::Host for HostState {
+    async fn set_options(
+        &mut self,
+        model: String,
+        options: Vec<super::bindings::models::kumikit::models::options::ModelOption>,
+    ) -> Result<(), Error> {
+        let Some(map) = self.model_options.as_mut() else {
+            return Err(err(
+                ErrorCode::InvalidArgument,
+                "set-options is only valid during list-models",
+            ));
+        };
+        let options = options
+            .into_iter()
+            .map(|o| kumikit_protocol::methods::ModelOption {
+                id: o.id,
+                label: o.label,
+                kind: o.kind,
+                values: o
+                    .values
+                    .into_iter()
+                    .map(|v| kumikit_protocol::methods::ModelOptionValue {
+                        value: v.value,
+                        label: v.label,
+                        description: v.description,
+                    })
+                    .collect(),
+                default: o.default,
+            })
+            .collect();
+        map.insert(model, options);
+        Ok(())
     }
 }
 

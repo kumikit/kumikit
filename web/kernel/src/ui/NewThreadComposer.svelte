@@ -16,7 +16,10 @@
     type PendingAttachment,
   } from './attachments';
   import BranchPicker from './BranchPicker.svelte';
+  import { keepValidOptions, orderOptions } from './model-picker';
+  import { openModelPicker } from './open-model-picker';
   import PermissionModePicker from './PermissionModePicker.svelte';
+  import ProviderIcon from './ProviderIcon.svelte';
 
   let {
     kernel,
@@ -46,6 +49,8 @@
   const isChat = $derived(workspace?.kind === 'chat');
   let provider = $state(untrack(() => kernel.settings.value.lastProvider ?? ''));
   let model = $state(untrack(() => kernel.settings.value.lastModel ?? ''));
+  let modelOptions = $state<Record<string, string>>(untrack(() => ({ ...(kernel.settings.value.lastOptions ?? {}) })));
+  let modelButton: HTMLButtonElement | undefined = $state();
   let permissionMode = $state<PermissionMode>(untrack(() => kernel.settings.value.defaultPermissionMode));
   let permissionOverridden = $state(false);
   let models = $state.raw<ModelInfo[]>([]);
@@ -97,7 +102,12 @@
         loadingModels = false;
         models = m;
         const remembered = kernel.settings.value.lastModel;
-        model = (remembered && m.some((x) => x.id === remembered) ? remembered : m[0]?.id) ?? '';
+        const keep = untrack(() => model);
+        model = (m.some((x) => x.id === keep) ? keep : remembered && m.some((x) => x.id === remembered) ? remembered : m[0]?.id) ?? '';
+        modelOptions = keepValidOptions(
+          m.find((x) => x.id === model),
+          untrack(() => modelOptions),
+        );
       },
       () => {
         if (provider !== p) return;
@@ -176,6 +186,26 @@
     void addFiles(files, false);
   }
 
+  const currentProvider = $derived(providers.find((p) => p.id === provider));
+  const currentModelLabel = $derived(models.find((m) => m.id === model)?.label ?? model);
+  // The chosen effort (or first chosen setting) shown next to the model, e.g. "Opus · High".
+  const settingLabel = $derived.by(() => {
+    for (const o of orderOptions(models.find((m) => m.id === model)?.options)) {
+      const v = modelOptions[o.id];
+      if (v !== undefined) return o.values.find((x) => x.value === v)?.label ?? v;
+    }
+    return '';
+  });
+
+  async function pickModel() {
+    if (!modelButton) return;
+    const pick = await openModelPicker(kernel, modelButton, { connection: connection.id, provider, model, options: modelOptions });
+    if (!pick) return;
+    model = pick.model;
+    modelOptions = pick.options;
+    provider = pick.provider;
+  }
+
   async function send() {
     const message = text.trim();
     const pending = attachments;
@@ -185,8 +215,10 @@
       permissionMode?: PermissionMode;
       attachments?: ReturnType<typeof toProtocolAttachments>;
       worktreePath?: string;
+      modelOptions?: Record<string, string>;
     } = {
       permissionMode,
+      modelOptions,
     };
     if (pending.length > 0) opts.attachments = toProtocolAttachments(pending);
     if (worktreePath) opts.worktreePath = worktreePath;
@@ -361,33 +393,20 @@
           <button type="button" class="kk-button" onclick={() => (kernel.main = { kind: 'plugins' })}>Manage plugins</button>
         {:else}
           <div class="footer-left">
-            <select
-              class="picker"
-              aria-label="Agent"
-              title="Agent provider"
-              bind:value={provider}
-              disabled={busy}
-            >
-              {#each providers as p (p.id)}
-                <option value={p.id}>{p.name}</option>
-              {/each}
-            </select>
-            <select
-              class="picker model-picker"
-              aria-label="Model"
+            <button
+              bind:this={modelButton}
+              type="button"
+              class="picker model-button"
+              aria-label={`Model: ${currentProvider?.name ?? 'no agent'} · ${loadingModels && !model ? 'loading' : currentModelLabel || 'none'}`}
+              aria-haspopup="dialog"
               aria-busy={loadingModels}
-              title={loadingModels ? 'Loading available models…' : 'Model'}
-              bind:value={model}
-              disabled={loadingModels || models.length === 0 || busy}
+              title={`${currentProvider?.name ?? ''}${currentModelLabel ? ` · ${currentModelLabel}` : ''}`}
+              disabled={busy}
+              onclick={() => void pickModel()}
             >
-              {#if loadingModels && models.length === 0}
-                <option value="">Loading models…</option>
-              {:else}
-                {#each models as m (m.id)}
-                  <option value={m.id}>{m.label}</option>
-                {/each}
-              {/if}
-            </select>
+              {#if currentProvider}<ProviderIcon name={currentProvider.name} icon={currentProvider.icon} />{/if}
+              <span class="model-button-label">{loadingModels && !model ? 'Loading models…' : currentModelLabel || currentProvider?.name || 'Choose a model'}{settingLabel ? ` · ${settingLabel}` : ''}</span>
+            </button>
             <PermissionModePicker
               value={permissionMode}
               disabled={busy}
@@ -673,8 +692,18 @@
     font-size: var(--kk-font-size-small, small);
     cursor: pointer;
   }
-  .model-picker {
+  .model-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     max-width: 260px;
+    font: inherit;
+    font-size: var(--kk-font-size-small, small);
+  }
+  .model-button-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .picker:hover:not(:disabled),
   .picker:focus-visible {

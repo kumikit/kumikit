@@ -1,6 +1,6 @@
 //! The kernel service: workspaces, threads, the event log and subscriptions.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -581,6 +581,7 @@ impl Kernel {
             model,
             title,
             permission_mode,
+            BTreeMap::new(),
             worktree_path,
             None,
             false,
@@ -597,6 +598,7 @@ impl Kernel {
         model: String,
         title: Option<String>,
         permission_mode: Option<PermissionMode>,
+        options: BTreeMap<String, String>,
         worktree_path: Option<String>,
         parent: Option<ThreadId>,
         side: bool,
@@ -619,6 +621,7 @@ impl Kernel {
             provider,
             model,
             permission_mode,
+            options,
             worktree_path,
             forked_from: None,
             parent,

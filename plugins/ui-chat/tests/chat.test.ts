@@ -393,6 +393,11 @@ describe('the handoff renderer and provider switch', () => {
       models: async () => [{ id: 'm1', label: 'Model 1', capabilities: [] }],
     };
     const { ctx, ran } = fakeCtx(viewWithTurn);
+    const requests: unknown[] = [];
+    ctx.ui.pickModel = async (_anchor, request) => {
+      requests.push(request);
+      return { provider: 'p.b/b', model: 'm9', options: { effort: 'high' } };
+    };
     const target = document.createElement('div');
     const c = mount(Chat, { target, props: { ctx, address, connection: connection as never } });
     flushSync();
@@ -401,13 +406,16 @@ describe('the handoff renderer and provider switch', () => {
     flushSync();
 
     expect(target.textContent).toContain('Agent A · m1');
-    const select = target.querySelector<HTMLSelectElement>('select[aria-label="Thread provider"]');
-    expect(select).not.toBeNull();
-    select!.value = 'p.b/b';
-    select!.dispatchEvent(new Event('change', { bubbles: true }));
+    const button = target.querySelector<HTMLButtonElement>('button[aria-label^="Model:"]')!;
+    expect(button.getAttribute('aria-label')).toBe('Model: Agent A · Model 1');
+    button.click();
+    await Promise.resolve();
+    await Promise.resolve();
     flushSync();
+    expect(requests).toEqual([{ connection: 'local', provider: 'p.a/a', model: 'm1', options: {} }]);
 
     expect(target.textContent).toContain('Hand off to Agent B?');
+    expect(ran).toEqual([]);
     const summaryRadio = target.querySelector<HTMLInputElement>('input[value="summary"]');
     summaryRadio!.checked = true;
     summaryRadio!.dispatchEvent(new Event('change', { bubbles: true }));
@@ -419,7 +427,64 @@ describe('the handoff renderer and provider switch', () => {
     await Promise.resolve();
     flushSync();
 
-    expect(ran).toEqual([['thread.update', { address, provider: 'p.b/b', handoff: 'summary' }]]);
+    expect(ran).toEqual([
+      ['thread.update', { address, provider: 'p.b/b', model: 'm9', options: { effort: 'high' }, handoff: 'summary' }],
+    ]);
+    unmount(c);
+  });
+
+  it('changes the model and its settings on the same agent without a handoff', async () => {
+    const view: ThreadView = {
+      ...base,
+      thread: {
+        id: 't',
+        workspace: 'w',
+        provider: 'p.a/a',
+        model: 'm1',
+        options: { effort: 'low' },
+        status: 'idle',
+        created: '2026-11-24T00:00:00Z',
+        updated: '2026-11-24T00:00:00Z',
+      },
+    };
+    const effort = {
+      id: 'effort',
+      label: 'Effort',
+      kind: 'effort',
+      values: [
+        { value: 'low', label: 'Low' },
+        { value: 'high', label: 'High' },
+      ],
+    };
+    const connection = {
+      id: 'local',
+      ready: true,
+      call: async () => ({ providers: [{ id: 'p.a/a', name: 'Agent A', plugin: 'p.a', icon: 'data:image/svg+xml;base64,PHN2Zy8+' }] }),
+      subscribe: () => () => {},
+      models: async () => [
+        { id: 'm1', label: 'Model 1', capabilities: [], options: [effort] },
+        { id: 'm2', label: 'Model 2', capabilities: [], options: [effort] },
+      ],
+    };
+    const { ctx, ran } = fakeCtx(view);
+    ctx.ui.pickModel = async () => ({ provider: 'p.a/a', model: 'm2', options: { effort: 'high' } });
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address, connection: connection as never } });
+    flushSync();
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+
+    const button = target.querySelector<HTMLButtonElement>('button[aria-label^="Model:"]')!;
+    // The agent's icon and the chosen effort show on the button.
+    expect(button.querySelector('img')?.getAttribute('src')).toBe('data:image/svg+xml;base64,PHN2Zy8+');
+    expect(button.textContent).toContain('Model 1 · Low');
+    button.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+    expect(ran).toEqual([['thread.update', { address, model: 'm2', options: { effort: 'high' } }]]);
+    expect(target.textContent).not.toContain('Hand off to');
     unmount(c);
   });
 });

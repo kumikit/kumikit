@@ -1,0 +1,44 @@
+package kumikit:models@0.1.0;
+
+/// Settings a provider offers on its models, such as effort or speed (ADR 0033).
+/// Additive to `kumikit:provider/plugin@0.2.0`, whose `model` record cannot change.
+interface options {
+  use kumikit:host/types@0.2.0.{error};
+
+  /// One value a setting can take.
+  record option-value {
+    /// The value passed back to the provider.
+    value: string,
+    /// Display label.
+    label: string,
+    /// Optional longer description.
+    description: option<string>,
+  }
+
+  /// A setting of a model.
+  record model-option {
+    /// Id; the chosen value reaches `start-session` as `option.<id>` in
+    /// `session-config.options`.
+    id: string,
+    /// Display label ("Effort").
+    label: string,
+    /// What kind of setting it is, so clients can order and place it: `effort` and
+    /// `speed` are documented; others are shown generically.
+    kind: option<string>,
+    /// The values it can take, in display order.
+    values: list<option-value>,
+    /// The value used when the user chooses none; none means the agent's own default.
+    default: option<string>,
+  }
+
+  /// Attaches settings to `model`, one of the models the running `list-models` returns.
+  /// Valid only during `list-models`; otherwise fails with `invalid-argument`. A later
+  /// call for the same model replaces the earlier one.
+  set-options: func(model: string, options: list<model-option>) -> result<_, error>;
+}
+
+/// Imported by providers whose models have settings, alongside
+/// `kumikit:provider/plugin@0.2.0`.
+world provider-models {
+  import options;
+}

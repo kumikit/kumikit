@@ -378,6 +378,9 @@ pub struct ProviderEntry {
     pub id: String,
     /// Display name.
     pub name: String,
+    /// Icon: an SVG or PNG file inside the package, at most [`ICON_MAX_BYTES`] (ADR 0033).
+    #[serde(default)]
+    pub icon: Option<String>,
     /// At most one backend key and its table.
     #[serde(flatten)]
     pub backend: BTreeMap<String, serde_json::Value>,
@@ -668,6 +671,9 @@ impl Manifest {
             if !provider_ids.insert(entry.id.as_str()) {
                 p.push(format!("provider id `{}` appears twice", entry.id));
             }
+            if let Some(icon) = &entry.icon {
+                check_icon(&mut p, package, &entry.id, icon);
+            }
             match entry.backend.len() {
                 0 => {
                     if !worlds.contains(WORLD_PROVIDER) {
@@ -701,7 +707,7 @@ impl Manifest {
         }
         let mut keys = BTreeSet::new();
         for b in &self.contributes.provider_backends {
-            if !is_word(&b.key) || b.key == "id" || b.key == "name" {
+            if !is_word(&b.key) || b.key == "id" || b.key == "name" || b.key == "icon" {
                 p.push(format!("provider backend key `{}` is not valid", b.key));
             }
             if !keys.insert(b.key.as_str()) {
@@ -889,6 +895,40 @@ impl Manifest {
         } else {
             Err(ManifestError { problems: p })
         }
+    }
+}
+
+/// The largest provider icon file, in bytes (ADR 0033).
+pub const ICON_MAX_BYTES: u64 = 32 * 1024;
+
+/// The media type of a provider icon path, from its extension.
+pub fn icon_media_type(path: &str) -> Option<&'static str> {
+    let lower = path.to_ascii_lowercase();
+    if lower.ends_with(".svg") {
+        Some("image/svg+xml")
+    } else if lower.ends_with(".png") {
+        Some("image/png")
+    } else {
+        None
+    }
+}
+
+fn check_icon(p: &mut Vec<String>, package: Option<&Path>, provider: &str, path: &str) {
+    let what = format!("icon of provider `{provider}`");
+    if icon_media_type(path).is_none() {
+        p.push(format!("{what} `{path}` must be an .svg or .png file"));
+        return;
+    }
+    check_file(p, package, &what, path);
+    if let Some(dir) = package
+        && is_package_path(path)
+        && let Ok(meta) = std::fs::metadata(dir.join(path))
+        && meta.len() > ICON_MAX_BYTES
+    {
+        p.push(format!(
+            "{what} `{path}` is {} bytes; the limit is {ICON_MAX_BYTES}",
+            meta.len()
+        ));
     }
 }
 

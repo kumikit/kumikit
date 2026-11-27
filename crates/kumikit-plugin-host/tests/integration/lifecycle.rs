@@ -587,3 +587,97 @@ async fn delegated_list_models_runs_in_ephemeral_probe_and_caches() {
     assert_eq!(first, second);
     assert_eq!(e.host.instances("test.backend"), (false, 0));
 }
+
+fn reply(events: &[StoredEvent]) -> String {
+    events
+        .iter()
+        .rev()
+        .find_map(|e| match &e.event {
+            ThreadEvent::TextDone(t) => Some(t.text.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn icons_and_model_settings_reach_clients_and_sessions() {
+    let e = env().await;
+    let wasm = std::fs::read(kumikit_test_plugins::PROBE_WASM).unwrap();
+    let svg = b"<svg xmlns='http://www.w3.org/2000/svg'/>";
+    e.install(
+        "probe",
+        &PROBE.replace(
+            "{ id = \"probe\", name = \"Probe\" }",
+            "{ id = \"probe\", name = \"Probe\", icon = \"icon.svg\" }",
+        ),
+        &[("plugin.wasm", &wasm), ("icon.svg", svg)],
+        &["fake-acp-agent"],
+    )
+    .await;
+
+    // provider.list carries the icon as a data URL.
+    let list = e.kernel.provider_list();
+    let icon = list[0].icon.as_deref().unwrap();
+    assert!(icon.starts_with("data:image/svg+xml;base64,"), "{icon}");
+
+    // The probe model offers an effort setting.
+    let models = e.kernel.provider_models("test.probe/probe").await.unwrap();
+    assert_eq!(models[0].options[0].id, "effort");
+
+    // A thread created with a setting passes it to the session as `option.<id>`.
+    let ws = e.kernel.workspace_open(&e.workspace).await.unwrap();
+    let options = std::collections::BTreeMap::from([("effort".to_owned(), "high".to_owned())]);
+    let t = e
+        .kernel
+        .thread_create_opts(
+            &ws.id,
+            Some("test.probe/probe".into()),
+            Some("probe".into()),
+            None,
+            None,
+            Some(options),
+            None,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+    assert_eq!(t.options["effort"], "high");
+    let events = e.turn(&t.id, 0, &format!("session-options {}", t.id)).await;
+    assert!(
+        reply(&events).contains("option.effort=high"),
+        "{}",
+        reply(&events)
+    );
+
+    // An unknown value is refused; a valid change restarts the session with it.
+    let bad = std::collections::BTreeMap::from([("effort".to_owned(), "max".to_owned())]);
+    let err = e
+        .kernel
+        .thread_update(&t.id, None, None, None, None, None, Some(bad))
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("no value max"), "{err}");
+    let low = std::collections::BTreeMap::from([("effort".to_owned(), "low".to_owned())]);
+    e.kernel
+        .thread_update(&t.id, None, None, None, None, None, Some(low))
+        .await
+        .unwrap();
+    let after = last_seq(&events);
+    let events = e
+        .turn(&t.id, after, &format!("session-options {}", t.id))
+        .await;
+    assert!(
+        reply(&events).contains("option.effort=low"),
+        "{}",
+        reply(&events)
+    );
+
+    // Switching to a model without the setting drops it.
+    let t2 = e
+        .kernel
+        .thread_update(&t.id, None, Some("echo".into()), None, None, None, None)
+        .await
+        .unwrap();
+    assert!(t2.options.is_empty());
+}

@@ -9,7 +9,7 @@ import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
-import { test as base, expect, type Page } from '@playwright/test';
+import { test as base, expect, type Locator, type Page } from '@playwright/test';
 
 import { writeKkp } from './kkp';
 
@@ -322,4 +322,19 @@ export async function command(page: Page, title: string): Promise<void> {
   const input = page.getByRole('dialog', { name: 'Commands' }).getByLabel('Command', { exact: true });
   await input.fill(title);
   await input.press('Enter');
+}
+
+/** The composer's model button (opens the model picker). */
+export function modelButton(scope: Page | Locator): Locator {
+  return scope.getByRole('button', { name: /^Model:/ });
+}
+
+/** Chooses an agent (and its first model) in the composer's model picker. */
+export async function chooseAgent(page: Page, name: string): Promise<void> {
+  await modelButton(page).first().click();
+  const picker = page.getByRole('dialog', { name: 'Choose a model' });
+  await picker.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name, exact: false }).click();
+  await picker.getByRole('region', { name: 'Models' }).getByRole('button').first().click();
+  await expect(picker).toHaveCount(0);
+  await expect(modelButton(page).first()).toHaveAccessibleName(new RegExp(`^Model: ${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} ·`));
 }

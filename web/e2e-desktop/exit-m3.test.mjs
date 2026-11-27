@@ -163,7 +163,7 @@ after(async () => {
     const c = net.connect(socket);
     c.once('error', () => done());
     c.once('connect', () => {
-      c.write('{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.10","client":{"name":"e2e","version":"0"}}}\n');
+      c.write('{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.11","client":{"name":"e2e","version":"0"}}}\n');
       c.write('{"jsonrpc":"2.0","id":2,"method":"core.shutdown","params":{}}\n');
     });
     c.once('close', () => done());
@@ -248,7 +248,7 @@ async function flow(b) {
   await b.type(await field(b, 'Path on'), remoteProject);
   await b.click(await button(b, '[role="dialog"]', 'Open'));
   await b.wait(`${TABS} [data-core="dev-box"]`);
-  await b.wait('select[aria-label="Agent"] option');
+  await b.wait('button[aria-label^="Model:"]');
   await b.click(await b.wait('button[aria-label^="Permissions:"]'));
   await b.click(await b.wait('[role="menuitemradio"]', 'Standard'));
   await b.type(await b.wait('#kk-chat-input'), 'Add a line to notes.txt');
@@ -266,7 +266,7 @@ async function flow(b) {
   assert.ok(!(await tabText(b, 'local')).includes('reconnecting'), 'the local tab is not reconnecting');
 
   step('the local core keeps streaming');
-  await b.wait('select[aria-label="Agent"] option');
+  await b.wait('button[aria-label^="Model:"]');
   await b.click(await b.wait('button[aria-label^="Permissions:"]'));
   await b.click(await b.wait('[role="menuitemradio"]', 'Standard'));
   await b.type(await b.wait('#kk-chat-input'), 'Add a line to notes.txt');

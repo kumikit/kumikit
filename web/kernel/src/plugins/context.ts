@@ -5,6 +5,7 @@ import type { ComposerProps, PluginContext, RendererProps, TranscriptItem, Unmou
 import type { Kernel } from '../app.svelte';
 import { renderMarkdown } from '../declarative/markdown';
 import { variantKey } from '../theme/engine.svelte';
+import { openModelPicker } from '../ui/open-model-picker';
 
 /** Shown for an item no plugin renders. */
 function fallback(el: HTMLElement, item: TranscriptItem): Unmount {
@@ -86,6 +87,7 @@ export function createContext(k: Kernel, id: string, dispose: (() => void)[]): P
           return fallback(el, props.item);
         }
       },
+      pickModel: (anchor, request) => openModelPicker(k, anchor, request),
       renderAccessories(el: HTMLElement, props: ComposerProps): Unmount {
         const cleanups: (() => void)[] = [];
         for (const entry of k.slotsIn('composer.accessory')) {

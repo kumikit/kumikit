@@ -54,6 +54,10 @@ the local id; the protocol and the stored `Thread.provider` use the qualified on
    `user-input.text`. `provider-acp` maps the permission mode to the agent's advertised
    ACP mode / permissions config option (auto-approving requests in `full_access`, and
    edit requests in `accept_edits` when the agent lacks a native accept-edits mode),
+   advertises any other ACP `configOptions` of type `select` (excluding `mode`, `model`
+   and `permissions`, mapping category `thought_level` to kind `effort`) as model
+   settings via `kumikit:models@0.1.0` and applies chosen values with
+   `session/set_config_option` after opening the session,
    sends image attachments as ACP `image` blocks when `promptCapabilities.image` is true
    (or file-path references otherwise), starts the agent in the thread's workspace with
    the contributing plugin's permissions, and translates ACP session updates into kernel
@@ -187,6 +191,29 @@ and appends `handoff.delivered` once the first turn completes `done` with a sess
 Models report capability strings so the UI adapts without knowing the provider:
 `images`, `reasoning`, `tools`, `approvals`, `resume`, `fork`, `plan-mode`, `steer`.
 Unknown strings are ignored. New well-known strings are added to this list in the spec.
+
+## Model settings
+
+Decided in [ADR 0033](../decisions/0033-model-settings-and-provider-icons.md). A provider
+may attach per-model settings (such as thinking effort or speed) without changing the
+published `kumikit:provider@0.2.0` world. The host links the additive import
+`kumikit:models/options@0.1.0` for every provider (not listed in `runtime.worlds`):
+
+- `set-options(model, options) -> result<_, error>` attaches a list of settings
+  (`id`, `label`, optional `kind` hint — `effort` and `speed` are documented; others are
+  free — `values: [{ value, label, description? }]`, and optional `default`) to a model
+  returned by the running `list-models` call. Calling it outside `list-models` fails with
+  `invalid-argument`.
+- The kernel validates thread `options` (`thread.create`, `thread.update`) against the
+  model's reported settings, drops values the new model does not offer when the model or
+  provider changes, persists them on the thread (inherited by forks and side threads),
+  and passes each chosen value to `start-session` in `session-config.options` as
+  `("option.<id>", value)`.
+- Changing a thread's `options` ends any idle provider session so the next turn resumes
+  with the new settings, like a model change.
+- A provider entry in `plugin.toml` may also declare `icon = "<path>"` (an `.svg` or
+  `.png` inside the package, at most 32 KiB). The plugin host reads it at registration
+  and `provider.list` returns it as a `data:` URL in `ProviderInfo.icon`.
 
 ## Testing providers
 

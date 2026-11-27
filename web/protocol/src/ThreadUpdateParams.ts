@@ -28,6 +28,11 @@ handoff?: HandoffMode,
  */
 permissionMode?: PermissionMode, 
 /**
+ * New model settings; replaces all of them, and an empty map clears them. Values
+ * the (new) model does not offer are refused (since 0.11).
+ */
+options?: { [key in string]: string }, 
+/**
  * New title.
  */
 title?: string, };

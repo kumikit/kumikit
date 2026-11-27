@@ -3,7 +3,7 @@
  * approve a tool call, switch themes; reopening the page resumes the running turn.
  * The agent replays a recorded Claude Code transcript.
  */
-import { command, expect, open, test } from './fixtures';
+import { command, expect, open, test, chooseAgent } from './fixtures';
 
 test('install a provider, approve a tool call across a reopen, switch themes', async ({ page, kk }) => {
   await open(page, kk);
@@ -27,7 +27,7 @@ test('install a provider, approve a tool call across a reopen, switch themes', a
   await kk.pick(kk.project);
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
   await expect(page.getByRole('navigation', { name: 'Open workspaces' }).getByRole('button', { name: 'proj', exact: true })).toBeVisible();
-  await page.getByLabel('Agent').selectOption({ label: 'Recorded agent 1' });
+  await chooseAgent(page, 'Recorded agent 1');
   await page.getByRole('button', { name: /Permissions:/ }).click();
   await page.getByRole('menuitemradio', { name: /Standard/ }).click();
 

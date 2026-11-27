@@ -32,6 +32,10 @@ permissionMode?: PermissionMode,
  */
 worktreePath?: string, 
 /**
+ * Model settings, by [`ModelOption`] id, checked against the model (since 0.11).
+ */
+options?: { [key in string]: string }, 
+/**
  * Parent thread id for a linked side thread (since 0.9).
  */
 parent?: ThreadId, 

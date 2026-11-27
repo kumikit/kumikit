@@ -65,7 +65,8 @@
   let armedCancel = $state(false);
   let models = $state.raw<ModelInfo[]>([]);
   let providers = $state.raw<ProviderInfo[]>([]);
-  let pendingSwitch = $state<ProviderInfo | undefined>();
+  let pendingSwitch = $state<{ provider: ProviderInfo; model: string; options: Record<string, string> } | undefined>();
+  let modelButton: HTMLButtonElement | undefined = $state();
   let handoffMode = $state<HandoffMode>('transcript');
   let switching = $state(false);
   let showLater = $state(false);
@@ -370,6 +371,16 @@
   const threadModel = $derived(view?.thread?.model ?? '');
   const modelInfo = $derived(models.find((m) => m.id === threadModel));
   const modelLabel = $derived(modelInfo?.label ?? (threadModel || 'Default'));
+  const threadOptions = $derived<Record<string, string>>(view?.thread?.options ?? {});
+  const threadProviderInfo = $derived(providers.find((p) => p.id === threadProvider));
+  // The chosen effort (or first chosen setting) shown next to the model, e.g. "Opus · High".
+  const settingLabel = $derived.by(() => {
+    for (const o of modelInfo?.options ?? []) {
+      const v = threadOptions[o.id];
+      if (v !== undefined && (o.kind === 'effort' || o.kind === undefined)) return o.values.find((x) => x.value === v)?.label ?? v;
+    }
+    return '';
+  });
   const canSteer = $derived(modelInfo?.capabilities?.includes('steer') ?? false);
   const canSteerNow = $derived(busy && !archived && text.trim().length > 0 && attachments.length === 0);
   const permissionMode = $derived<PermissionMode>(view?.thread?.permissionMode ?? 'standard');
@@ -710,20 +721,30 @@
     void run('thread.steer', { address, text: message });
   }
 
-  function onProviderChange(e: Event) {
-    const select = e.currentTarget as HTMLSelectElement;
-    const nextId = select.value;
-    if (!nextId || nextId === threadProvider) return;
-    if ((view?.turns.length ?? 0) === 0) {
-      void run('thread.update', { address, provider: nextId });
+  // One button opens the UI kernel's model picker (agent, model and settings). Changing
+  // the agent of a thread with history asks how to hand off first.
+  async function pickModel() {
+    if (!modelButton || !ctx.ui.pickModel) return;
+    const pick = await ctx.ui.pickModel(modelButton, {
+      connection: address.connection,
+      provider: threadProvider,
+      model: threadModel,
+      options: threadOptions,
+    });
+    if (!pick) return;
+    if (pick.provider !== threadProvider) {
+      const target = providers.find((p) => p.id === pick.provider);
+      if ((view?.turns.length ?? 0) === 0 || !target) {
+        void run('thread.update', { address, provider: pick.provider, model: pick.model, options: pick.options });
+        return;
+      }
+      handoffMode = 'transcript';
+      pendingSwitch = { provider: target, model: pick.model, options: pick.options };
       return;
     }
-    const target = providers.find((p) => p.id === nextId);
-    // Keep the select showing the current provider until the user confirms the handoff.
-    select.value = threadProvider;
-    if (!target) return;
-    handoffMode = 'transcript';
-    pendingSwitch = target;
+    const args: { address: typeof address; model?: string; options: Record<string, string> } = { address, options: pick.options };
+    if (pick.model !== threadModel) args.model = pick.model;
+    void run('thread.update', args);
   }
 
   async function confirmSwitch() {
@@ -732,7 +753,13 @@
     const mode = handoffMode;
     switching = true;
     try {
-      await run('thread.update', { address, provider: target.id, handoff: mode });
+      await run('thread.update', {
+        address,
+        provider: target.provider.id,
+        model: target.model,
+        options: target.options,
+        handoff: mode,
+      });
       pendingSwitch = undefined;
     } finally {
       switching = false;
@@ -742,12 +769,6 @@
   function cancelSwitch() {
     if (switching) return;
     pendingSwitch = undefined;
-  }
-
-  function onModelChange(e: Event) {
-    const next = (e.currentTarget as HTMLSelectElement).value;
-    if (!next || next === threadModel) return;
-    void run('thread.update', { address, model: next });
   }
 
   function onPermissionChange(mode: PermissionMode) {
@@ -1348,7 +1369,7 @@
     {/if}
     {#if pendingSwitch}
       <div class="handoff-bar" role="region" aria-label="Confirm provider handoff">
-        <span class="handoff-title">Hand off to {pendingSwitch.name}?</span>
+        <span class="handoff-title">Hand off to {pendingSwitch.provider.name}?</span>
         <div class="handoff-modes" role="radiogroup" aria-label="Handoff mode">
           <label>
             <input
@@ -1590,41 +1611,24 @@
 
       <div class="footer">
         <div class="footer-left">
-          {#if providers.length > 1}
-            <select
-              class="model-select"
-              aria-label="Thread provider"
-              title={busy ? `Provider: ${providerName(threadProvider)} (wait for turn to finish to switch)` : `Provider: ${providerName(threadProvider)}`}
-              value={threadProvider}
-              disabled={busy || archived || !connReady || switching}
-              onchange={onProviderChange}
+          {#if threadModel}
+            <button
+              bind:this={modelButton}
+              type="button"
+              class="model-select model-button"
+              aria-label={`Model: ${providerName(threadProvider)} · ${modelLabel}`}
+              aria-haspopup="dialog"
+              title={busy ? `${providerName(threadProvider)} · ${modelLabel} (wait for the turn to finish to change)` : `${providerName(threadProvider)} · ${modelLabel}`}
+              disabled={busy || archived || !connReady || switching || !ctx.ui.pickModel}
+              onclick={() => void pickModel()}
             >
-              {#if threadProvider && !providers.some((p) => p.id === threadProvider)}
-                <option value={threadProvider}>{threadProvider}</option>
+              {#if threadProviderInfo?.icon}
+                <img class="provider-icon" src={threadProviderInfo.icon} alt="" aria-hidden="true" draggable="false" />
+              {:else}
+                <span class="provider-icon badge" aria-hidden="true">{(providerName(threadProvider).trim()[0] ?? '?').toUpperCase()}</span>
               {/if}
-              {#each providers as p (p.id)}
-                <option value={p.id}>{p.name}</option>
-              {/each}
-            </select>
-          {/if}
-          {#if models.length > 1}
-            <select
-              class="model-select"
-              aria-label="Thread model"
-              title={busy ? `Model: ${modelLabel} (wait for turn to finish to change)` : `Model: ${modelLabel}`}
-              value={threadModel}
-              disabled={busy || archived || !connReady}
-              onchange={onModelChange}
-            >
-              {#if threadModel && !models.some((m) => m.id === threadModel)}
-                <option value={threadModel}>{modelLabel}</option>
-              {/if}
-              {#each models as m (m.id)}
-                <option value={m.id}>{m.label}</option>
-              {/each}
-            </select>
-          {:else if threadModel}
-            <span class="model-pill" title={`Model: ${modelLabel}`}>{modelLabel}</span>
+              <span class="model-button-label">{modelLabel}{settingLabel ? ` · ${settingLabel}` : ''}</span>
+            </button>
           {/if}
           <PermissionModePicker
             value={permissionMode}
@@ -2121,6 +2125,34 @@
     gap: 8px;
     min-width: 0;
   }
+  .model-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 280px;
+  }
+  .model-button-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .provider-icon {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
+  }
+  .provider-icon.badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--kk-radius-small, 0);
+    background: var(--kk-accent-tint, ButtonFace);
+    color: var(--kk-accent, ButtonText);
+    font-size: var(--kk-font-size-small, small);
+    font-weight: var(--kk-font-weight-strong, bold);
+    line-height: 1;
+  }
   .model-select {
     height: 24px;
     max-width: 260px;
@@ -2140,15 +2172,6 @@
   .model-select:disabled {
     opacity: 0.6;
     cursor: default;
-  }
-  .model-pill {
-    font-size: var(--kk-font-size-small, small);
-    color: var(--kk-text-secondary, CanvasText);
-    padding: 0 4px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 240px;
   }
   .hint {
     font-size: var(--kk-font-size-small, small);

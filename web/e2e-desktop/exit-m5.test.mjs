@@ -123,7 +123,7 @@ after(async () => {
     const c = net.connect(socket);
     c.once('error', () => done());
     c.once('connect', () => {
-      c.write('{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.10","client":{"name":"e2e","version":"0"}}}\n');
+      c.write('{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.11","client":{"name":"e2e","version":"0"}}}\n');
       c.write('{"jsonrpc":"2.0","id":2,"method":"core.shutdown","params":{}}\n');
     });
     c.once('close', () => done());
@@ -208,7 +208,7 @@ async function flow(b) {
   pick(project);
   await palette(b, 'Open a project folder');
   await b.wait('nav[aria-label="Open workspaces"] button', 'proj');
-  await b.wait('select[aria-label="Agent"] option', 'Acme Agent');
+  await b.chooseAgent('Acme Agent');
   await b.type(await b.wait('#kk-chat-input'), 'use the tool');
   await b.keys('Enter');
   await b.wait('main', 'gateway-m5-ok');

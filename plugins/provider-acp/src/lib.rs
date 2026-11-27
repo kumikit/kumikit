@@ -17,7 +17,8 @@ use std::cell::RefCell;
 
 use kumikit_provider::{
     Child, Decision, Error, ErrorCode, Event, Model, Plugin, Provider, ProviderRef, SessionConfig,
-    SpawnRequest, UserInput, events, process, session as provider_session, steering, take_line,
+    SpawnRequest, UserInput, events, models, process, session as provider_session, steering,
+    take_line,
 };
 
 use crate::acp::{Action, Attachment, Options, PermissionMode, Session};
@@ -299,7 +300,7 @@ impl Plugin for Acp {
 /// Probes an ACP agent with `initialize` (+ optional `authenticate`) + `session/new` to
 /// discover the models it reports. Returns `None` on any spawn, protocol, or empty-list
 /// failure so `list_models` can fall back cleanly to the static manifest default.
-fn probe_models(config: &Config) -> Option<Vec<Model>> {
+fn probe_models(config: &Config) -> Option<(Vec<Model>, Vec<acp::DiscoveredOption>)> {
     let child = process::spawn(&SpawnRequest {
         program: config.command.clone(),
         args: config.args.clone(),
@@ -331,7 +332,7 @@ fn probe_models(config: &Config) -> Option<Vec<Model>> {
     if discovered.is_empty() {
         return None;
     }
-    Some(
+    Some((
         discovered
             .iter()
             .map(|m| Model {
@@ -340,7 +341,27 @@ fn probe_models(config: &Config) -> Option<Vec<Model>> {
                 capabilities: Vec::new(),
             })
             .collect(),
-    )
+        state.session.discovered_options().to_vec(),
+    ))
+}
+
+/// A discovered ACP setting as a model setting (ADR 0033).
+fn model_option(o: &acp::DiscoveredOption) -> models::ModelOption {
+    models::ModelOption {
+        id: o.id.clone(),
+        label: o.label.clone(),
+        kind: o.kind.clone(),
+        values: o
+            .values
+            .iter()
+            .map(|(value, label, description)| models::OptionValue {
+                value: value.clone(),
+                label: label.clone(),
+                description: description.clone(),
+            })
+            .collect(),
+        default: o.current.clone(),
+    }
 }
 
 fn with_steer_cap(mut models: Vec<Model>, steer: bool) -> Vec<Model> {
@@ -366,8 +387,15 @@ impl Provider for Acp {
                     capabilities: m.capabilities,
                 })
                 .collect()
-        } else if let Some(models) = probe_models(&cfg) {
-            models
+        } else if let Some((found, options)) = probe_models(&cfg) {
+            // ACP settings belong to the session, so every model offers them.
+            if !options.is_empty() {
+                let options: Vec<models::ModelOption> = options.iter().map(model_option).collect();
+                for m in &found {
+                    models::set_options(&m.id, &options)?;
+                }
+            }
+            found
         } else {
             cfg.models()
                 .into_iter()
@@ -416,6 +444,14 @@ impl Provider for Acp {
                     env: m.env,
                 }),
                 probe_only: false,
+                settings: cfg
+                    .options
+                    .iter()
+                    .filter_map(|(k, v)| {
+                        k.strip_prefix(models::OPTION_PREFIX)
+                            .map(|id| (id.to_owned(), v.clone()))
+                    })
+                    .collect(),
             }),
             child,
             buf: Vec::new(),

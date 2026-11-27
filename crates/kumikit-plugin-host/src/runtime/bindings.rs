@@ -143,3 +143,20 @@ pub mod session_events {
         },
     });
 }
+
+/// `kumikit:models/provider-models@0.1.0`: model settings a provider reports during
+/// `list-models` (ADR 0033), linked for every provider.
+#[allow(missing_docs, clippy::all)]
+pub mod models {
+    wasmtime::component::bindgen!({
+        path: [
+            "../../wit/kumikit-host@0.2.0",
+            "../../wit/kumikit-models@0.1.0",
+        ],
+        world: "kumikit:models/provider-models",
+        imports: { default: async },
+        with: {
+            "kumikit:host/types": super::base::kumikit::host::types,
+        },
+    });
+}

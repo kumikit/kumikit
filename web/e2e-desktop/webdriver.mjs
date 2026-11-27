@@ -41,6 +41,14 @@ export class Session {
     }
   }
 
+  /** Chooses an agent and its first model in the composer's model picker. */
+  async chooseAgent(name) {
+    await this.click(await this.wait('button[aria-label^="Model:"]'));
+    await this.click(await this.wait('[role="dialog"][aria-label="Choose a model"] nav[aria-label="Agents"] button', name));
+    await this.click(await this.wait('[role="dialog"][aria-label="Choose a model"] section[aria-label="Models"] button'));
+    await this.wait(`button[aria-label^="Model: ${name} ·"]`);
+  }
+
   async until(check, what, timeout = 30_000) {
     const end = Date.now() + timeout;
     while (!(await check())) {

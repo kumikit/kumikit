@@ -1,5 +1,6 @@
 //! Domain types shared by the kernel and clients (`docs/spec/03-kernel.md#domain-model`).
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -290,6 +291,10 @@ pub struct Thread {
     /// Permission mode for the agent session; absent means `standard`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<PermissionMode>,
+    /// Chosen model settings, by option id (ADR 0033, since 0.11).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[ts(as = "Option<BTreeMap<String, String>>", optional)]
+    pub options: BTreeMap<String, String>,
     /// Linked Git worktree directory this thread runs in; absent means the workspace root.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree_path: Option<String>,
@@ -557,6 +562,7 @@ mod tests {
             provider: "p".into(),
             model: "m".into(),
             permission_mode: None,
+            options: BTreeMap::new(),
             worktree_path: None,
             forked_from: None,
             parent: None,

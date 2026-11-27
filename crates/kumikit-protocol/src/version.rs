@@ -8,7 +8,7 @@ pub const APP_VERSION: &str = env!("KUMIKIT_APP_VERSION");
 /// The protocol version this crate describes.
 pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion {
     major: 0,
-    minor: 10,
+    minor: 11,
 };
 
 /// A `MAJOR.MINOR` protocol version.
@@ -58,7 +58,7 @@ mod tests {
     #[test]
     fn parses() {
         assert_eq!(v("0.1"), ProtocolVersion { major: 0, minor: 1 });
-        assert_eq!(PROTOCOL_VERSION.to_string(), "0.10");
+        assert_eq!(PROTOCOL_VERSION.to_string(), "0.11");
         for bad in ["1", "1.", ".1", "1.2.3", "a.b", "-1.0", "+1.0"] {
             assert_eq!(ProtocolVersion::parse(bad), None, "{bad}");
         }

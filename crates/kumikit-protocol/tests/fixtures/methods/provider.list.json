@@ -17,5 +17,25 @@
         }
       ]
     }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 34,
+    "method": "provider.list",
+    "params": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 34,
+    "result": {
+      "providers": [
+        {
+          "icon": "data:image/svg+xml;base64,PHN2Zy8+",
+          "id": "community.provider-gemini/gemini",
+          "name": "Gemini CLI",
+          "plugin": "community.provider-gemini"
+        }
+      ]
+    }
   }
 ]

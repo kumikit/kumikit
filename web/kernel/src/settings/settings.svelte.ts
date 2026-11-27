@@ -55,6 +55,10 @@ export interface Settings {
   /** Last-used agent provider and model for inline new-thread creation. */
   lastProvider?: string;
   lastModel?: string;
+  /** Last-used model settings (effort, speed, …) for inline new-thread creation. */
+  lastOptions?: Record<string, string>;
+  /** Recently picked provider and model pairs, newest first, per connection. */
+  recentModels?: Record<string, { provider: string; model: string }[]>;
   /** Default agent permission mode applied when starting a new thread (default `standard`). */
   defaultPermissionMode: PermissionMode;
   /** UI plugins the user disabled (bundled ones are enabled unless listed). */
@@ -158,6 +162,21 @@ export function parseSettings(text: string | null): Settings {
   if (typeof r.activeInspectorTab === 'string') s.activeInspectorTab = r.activeInspectorTab;
   if (typeof r.lastProvider === 'string') s.lastProvider = r.lastProvider;
   if (typeof r.lastModel === 'string') s.lastModel = r.lastModel;
+  if (typeof r.lastOptions === 'object' && r.lastOptions !== null) {
+    const o = Object.entries(r.lastOptions as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string');
+    if (o.length > 0) s.lastOptions = Object.fromEntries(o);
+  }
+  if (typeof r.recentModels === 'object' && r.recentModels !== null) {
+    const recent: Record<string, { provider: string; model: string }[]> = {};
+    for (const [conn, list] of Object.entries(r.recentModels as Record<string, unknown>)) {
+      if (!Array.isArray(list)) continue;
+      recent[conn] = list.filter(
+        (x): x is { provider: string; model: string } =>
+          typeof x === 'object' && x !== null && typeof (x as { provider?: unknown }).provider === 'string' && typeof (x as { model?: unknown }).model === 'string',
+      ).map((x) => ({ provider: x.provider, model: x.model }));
+    }
+    s.recentModels = recent;
+  }
   return s;
 }
 
