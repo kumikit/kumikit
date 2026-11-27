@@ -159,7 +159,7 @@ test('pair a browser, then the M2 flow through the core it came from', async ({ 
   await expect(page.getByRole('status').filter({ hasText: 'Connected' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Approval' })).toContainText('Needs your approval');
   await page.getByRole('region', { name: 'Approval' }).getByRole('button', { name: 'Allow', exact: true }).click();
-  await expect(page.getByText(/Changed/).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /changed files?/ }).first()).toBeVisible();
 
   const panel = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--kk-surface-panel').trim());
   await command(page, 'Theme: Kumikit Dark');

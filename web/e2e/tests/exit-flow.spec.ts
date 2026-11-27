@@ -45,7 +45,7 @@ test('install a provider, approve a tool call across a reopen, switch themes', a
 
   await page.getByRole('region', { name: 'Approval' }).getByRole('button', { name: 'Allow', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Approval' })).toContainText('Allowed');
-  await expect(page.getByText(/Changed/).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /changed files?/ }).first()).toBeVisible();
   await expect(page.getByText('Idle', { exact: true })).toBeVisible();
 
   // Switch themes from the palette; the tokens change at once.

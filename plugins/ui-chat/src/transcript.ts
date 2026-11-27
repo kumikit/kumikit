@@ -154,3 +154,161 @@ export function formatElapsed(started: string, ended: string | undefined, nowMs:
   const sec = totalSec % 60;
   return `${min}m ${sec}s`;
 }
+
+/** Item kinds that stay visible in a finished turn: they record what the user decided or said. */
+const USER_KINDS: ReadonlySet<TranscriptItem['kind']> = new Set(['approval', 'steer']);
+
+export interface IndexedItem {
+  item: TranscriptItem;
+  index: number;
+}
+
+/** A finished turn split into its collapsed activity, the user's own items and the final reply. */
+export interface TurnSummaryParts {
+  /** Agent work (tools, reasoning, intermediate messages, plugin events), collapsed by default. */
+  activity: IndexedItem[];
+  /** Approvals and steers, kept visible. */
+  user: IndexedItem[];
+  /** The trailing assistant message(s): the turn's answer. */
+  summary: IndexedItem[];
+  tools: number;
+  failed: number;
+}
+
+/**
+ * Splits a finished turn for the summary card. The summary is the run of `message` items at
+ * the end of the turn (ignoring `file.changed`, shown in the footer instead); everything else
+ * the agent did goes to `activity`.
+ */
+export function splitFinishedTurn(items: readonly TranscriptItem[]): TurnSummaryParts {
+  let start = items.length;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const kind = items[i]!.kind;
+    if (kind === 'file.changed') continue;
+    if (kind !== 'message') break;
+    start = i;
+  }
+  const parts: TurnSummaryParts = { activity: [], user: [], summary: [], tools: 0, failed: 0 };
+  items.forEach((item, index) => {
+    if (item.kind === 'file.changed') return;
+    if (item.kind === 'message' && index >= start) parts.summary.push({ item, index });
+    else if (USER_KINDS.has(item.kind)) parts.user.push({ item, index });
+    else {
+      parts.activity.push({ item, index });
+      if (item.kind === 'tool') {
+        parts.tools++;
+        if (item.ok === false) parts.failed++;
+      }
+    }
+  });
+  return parts;
+}
+
+/** The activity header text: "Used 3 tools", "Used 1 tool · 1 failed", or "2 steps". */
+export function activityLabel(parts: Pick<TurnSummaryParts, 'activity' | 'tools' | 'failed'>): string {
+  const n = parts.activity.length;
+  const base =
+    parts.tools > 0
+      ? `Used ${parts.tools} ${parts.tools === 1 ? 'tool' : 'tools'}`
+      : `${n} ${n === 1 ? 'step' : 'steps'}`;
+  return parts.failed > 0 ? `${base} · ${parts.failed} failed` : base;
+}
+
+/** Totals across changed files. */
+export function totalChanges(files: readonly ChangedFileSummary[]): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  for (const f of files) {
+    added += f.added;
+    removed += f.removed;
+  }
+  return { added, removed };
+}
+
+/**
+ * A GitHub-style change bar of `blocks` cells: added cells, then removed, then empty. Any
+ * non-zero side gets at least one cell; with nothing changed every cell is empty.
+ */
+export function changeBar(added: number, removed: number, blocks = 5): ('add' | 'del' | 'none')[] {
+  const total = added + removed;
+  if (total === 0) return Array.from({ length: blocks }, () => 'none' as const);
+  const filled = Math.min(blocks, total);
+  let add = Math.round((added / total) * filled);
+  if (added > 0 && add === 0) add = 1;
+  if (removed > 0 && add === filled) add = filled - 1;
+  const del = filled - add;
+  return [
+    ...Array.from({ length: add }, () => 'add' as const),
+    ...Array.from({ length: del }, () => 'del' as const),
+    ...Array.from({ length: blocks - filled }, () => 'none' as const),
+  ];
+}
+
+export interface DiffRow {
+  kind: 'hunk' | 'add' | 'del' | 'ctx';
+  text: string;
+  oldNo?: number;
+  newNo?: number;
+}
+
+/**
+ * Parses unified diff text into display rows with line numbers. File headers (`---`, `+++`,
+ * `diff`, `index`) are dropped; a diff without `@@` headers is numbered from line 1.
+ */
+export function parseUnifiedDiff(diff: string): DiffRow[] {
+  const rows: DiffRow[] = [];
+  let oldNo = 1;
+  let newNo = 1;
+  const lines = diff.split('\n');
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  for (const line of lines) {
+    if (/^(---|\+\+\+|diff |index |new file mode|deleted file mode|similarity |rename )/.test(line)) continue;
+    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    if (hunk) {
+      oldNo = Number(hunk[1]);
+      newNo = Number(hunk[2]);
+      rows.push({ kind: 'hunk', text: line });
+    } else if (line.startsWith('\\')) {
+      continue; // "\ No newline at end of file"
+    } else if (line.startsWith('+')) {
+      rows.push({ kind: 'add', text: line.slice(1), newNo: newNo++ });
+    } else if (line.startsWith('-')) {
+      rows.push({ kind: 'del', text: line.slice(1), oldNo: oldNo++ });
+    } else {
+      rows.push({ kind: 'ctx', text: line.startsWith(' ') ? line.slice(1) : line, oldNo: oldNo++, newNo: newNo++ });
+    }
+  }
+  return rows;
+}
+
+export type SplitRow = { kind: 'hunk'; text: string } | { kind: 'pair'; left?: DiffRow; right?: DiffRow };
+
+/** Pairs removed and added lines side by side for the split view; context lines sit on both sides. */
+export function splitDiffRows(rows: readonly DiffRow[]): SplitRow[] {
+  const out: SplitRow[] = [];
+  let dels: DiffRow[] = [];
+  let adds: DiffRow[] = [];
+  const flush = () => {
+    const n = Math.max(dels.length, adds.length);
+    for (let i = 0; i < n; i++) {
+      const pair: SplitRow = { kind: 'pair' };
+      if (dels[i]) pair.left = dels[i]!;
+      if (adds[i]) pair.right = adds[i]!;
+      out.push(pair);
+    }
+    dels = [];
+    adds = [];
+  };
+  for (const row of rows) {
+    if (row.kind === 'del') {
+      if (adds.length > 0) flush();
+      dels.push(row);
+    } else if (row.kind === 'add') adds.push(row);
+    else {
+      flush();
+      out.push(row.kind === 'hunk' ? { kind: 'hunk', text: row.text } : { kind: 'pair', left: row, right: row });
+    }
+  }
+  flush();
+  return out;
+}

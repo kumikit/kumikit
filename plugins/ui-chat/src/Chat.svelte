@@ -27,13 +27,18 @@
   import BranchPicker from './BranchPicker.svelte';
   import PermissionModePicker from './PermissionModePicker.svelte';
   import QueuePanel from './QueuePanel.svelte';
+  import ChangesDialog from './ChangesDialog.svelte';
   import {
+    activityLabel,
+    changeBar,
     collectTurnFiles,
     formatElapsed,
     formatMentionPath,
     groupTurnItems,
     matchSlashCommands,
     parseMentionAt,
+    splitFinishedTurn,
+    totalChanges,
     type MentionMatch,
     type SlashMenuEntry,
   } from './transcript';
@@ -371,6 +376,38 @@
 
   function providerName(id: string): string {
     return providers.find((p) => p.id === id)?.name ?? id;
+  }
+
+  // Finished turns: "Read more" per turn, which summaries overflow their clamp, and which
+  // turn's changed-files dialog is open.
+  let readMore = $state<Record<string, boolean>>({});
+  let overflowing = $state<Record<string, boolean>>({});
+  let changesFor = $state<string | undefined>();
+
+  function watchOverflow(el: HTMLElement, turnId: string) {
+    let id = turnId;
+    const measure = () => {
+      // Only a clamped summary can overflow; keep the last answer while expanded.
+      if (!el.classList.contains('clamped')) return;
+      const over = el.scrollHeight > el.clientHeight + 1;
+      if (overflowing[id] !== over) overflowing[id] = over;
+    };
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : undefined;
+    ro?.observe(el);
+    for (const child of Array.from(el.children)) ro?.observe(child);
+    const mo = typeof MutationObserver === 'function' ? new MutationObserver(measure) : undefined;
+    mo?.observe(el, { childList: true, subtree: true, characterData: true });
+    measure();
+    return {
+      update(next: string) {
+        id = next;
+        measure();
+      },
+      destroy() {
+        ro?.disconnect();
+        mo?.disconnect();
+      },
+    };
   }
 
   function switchesAfter(turnId?: string): ThreadSwitchView[] {
@@ -1036,22 +1073,65 @@
                   {/if}
                 </div>
               {/if}
-              {#each displayEntries as entry (entry.kind === 'item' ? `i-${entry.index}` : `g-${entry.startIndex}`)}
-                {#if entry.kind === 'tool-group'}
-                  <details class="tool-group">
+              {#if turn.ended}
+                {@const parts = splitFinishedTurn(turn.items)}
+                {#if parts.activity.length > 0}
+                  <details class="activity">
                     <summary>
-                      {`${entry.items.length} tool calls${entry.failed > 0 ? ` · ${entry.failed} failed` : ''}${entry.pending > 0 ? ` · ${entry.pending} running` : ''}`}
+                      <svg class="activity-ico" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M9.7 2.3a3.3 3.3 0 0 0-3.9 4.4L2.4 10.1a1.4 1.4 0 0 0 2 2l3.4-3.4a3.3 3.3 0 0 0 4.4-3.9l-2 2-1.9-.5-.5-1.9 1.9-2.1Z" />
+                      </svg>
+                      <span class="activity-label">{activityLabel(parts)}</span>
+                      <svg class="chevron" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M6 3.5 10.5 8 6 12.5" />
+                      </svg>
                     </summary>
-                    <div class="tool-group-body">
-                      {#each entry.items as toolIt, idx (idx)}
-                        <div class="item" use:item={{ item: toolIt, address, run }}></div>
+                    <div class="activity-body">
+                      {#each parts.activity as a (a.index)}
+                        <div class="item" use:item={{ item: a.item, address, run }}></div>
                       {/each}
                     </div>
                   </details>
-                {:else}
-                  <div class="item" use:item={{ item: entry.item, address, run }}></div>
                 {/if}
-              {/each}
+                {#each parts.user as u (u.index)}
+                  <div class="item" use:item={{ item: u.item, address, run }}></div>
+                {/each}
+                {#if parts.summary.length > 0}
+                  {@const expanded = readMore[turn.id] === true}
+                  <div class="summary" class:clamped={!expanded} class:fade={!expanded && overflowing[turn.id]} use:watchOverflow={turn.id}>
+                    {#each parts.summary as m (m.index)}
+                      <div class="item" use:item={{ item: m.item, address, run }}></div>
+                    {/each}
+                  </div>
+                  {#if expanded || overflowing[turn.id]}
+                    <button
+                      type="button"
+                      class="read-more"
+                      aria-expanded={expanded}
+                      onclick={() => (readMore[turn.id] = !expanded)}
+                    >
+                      {expanded ? 'Show less' : 'Read more'}
+                    </button>
+                  {/if}
+                {/if}
+              {:else}
+                {#each displayEntries as entry (entry.kind === 'item' ? `i-${entry.index}` : `g-${entry.startIndex}`)}
+                  {#if entry.kind === 'tool-group'}
+                    <details class="tool-group">
+                      <summary>
+                        {`${entry.items.length} tool calls${entry.failed > 0 ? ` · ${entry.failed} failed` : ''}${entry.pending > 0 ? ` · ${entry.pending} running` : ''}`}
+                      </summary>
+                      <div class="tool-group-body">
+                        {#each entry.items as toolIt, idx (idx)}
+                          <div class="item" use:item={{ item: toolIt, address, run }}></div>
+                        {/each}
+                      </div>
+                    </details>
+                  {:else}
+                    <div class="item" use:item={{ item: entry.item, address, run }}></div>
+                  {/if}
+                {/each}
+              {/if}
               {#if !turn.ended && turn.items.length === 0}
                 <p class="working" aria-label="Working">Working…</p>
               {/if}
@@ -1059,28 +1139,35 @@
                 <p class="outcome {turn.outcome}">{outcomeText[turn.outcome]}{turn.error ? `: ${turn.error}` : ''}</p>
               {/if}
               {#if changedFiles.length > 0}
-                <details class="changes-footer" aria-label="Changed files">
-                  <summary>
-                    {changedFiles.length} {changedFiles.length === 1 ? 'file' : 'files'} changed
-                  </summary>
-                  <ul class="changes-list">
-                    {#each changedFiles as f (f.path)}
-                      <li>
-                        <details>
-                          <summary>
-                            <span class="change-path">{f.path}</span>
-                            {#if f.added > 0 || f.removed > 0}
-                              <span class="change-stat">+{f.added} -{f.removed}</span>
-                            {/if}
-                          </summary>
-                          {#if f.diff}
-                            <pre class="change-diff">{f.diff}</pre>
-                          {/if}
-                        </details>
-                      </li>
+                {@const totals = totalChanges(changedFiles)}
+                <button
+                  type="button"
+                  class="changes-footer"
+                  aria-haspopup="dialog"
+                  title="Show the changes made in this turn"
+                  onclick={() => (changesFor = turn.id)}
+                >
+                  <svg class="changes-ico" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="4.5" cy="3.5" r="1.5" />
+                    <circle cx="4.5" cy="12.5" r="1.5" />
+                    <circle cx="11.5" cy="6" r="1.5" />
+                    <path d="M4.5 5v6M11.5 7.5c0 2-2 2.5-5.5 3.7" />
+                  </svg>
+                  <span class="changes-label">{changedFiles.length} changed {changedFiles.length === 1 ? 'file' : 'files'}</span>
+                  <span class="changes-num add">+{totals.added}</span>
+                  <span class="changes-num del">−{totals.removed}</span>
+                  <span class="change-bar" aria-hidden="true">
+                    {#each changeBar(totals.added, totals.removed) as cell, ci (ci)}
+                      <span class="cell {cell}"></span>
                     {/each}
-                  </ul>
-                </details>
+                  </span>
+                  <svg class="chevron" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M6 3.5 10.5 8 6 12.5" />
+                  </svg>
+                </button>
+                {#if changesFor === turn.id}
+                  <ChangesDialog files={changedFiles} onclose={() => (changesFor = undefined)} />
+                {/if}
               {/if}
               {#if turn.ended}
                 {@const reply = assistantText(turn)}
@@ -1429,19 +1516,6 @@
               Steer
             </button>
           {/if}
-          {#if busy}
-            <button
-              type="button"
-              class="action-btn stop"
-              aria-label="Cancel turn"
-              title="Stop running turn"
-              onclick={() => run('thread.cancel')}
-            >
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                <rect x="3.5" y="3.5" width="9" height="9" rx="1.5" />
-              </svg>
-            </button>
-          {/if}
           {#if !sideFor && !archived && (view?.turns.length ?? 0) > 0}
             <button
               type="button"
@@ -1474,28 +1548,43 @@
               <polyline points="8 4.8 8 8 10.4 9.4" />
             </svg>
           </button>
-          <button
-            type="submit"
-            class="action-btn send"
-            disabled={!canSend}
-            aria-label="Send"
-            title="Send message (Enter)"
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.9"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
+          {#if busy}
+            <!-- While a turn runs, Stop takes Send's place; Enter still queues the draft. -->
+            <button
+              type="button"
+              class="action-btn send stop"
+              aria-label="Stop"
+              title="Stop the running turn (Escape twice)"
+              onclick={() => run('thread.cancel')}
             >
-              <line x1="8" y1="12.5" x2="8" y2="3.5" />
-              <polyline points="4 7.25 8 3.25 12 7.25" />
-            </svg>
-          </button>
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <rect x="3.5" y="3.5" width="9" height="9" rx="1.5" />
+              </svg>
+            </button>
+          {:else}
+            <button
+              type="submit"
+              class="action-btn send"
+              disabled={!canSend}
+              aria-label="Send"
+              title="Send message (Enter)"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.9"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <line x1="8" y1="12.5" x2="8" y2="3.5" />
+                <polyline points="4 7.25 8 3.25 12 7.25" />
+              </svg>
+            </button>
+          {/if}
         </div>
       </div>
 
@@ -1949,13 +2038,8 @@
     opacity: 0.4;
     cursor: default;
   }
-  .action-btn.stop {
-    border-color: var(--kk-border-subtle, ButtonBorder);
-    background: var(--kk-surface-raised, ButtonFace);
-    color: var(--kk-state-danger, CanvasText);
-  }
-  .action-btn.stop:hover {
-    background: var(--kk-surface-hover, ButtonFace);
+  .action-btn.send.stop:hover {
+    background: var(--kk-accent-hover, Highlight);
   }
   .action-btn.steer {
     width: auto;
@@ -2166,45 +2250,130 @@
     flex-direction: column;
     gap: 6px;
   }
-  .changes-footer {
-    margin-top: 8px;
-    padding: 6px 10px;
-    border: 1px solid var(--kk-border-subtle, CanvasText);
-    border-radius: var(--kk-radius-medium, 0);
-    background: var(--kk-surface-raised, Canvas);
+  .activity {
     font-size: var(--kk-font-size-small, small);
   }
-  .changes-footer > summary {
-    cursor: pointer;
+  .activity > summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 3px 8px 3px 6px;
+    margin-left: -6px;
+    border-radius: var(--kk-radius-medium, 0);
     color: var(--kk-text-secondary, CanvasText);
-  }
-  .changes-list {
+    cursor: pointer;
     list-style: none;
-    margin: 6px 0 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+    user-select: none;
   }
-  .change-path {
-    font-family: var(--kk-font-mono, monospace);
+  .activity > summary::-webkit-details-marker {
+    display: none;
+  }
+  .activity > summary:hover {
+    background: var(--kk-surface-hover, ButtonFace);
     color: var(--kk-text-primary, CanvasText);
   }
-  .change-stat {
-    margin-left: 8px;
-    font-family: var(--kk-font-mono, monospace);
+  .activity-ico {
+    flex: none;
     color: var(--kk-text-muted, GrayText);
   }
-  .change-diff {
-    margin: 4px 0 0;
-    padding: 6px 8px;
-    overflow: auto;
-    border: 1px solid var(--kk-border-subtle, CanvasText);
-    border-radius: var(--kk-radius-small, 0);
-    background: var(--kk-code-background, Canvas);
-    color: var(--kk-code-text, CanvasText);
-    font-family: var(--kk-font-mono, monospace);
+  .chevron {
+    flex: none;
+    color: var(--kk-text-muted, GrayText);
+    transition: transform var(--kk-motion-duration-short, 0ms) var(--kk-motion-ease-out, ease-out);
+  }
+  .activity[open] > summary .chevron {
+    transform: rotate(90deg);
+  }
+  .activity-body {
+    margin: 6px 0 2px;
+    padding-left: 12px;
+    border-left: 1px solid var(--kk-border-subtle, CanvasText);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .summary.clamped {
+    max-height: 22em;
+    overflow: hidden;
+  }
+  .summary.fade {
+    mask-image: linear-gradient(to bottom, black calc(100% - 4em), transparent);
+  }
+  .summary {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .read-more {
+    align-self: flex-start;
+    margin-top: -4px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--kk-text-link, LinkText);
+    font: inherit;
     font-size: var(--kk-font-size-small, small);
+    cursor: pointer;
+  }
+  .read-more:hover {
+    text-decoration: underline;
+  }
+  .changes-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin-top: 4px;
+    padding: 8px 12px;
+    border: 1px solid var(--kk-border-subtle, ButtonBorder);
+    border-radius: var(--kk-radius-medium, 0);
+    background: var(--kk-surface-raised, ButtonFace);
+    color: var(--kk-text-secondary, ButtonText);
+    font: inherit;
+    font-size: var(--kk-font-size-small, small);
+    text-align: left;
+    cursor: pointer;
+  }
+  .changes-footer:hover {
+    background: var(--kk-surface-hover, ButtonFace);
+    color: var(--kk-text-primary, ButtonText);
+  }
+  .changes-ico {
+    flex: none;
+  }
+  .changes-label {
+    flex: 1;
+    min-width: 0;
+  }
+  .changes-num {
+    font-family: var(--kk-font-mono, monospace);
+  }
+  .changes-num.add {
+    color: var(--kk-diff-added, CanvasText);
+  }
+  .changes-num.del {
+    color: var(--kk-diff-removed, CanvasText);
+  }
+  .change-bar {
+    display: inline-flex;
+    gap: 2px;
+  }
+  .change-bar .cell {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--kk-radius-small, 0);
+    background: var(--kk-border-subtle, GrayText);
+  }
+  .change-bar .cell.add {
+    background: var(--kk-diff-added, CanvasText);
+  }
+  .change-bar .cell.del {
+    background: var(--kk-diff-removed, CanvasText);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chevron {
+      transition: none;
+    }
   }
   .approval-bar {
     max-width: 760px;

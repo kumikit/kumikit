@@ -99,7 +99,7 @@ test('tabs from two cores; cutting one core’s network leaves the other streami
   await expect(tab(page, 'local')).not.toContainText('reconnecting');
   await expect(page.getByRole('region', { name: 'Approval' })).toContainText('Needs your approval');
   await page.getByRole('region', { name: 'Approval' }).getByRole('button', { name: 'Allow', exact: true }).click();
-  await expect(page.getByText(/Changed/).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /changed files?/ }).first()).toBeVisible();
   await expect(page.getByText('Idle', { exact: true })).toBeVisible();
   await expect(tab(page, 'dev-box')).toContainText('reconnecting');
   await expect(tab(page, 'local')).not.toContainText('reconnecting');
@@ -113,7 +113,7 @@ test('tabs from two cores; cutting one core’s network leaves the other streami
   await expect(page.getByRole('region', { name: 'Approval' })).toContainText('Needs your approval');
   await expect(page.getByRole('log', { name: 'Transcript' }).getByText('Add a line to notes.txt')).toHaveCount(1);
   await page.getByRole('region', { name: 'Approval' }).getByRole('button', { name: 'Allow', exact: true }).click();
-  await expect(page.getByText(/Changed/).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /changed files?/ }).first()).toBeVisible();
   await expect(page.getByText('Idle', { exact: true })).toBeVisible();
 });
 
