@@ -29,13 +29,13 @@ const DEFAULT = 'export GDK_BACKEND="${GDK_BACKEND:-x11}"';
 const COMPRESSION = { 1: 'gzip', 2: 'lzma', 3: 'lzo', 4: 'xz', 5: 'lz4', 6: 'zstd' };
 const APPRUN_WRAPPER = `#!/bin/sh
 # Kumikit AppImage entrypoint:
-# - No arguments or --safe: launch the desktop app via linuxdeploy's AppRun.desktop.
+# - No arguments or --safe: launch the desktop app via linuxdeploy's AppRun.gui.
 # - Any other arguments: forward directly to the bundled kumikit CLI without running
 #   GTK/WebKit hooks or altering LD_LIBRARY_PATH.
 set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 if [ "$#" -eq 0 ] || { [ "$#" -eq 1 ] && [ "$1" = "--safe" ]; }; then
-  exec "$here/AppRun.desktop" "$@"
+  exec "$here/AppRun.gui" "$@"
 fi
 exec "$here/usr/bin/kumikit" "$@"
 `;
@@ -63,16 +63,18 @@ export function respectGdkBackend(script) {
 /** Wraps AppRun so CLI arguments forward directly to usr/bin/kumikit (idempotent). */
 export function installCliDispatch(root) {
   const appRun = join(root, 'AppRun');
-  const appRunDesktop = join(root, 'AppRun.desktop');
+  // Do NOT end this name in `.desktop`: AppImage's AppRun.wrapped globs `$APPDIR/*.desktop`
+  // to locate the XDG desktop entry (`Exec=`).
+  const appRunGui = join(root, 'AppRun.gui');
   const coreBin = join(root, 'usr/bin/kumikit');
   if (!existsSync(coreBin)) {
     throw new Error(`bundled CLI binary missing at ${coreBin}; cannot install AppRun CLI dispatch`);
   }
-  if (!existsSync(appRunDesktop)) {
+  if (!existsSync(appRunGui)) {
     if (!existsSync(appRun)) {
       throw new Error(`AppRun missing in ${root}`);
     }
-    renameSync(appRun, appRunDesktop);
+    renameSync(appRun, appRunGui);
   }
   writeFileSync(appRun, APPRUN_WRAPPER);
   chmodSync(appRun, 0o755);

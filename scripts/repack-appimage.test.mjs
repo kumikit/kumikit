@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -48,9 +48,11 @@ describe('AppRun CLI dispatch', () => {
   it.skipIf(process.platform === 'win32')('launches desktop with no args or --safe and forwards all other args to kumikit', () => {
     const root = makeAppDir();
     installCliDispatch(root);
-    // Idempotent on a second repack: AppRun.desktop keeps the original desktop script.
+    // Idempotent on a second repack: AppRun.gui keeps the original desktop script, and no
+    // extra `.desktop` file is created (which would confuse AppRun.wrapped's `*.desktop` glob).
     installCliDispatch(root);
-    expect(readFileSync(join(root, 'AppRun.desktop'), 'utf8')).toContain('DESKTOP:');
+    expect(readFileSync(join(root, 'AppRun.gui'), 'utf8')).toContain('DESKTOP:');
+    expect(readdirSync(root).filter((f) => f.endsWith('.desktop'))).toEqual([]);
 
     const run = (args) => execFileSync(join(root, 'AppRun'), args, { encoding: 'utf8' }).trim();
     expect(run([])).toBe('DESKTOP:');
