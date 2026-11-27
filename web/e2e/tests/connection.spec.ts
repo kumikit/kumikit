@@ -1,6 +1,6 @@
 /** A lost connection: the tab says so, reconnects by itself, and the transcript has no
  * gap or duplicate afterwards. */
-import { command, expect, open, test } from './fixtures';
+import { command, expect, open, test, modelButton } from './fixtures';
 
 test('reconnects and resumes the thread without duplicates', async ({ page, kk }) => {
   await open(page, kk);
@@ -11,7 +11,7 @@ test('reconnects and resumes the thread without duplicates', async ({ page, kk }
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await kk.pick(kk.project);
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
-  await expect(page.getByLabel('Agent')).toBeVisible();
+  await expect(modelButton(page)).toBeVisible();
   await page.getByLabel('Message').fill('Say hello');
   await page.getByLabel('Message').press('Enter');
   const transcript = page.getByRole('log', { name: 'Transcript' });

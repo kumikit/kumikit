@@ -49,6 +49,7 @@ impl Provider for Fake {
                 .map(|id| Model {
                     id: id.into(),
                     label: id.into(),
+                    options: vec![],
                     capabilities: if id == "one" {
                         vec!["steer".into()]
                     } else {
@@ -683,7 +684,7 @@ async fn a_model_without_steer_or_a_message_with_attachments_is_queued_first() {
     use kumikit_protocol::model::Attachment;
     let e = env().await;
     e.kernel
-        .thread_update(&e.thread, None, Some("two".into()), None, None, None)
+        .thread_update(&e.thread, None, Some("two".into()), None, None, None, None)
         .await
         .unwrap();
     e.send("block").await;
@@ -1011,6 +1012,7 @@ async fn thread_update_changes_mode_and_restarts_idle_session() {
             Some(PermissionMode::FullAccess),
             Some("Updated".into()),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1032,6 +1034,7 @@ async fn thread_update_changes_mode_and_restarts_idle_session() {
             None,
             None,
             Some(PermissionMode::Standard),
+            None,
             None,
             None,
         )
@@ -1111,6 +1114,7 @@ impl Provider for RecordingProvider {
             Ok(vec![Model {
                 id: "alpha".into(),
                 label: "Alpha".into(),
+                options: vec![],
                 capabilities: vec![],
             }])
         })
@@ -1188,7 +1192,15 @@ async fn switch_provider_hands_off_transcript_and_records_attribution() {
 
     let switched = e
         .kernel
-        .thread_update(&e.thread, Some("other".into()), None, None, None, None)
+        .thread_update(
+            &e.thread,
+            Some("other".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(switched.provider, "other");
@@ -1255,7 +1267,15 @@ async fn cancelled_first_turn_after_switch_resends_handoff() {
     let first = e.until(0, "turn.ended").await;
 
     e.kernel
-        .thread_update(&e.thread, Some("other".into()), None, None, None, None)
+        .thread_update(
+            &e.thread,
+            Some("other".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -1326,6 +1346,7 @@ async fn summary_handoff_runs_summary_turn_and_falls_back_on_failure() {
             None,
             None,
             Some(HandoffMode::Summary),
+            None,
         )
         .await
         .unwrap();
@@ -1370,6 +1391,7 @@ async fn summary_handoff_runs_summary_turn_and_falls_back_on_failure() {
             None,
             None,
             Some(HandoffMode::Summary),
+            None,
         )
         .await
         .unwrap();
@@ -1393,7 +1415,15 @@ async fn switch_provider_refused_while_running() {
     e.until(0, "turn.started").await;
     let err = e
         .kernel
-        .thread_update(&e.thread, Some("other".into()), None, None, None, None)
+        .thread_update(
+            &e.thread,
+            Some("other".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap_err();
     assert_eq!(err.code(), ErrorCode::Conflict);

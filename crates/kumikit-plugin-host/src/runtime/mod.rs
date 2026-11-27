@@ -30,7 +30,7 @@ use crate::manifest::{WORLD_PLUGIN, WORLD_PROVIDER, WORLD_TOOL};
 use bindings::base::kumikit::host::types::Error as GuestError;
 pub use bindings::base::kumikit::plugin::types::{CallContext, CommandResult, WorkspaceRef};
 use bindings::provider::kumikit::provider::types::{Model, ProviderRef, SessionConfig, UserInput};
-pub use host::{HostState, Identity, SessionShared};
+pub use host::{HostState, Identity, ModelOptions, SessionShared};
 
 /// Where a guest's data directory appears inside the sandbox.
 pub const GUEST_DATA_DIR: &str = "/data";
@@ -175,6 +175,12 @@ impl Runtime {
                 .map_err(|e| e.to_string())?;
                 // Providers reporting commands or limits import it; others never see it.
                 bindings::session_events::kumikit::session::events::add_to_linker::<
+                    HostState,
+                    HasSelf<HostState>,
+                >(&mut provider, |s| s)
+                .map_err(|e| e.to_string())?;
+                // Providers whose models have settings import it (ADR 0033).
+                bindings::models::kumikit::models::options::add_to_linker::<
                     HostState,
                     HasSelf<HostState>,
                 >(&mut provider, |s| s)
@@ -399,6 +405,7 @@ impl Instance {
             session: config.session,
             settings_schema: config.settings_schema,
             call_workspace: None,
+            model_options: None,
         };
         let mut store = Store::new(engine.engine(), state);
         engine::apply_limits(&mut store);
@@ -668,22 +675,26 @@ impl Instance {
         .await
     }
 
-    /// Calls `list-models`.
+    /// Calls `list-models`; also returns the settings the guest attached to its models
+    /// with `kumikit:models/options.set-options` during the call (ADR 0033).
     pub async fn list_models(
         &self,
         provider: ProviderRef,
-    ) -> Result<Result<Vec<Model>, GuestError>, CallError> {
+    ) -> Result<Result<(Vec<Model>, ModelOptions), GuestError>, CallError> {
         let plugin = self.inner.plugin.clone();
         self.call(move |store, b| {
             Box::pin(async move {
                 let Bindings::Provider(p) = b else {
                     return (Err(CallError::WrongWorld(WORLD_PROVIDER)), true);
                 };
+                store.data_mut().model_options = Some(ModelOptions::new());
                 let r = p
                     .kumikit_provider_provider()
                     .call_list_models(&mut *store, &provider)
                     .await;
-                finish(&plugin, store, r)
+                let options = store.data_mut().model_options.take().unwrap_or_default();
+                let (r, alive) = finish(&plugin, store, r);
+                (r.map(|r| r.map(|models| (models, options))), alive)
             })
         })
         .await

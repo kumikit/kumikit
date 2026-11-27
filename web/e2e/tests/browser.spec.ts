@@ -13,7 +13,7 @@ import { createInterface } from 'node:readline';
 import AxeBuilder from '@axe-core/playwright';
 import { test as base, expect, type Page } from '@playwright/test';
 
-import { command, ROOT } from './fixtures';
+import { command, ROOT, chooseAgent } from './fixtures';
 import { writeKkp } from './kkp';
 
 const TARGET = process.env.CARGO_TARGET_DIR ?? join(ROOT, 'target');
@@ -147,7 +147,7 @@ test('pair a browser, then the M2 flow through the core it came from', async ({ 
   // "New thread" needs an open tab; pressing it from the palette before the tab exists
   // matches nothing (this raced on the macOS runner).
   await expect(page.getByRole('navigation', { name: 'Open workspaces' }).getByRole('button', { name: 'proj', exact: true })).toBeVisible();
-  await page.getByLabel('Agent').selectOption({ label: 'Recorded Claude Code' });
+  await chooseAgent(page, 'Recorded Claude Code');
   await page.getByRole('button', { name: /Permissions:/ }).click();
   await page.getByRole('menuitemradio', { name: /Standard/ }).click();
   await page.getByLabel('Message').fill('Add a line to notes.txt');
@@ -159,7 +159,7 @@ test('pair a browser, then the M2 flow through the core it came from', async ({ 
   await expect(page.getByRole('status').filter({ hasText: 'Connected' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Approval' })).toContainText('Needs your approval');
   await page.getByRole('region', { name: 'Approval' }).getByRole('button', { name: 'Allow', exact: true }).click();
-  await expect(page.getByText(/Changed/).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /changed files?/ }).first()).toBeVisible();
 
   const panel = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--kk-surface-panel').trim());
   await command(page, 'Theme: Kumikit Dark');

@@ -10,6 +10,7 @@
 # <directory> <sha256>
 kumikit-host@0.1.0 d2d9aaecff62c555180ad13b0a0f4f6aab2b49f3f9150331672a1021288114d6
 kumikit-host@0.2.0 b65ae65376cfcd58fa9d772757b71349678cdca48aa6586cce310a6404dbc276
+kumikit-models@0.1.0 b74f7e6d790d4572624dbda7aa86a72e042de1c89cb4da23bac0ced48876b4d7
 kumikit-plugin@0.1.0 7e203d417d5d2323c49de7a31d7a6b0219da8052bb0660e15b224611f11ce9cf
 kumikit-plugin@0.2.0 cc1b51eab8a0c6fb1ceff522e498b56531de49a295221a2a944abf9bc6a9b043
 kumikit-provider@0.1.0 121faa834f25c0ba26ed1f3eac3e665e36c56ac1bcba0c58bebbe1cfe43e3f84

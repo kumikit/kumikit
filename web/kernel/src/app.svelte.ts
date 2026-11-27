@@ -43,6 +43,7 @@ import { SlotRegistry } from './slots/registry.svelte';
 import { ThemeEngine, variantKey } from './theme/engine.svelte';
 import { ThreadStore } from './threads/store.svelte';
 import { UpdateManager } from './updates/updates.svelte';
+import { pushRecent } from './ui/model-picker';
 
 export type Tone = 'info' | 'success' | 'warning' | 'danger';
 
@@ -810,6 +811,7 @@ export class Kernel {
     paneId: string = this.activePaneId,
     permissionMode?: PermissionMode,
     worktreePath?: string,
+    options?: Record<string, string>,
   ): Promise<Thread | undefined> {
     const tab = target ?? this.activeTab;
     if (!tab) return undefined;
@@ -820,8 +822,10 @@ export class Kernel {
       title?: string;
       permissionMode?: PermissionMode;
       worktreePath?: string;
+      options?: Record<string, string>;
     } = { workspace: tab.workspace, provider };
     if (model) params.model = model;
+    if (options && Object.keys(options).length > 0) params.options = options;
     if (title) params.title = title;
     if (permissionMode && permissionMode !== 'standard') params.permissionMode = permissionMode;
     if (worktreePath) params.worktreePath = worktreePath;
@@ -829,14 +833,22 @@ export class Kernel {
     if (!c) return undefined;
     const r = await this.attempt('Cannot start the thread', () => c.call('thread.create', params));
     if (!r) return undefined;
-    const prefs: { lastProvider: string; lastModel?: string } = {
+    const prefs: { lastProvider: string; lastModel?: string; lastOptions?: Record<string, string> } = {
       lastProvider: provider,
+      lastOptions: { ...(options ?? {}) },
     };
     if (model) prefs.lastModel = model;
     this.settings.update(prefs);
+    this.noteRecentModel(tab.connection, provider, r.thread.model);
     c.noteThread(r.thread);
     this.openTab(tab.connection, tab.workspace, r.thread.id, paneId);
     return r.thread;
+  }
+
+  /** Records `provider`/`model` as the most recent pick on `connection` (model picker). */
+  noteRecentModel(connection: string, provider: string, model: string): void {
+    const all = this.settings.value.recentModels ?? {};
+    this.settings.update({ recentModels: { ...all, [connection]: pushRecent(all[connection] ?? [], { provider, model }) } });
   }
 
   /** Creates a new thread in `paneId` and sends the opening message in one seamless step. */
@@ -847,7 +859,12 @@ export class Kernel {
     model: string | undefined,
     text: string,
     paneId: string = this.activePaneId,
-    options?: { permissionMode?: PermissionMode; attachments?: Attachment[]; worktreePath?: string },
+    options?: {
+      permissionMode?: PermissionMode;
+      attachments?: Attachment[];
+      worktreePath?: string;
+      modelOptions?: Record<string, string>;
+    },
   ): Promise<Thread | undefined> {
     const firstLine = text.split(/\r?\n/)[0]?.trim() ?? '';
     const fallbackTitle = options?.attachments?.[0]?.name;
@@ -861,6 +878,7 @@ export class Kernel {
       paneId,
       options?.permissionMode,
       options?.worktreePath,
+      options?.modelOptions,
     );
     if (!thread) return undefined;
     await this.attempt('Cannot send', () =>

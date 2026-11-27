@@ -7,6 +7,7 @@
 //! message queued while a turn ends is either seen by the dispatcher or starts its own
 //! turn: never both, never neither.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use base64::Engine as _;
@@ -28,7 +29,7 @@ use tokio::sync::oneshot;
 use crate::error::{KernelError, KernelResult};
 use crate::handoff::{self, PendingHandoff, SUMMARY_PROMPT};
 use crate::kernel::{Kernel, Session};
-use crate::provider::{EventSink, Inbox, Model, Provider, SessionConfig};
+use crate::provider::{EventSink, Inbox, MODEL_OPTION_PREFIX, Model, Provider, SessionConfig};
 use crate::repo;
 
 /// Maximum attachments accepted on a single user turn.
@@ -185,6 +186,7 @@ impl Kernel {
                 id: p.id().to_owned(),
                 name: p.name().to_owned(),
                 plugin: p.contributor().to_owned(),
+                icon: p.icon().map(str::to_owned),
             })
             .collect();
         list.sort_by(|a, b| a.id.cmp(&b.id));
@@ -234,6 +236,7 @@ impl Kernel {
             model,
             title,
             permission_mode,
+            None,
             worktree_path,
             None,
             false,
@@ -241,7 +244,9 @@ impl Kernel {
         .await
     }
 
-    /// Creates a thread with optional worktree, parent link, and side-thread flag.
+    /// Creates a thread with optional model settings, worktree, parent link, and
+    /// side-thread flag. `options` are checked against the model (ADR 0033); a side thread
+    /// that inherits its parent's model also inherits its settings.
     #[allow(clippy::too_many_arguments)]
     pub async fn thread_create_opts(
         &self,
@@ -250,6 +255,7 @@ impl Kernel {
         mut model: Option<String>,
         title: Option<String>,
         mut permission_mode: Option<PermissionMode>,
+        mut options: Option<BTreeMap<String, String>>,
         mut worktree_path: Option<String>,
         parent: Option<ThreadId>,
         side: bool,
@@ -265,6 +271,9 @@ impl Kernel {
                 provider = Some(parent_row.thread.provider.clone());
                 if model.is_none() {
                     model = Some(parent_row.thread.model.clone());
+                    if options.is_none() {
+                        options = Some(parent_row.thread.options.clone());
+                    }
                 }
             }
             if worktree_path.is_none() {
@@ -307,12 +316,17 @@ impl Kernel {
                 KernelError::PluginFailed(format!("provider {} has no models", provider.id()))
             })?,
         };
+        let options = match options {
+            Some(o) => check_options(provider.id(), find_model(&models, &model), o)?,
+            None => BTreeMap::new(),
+        };
         self.thread_insert_opts(
             workspace,
             provider.id().to_owned(),
             model,
             title,
             permission_mode,
+            options,
             worktree_path,
             parent,
             side,
@@ -440,6 +454,7 @@ impl Kernel {
             provider: row.thread.provider.clone(),
             model: row.thread.model.clone(),
             permission_mode: row.thread.permission_mode,
+            options: row.thread.options.clone(),
             worktree_path: row.thread.worktree_path.clone(),
             forked_from: Some(ThreadForkInfo {
                 thread: source.clone(),
@@ -468,6 +483,7 @@ impl Kernel {
     /// permission mode restarts the provider session (with `resume`) on the next turn.
     /// Changing `provider` ends the old session, clears the stored resume id, records
     /// `thread.switched` and arms a bounded handoff for the next turn (ADR 0029).
+    #[allow(clippy::too_many_arguments)]
     pub async fn thread_update(
         &self,
         id: &ThreadId,
@@ -476,6 +492,7 @@ impl Kernel {
         permission_mode: Option<PermissionMode>,
         title: Option<String>,
         handoff: Option<HandoffMode>,
+        options: Option<BTreeMap<String, String>>,
     ) -> KernelResult<Thread> {
         if self.has_run(id) {
             return Err(KernelError::Conflict(format!(
@@ -549,6 +566,25 @@ impl Kernel {
             Some(t) => (Some(t), Some(TitleSource::User)),
             None => (row.thread.title.clone(), row.thread.title_source),
         };
+        let model_changed = switching || next_model != row.thread.model;
+        let next_options = if options.is_some() || (model_changed && !row.thread.options.is_empty())
+        {
+            let target = self.provider(&next_provider).ok_or_else(|| {
+                KernelError::PluginFailed(format!("provider {next_provider} is not available"))
+            })?;
+            let models = target
+                .list_models()
+                .await
+                .map_err(|e| KernelError::PluginFailed(e.message))?;
+            let m = find_model(&models, &next_model);
+            match options {
+                Some(o) => check_options(&next_provider, m, o)?,
+                None => retain_options(m, row.thread.options.clone()),
+            }
+        } else {
+            row.thread.options.clone()
+        };
+        let options_changed = next_options != row.thread.options;
 
         if switching {
             let tid = id.clone();
@@ -594,6 +630,7 @@ impl Kernel {
             let m_for_db = next_model.clone();
             let t_for_db = next_title.clone();
             let pending_for_db = pending.clone();
+            let o_for_db = next_options.clone();
             let saved = self
                 .inner
                 .store
@@ -609,7 +646,8 @@ impl Kernel {
                         &updated,
                         true,
                         Some(pending_for_db.as_ref()),
-                    )
+                    )?;
+                    repo::thread_set_options(c, &tid, &o_for_db)
                 })
                 .await?;
             self.append(
@@ -635,8 +673,9 @@ impl Kernel {
             return Ok(public);
         }
 
-        let restart_session =
-            next_model != row.thread.model || next_mode != row.thread.permission_mode;
+        let restart_session = next_model != row.thread.model
+            || next_mode != row.thread.permission_mode
+            || options_changed;
         let updated = self.now();
         let tid = id.clone();
         let p_for_db = next_provider.clone();
@@ -646,7 +685,7 @@ impl Kernel {
             .inner
             .store
             .write(move |c| {
-                repo::thread_update(
+                let row = repo::thread_update(
                     c,
                     &tid,
                     &p_for_db,
@@ -657,7 +696,12 @@ impl Kernel {
                     &updated,
                     false,
                     None,
-                )
+                )?;
+                if options_changed {
+                    repo::thread_set_options(c, &tid, &next_options)
+                } else {
+                    Ok(row)
+                }
             })
             .await?;
         if restart_session {
@@ -1625,6 +1669,16 @@ impl Kernel {
             .await
             .map_err(|e| e.to_string())?;
         let permission_mode = row.thread.permission_mode.unwrap_or_default();
+        let mut options = vec![(
+            "permission-mode".to_owned(),
+            permission_mode.as_str().to_owned(),
+        )];
+        options.extend(
+            row.thread
+                .options
+                .iter()
+                .map(|(k, v)| (format!("{MODEL_OPTION_PREFIX}{k}"), v.clone())),
+        );
         let session = provider
             .start_session(SessionConfig {
                 thread: meta.id.clone(),
@@ -1632,10 +1686,7 @@ impl Kernel {
                 model: row.thread.model,
                 resume: row.provider_session,
                 mcp_server,
-                options: vec![(
-                    "permission-mode".to_owned(),
-                    permission_mode.as_str().to_owned(),
-                )],
+                options,
             })
             .await
             .map_err(|e| e.message)?;
@@ -1674,3 +1725,46 @@ impl Kernel {
 
 #[cfg(test)]
 mod tests;
+
+/// The model with `id` in `models`, if any.
+fn find_model<'a>(models: &'a [Model], id: &str) -> Option<&'a Model> {
+    models.iter().find(|m| m.id == id)
+}
+
+/// Checks chosen model settings against what `model` offers (ADR 0033): every key must be
+/// one of its option ids and every value one of that option's values.
+fn check_options(
+    provider: &str,
+    model: Option<&Model>,
+    options: BTreeMap<String, String>,
+) -> KernelResult<BTreeMap<String, String>> {
+    for (key, value) in &options {
+        let Some(option) = model.and_then(|m| m.options.iter().find(|o| &o.id == key)) else {
+            return Err(KernelError::InvalidParams(format!(
+                "model {} of provider {provider} has no setting {key}",
+                model.map_or("?", |m| m.id.as_str())
+            )));
+        };
+        if !option.values.iter().any(|v| &v.value == value) {
+            return Err(KernelError::InvalidParams(format!(
+                "setting {key} has no value {value}"
+            )));
+        }
+    }
+    Ok(options)
+}
+
+/// Keeps the settings `model` still offers with the same value, after a model change.
+fn retain_options(
+    model: Option<&Model>,
+    mut options: BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    options.retain(|key, value| {
+        model.is_some_and(|m| {
+            m.options
+                .iter()
+                .any(|o| &o.id == key && o.values.iter().any(|v| &v.value == value))
+        })
+    });
+    options
+}

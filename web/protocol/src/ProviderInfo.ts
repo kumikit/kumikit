@@ -15,4 +15,9 @@ name: string,
 /**
  * The plugin whose manifest declares it.
  */
-plugin: string, };
+plugin: string, 
+/**
+ * The provider's icon from its manifest, as a `data:` URL of an SVG or PNG image
+ * (since 0.11).
+ */
+icon?: string, };

@@ -355,6 +355,30 @@ async fn list_models_and_start_session() {
         plugin: "test.probe".into(),
         config: None,
     };
-    let models = p.list_models(pref).await.unwrap().unwrap();
+    let (models, options) = p.list_models(pref).await.unwrap().unwrap();
     assert_eq!(models[0].id, "probe");
+    // Settings reported through `kumikit:models/options` during the call (ADR 0033).
+    let effort = &options["probe"][0];
+    assert_eq!(effort.id, "effort");
+    assert_eq!(effort.kind.as_deref(), Some("effort"));
+    assert_eq!(effort.default.as_deref(), Some("low"));
+    assert_eq!(
+        effort
+            .values
+            .iter()
+            .map(|v| v.value.as_str())
+            .collect::<Vec<_>>(),
+        ["low", "high"]
+    );
+    assert!(!options.contains_key("echo"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn set_options_outside_list_models_is_refused() {
+    let e = env().await;
+    let p = e.probe(Grants::default()).await;
+    assert_eq!(
+        code(run(&p, "set-options").await),
+        ErrorCode::InvalidArgument
+    );
 }

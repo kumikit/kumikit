@@ -4,7 +4,7 @@
  * The publisher "acme" and its key are made for this test (test-plugins/registry-fixture);
  * the plugin is the probe test component, which reports host errors unchanged.
  */
-import { command, expect, open, test } from './fixtures';
+import { command, expect, open, test, chooseAgent } from './fixtures';
 
 test.use({ registry: true });
 
@@ -37,7 +37,7 @@ test('a third-party plugin from the registry installs with its permissions shown
   await kk.pick(kk.project);
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
   await expect(page.getByRole('navigation', { name: 'Open workspaces' }).getByRole('button', { name: 'proj', exact: true })).toBeVisible();
-  await page.getByLabel('Agent').selectOption({ label: 'Acme Probe' });
+  await chooseAgent(page, 'Acme Probe');
 
   // Granted: the probe starts `fake-acp-agent`, which answers with its working directory.
   await page.getByLabel('Message').fill('report fake-acp-agent');

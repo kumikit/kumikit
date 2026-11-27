@@ -71,7 +71,8 @@ AppImage file itself.
 ## Package format
 
 `<id>-<version>.kkp`: a tar.zst archive with `plugin.toml`, the component or UI bundle,
-assets and, when signed, a `SIGNATURE` file ([04](04-plugin-host.md#signatures)): ed25519
+assets (such as provider icons referenced by `contributes.providers[].icon`: `.svg` or
+`.png`, at most 32 KiB) and, when signed, a `SIGNATURE` file ([04](04-plugin-host.md#signatures)): ed25519
 over the list of the other files' SHA-256 hashes, made with the publisher's key
 ([ADR 0018](../decisions/0018-package-signing-and-registry.md)).
 

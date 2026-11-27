@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { command, expect, open, test } from './fixtures';
+import { command, expect, open, test, modelButton } from './fixtures';
 
 test.skip(!process.env.KK_LIVE, 'live test: set KK_LIVE=1');
 
@@ -20,7 +20,7 @@ test('a real Claude Code turn with an approved file edit', async ({ page, kk }) 
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await kk.pick(kk.project);
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
-  await expect(page.getByLabel('Agent')).toBeVisible();
+  await expect(modelButton(page)).toBeVisible();
   await page.getByRole('button', { name: /Permissions:/ }).click();
   await page.getByRole('menuitemradio', { name: /Standard/ }).click();
   await page.getByLabel('Message').fill('Create a file named hello.txt in this folder containing exactly the word hi. Do nothing else.');

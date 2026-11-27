@@ -223,11 +223,15 @@ distribution/desktop polish:
   into `~/.local/bin/kumikit` (plus `core-plugins/*.kkp` into `~/.local/share/kumikit/core-plugins/`),
   prompted by default with optional per-profile or global auto-sync
   ([ADR 0032](../decisions/0032-ssh-remote-core-sync.md)).
-- Follow-up polish (`v0.1.0-m8.1`): bundled `kumikit.threads` alongside `kumikit.provider-acp`
-  in `core-plugins/` across desktop installers, standalone CLI archives, and SSH sync (with
-  auto-upgrade/restore on startup and idle local core rollover), AppImage CLI forwarding via
-  `AppRun`, and borderless window chrome (native macOS overlay traffic lights, Linux tiling WM
-  detection, and **Window buttons: Auto / Show / Hide** in Settings → General).
+- Follow-up polish (`v0.1.0-m8.1` and after): bundled `kumikit.threads` alongside
+  `kumikit.provider-acp` in `core-plugins/` across desktop installers, standalone CLI
+  archives, and SSH sync (with auto-upgrade/restore on startup and idle local core
+  rollover), AppImage CLI forwarding via `AppRun`, borderless window chrome (native macOS
+  overlay traffic lights, Linux tiling WM detection, and **Window buttons: Auto / Show /
+  Hide** in Settings → General), finished turn summary cards with a per-turn diff overlay
+  and Send/Stop swap in `ui-chat`, and a unified model picker with recent models, provider
+  icons, and per-model settings (`kumikit:models@0.1.0`, protocol `0.11`, UI SDK `0.1.6`,
+  [ADR 0033](../decisions/0033-model-settings-and-provider-icons.md)).
 
 **Status:** done (`v0.1.0-m8` and `v0.1.0-m8.1`, merged to `main` and released on GitHub
 Releases with desktop installers, CLI archives, signed `release.json` / `release.json.sig`,

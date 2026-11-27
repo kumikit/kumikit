@@ -393,6 +393,11 @@ describe('the handoff renderer and provider switch', () => {
       models: async () => [{ id: 'm1', label: 'Model 1', capabilities: [] }],
     };
     const { ctx, ran } = fakeCtx(viewWithTurn);
+    const requests: unknown[] = [];
+    ctx.ui.pickModel = async (_anchor, request) => {
+      requests.push(request);
+      return { provider: 'p.b/b', model: 'm9', options: { effort: 'high' } };
+    };
     const target = document.createElement('div');
     const c = mount(Chat, { target, props: { ctx, address, connection: connection as never } });
     flushSync();
@@ -401,13 +406,16 @@ describe('the handoff renderer and provider switch', () => {
     flushSync();
 
     expect(target.textContent).toContain('Agent A · m1');
-    const select = target.querySelector<HTMLSelectElement>('select[aria-label="Thread provider"]');
-    expect(select).not.toBeNull();
-    select!.value = 'p.b/b';
-    select!.dispatchEvent(new Event('change', { bubbles: true }));
+    const button = target.querySelector<HTMLButtonElement>('button[aria-label^="Model:"]')!;
+    expect(button.getAttribute('aria-label')).toBe('Model: Agent A · Model 1');
+    button.click();
+    await Promise.resolve();
+    await Promise.resolve();
     flushSync();
+    expect(requests).toEqual([{ connection: 'local', provider: 'p.a/a', model: 'm1', options: {} }]);
 
     expect(target.textContent).toContain('Hand off to Agent B?');
+    expect(ran).toEqual([]);
     const summaryRadio = target.querySelector<HTMLInputElement>('input[value="summary"]');
     summaryRadio!.checked = true;
     summaryRadio!.dispatchEvent(new Event('change', { bubbles: true }));
@@ -419,7 +427,64 @@ describe('the handoff renderer and provider switch', () => {
     await Promise.resolve();
     flushSync();
 
-    expect(ran).toEqual([['thread.update', { address, provider: 'p.b/b', handoff: 'summary' }]]);
+    expect(ran).toEqual([
+      ['thread.update', { address, provider: 'p.b/b', model: 'm9', options: { effort: 'high' }, handoff: 'summary' }],
+    ]);
+    unmount(c);
+  });
+
+  it('changes the model and its settings on the same agent without a handoff', async () => {
+    const view: ThreadView = {
+      ...base,
+      thread: {
+        id: 't',
+        workspace: 'w',
+        provider: 'p.a/a',
+        model: 'm1',
+        options: { effort: 'low' },
+        status: 'idle',
+        created: '2026-11-24T00:00:00Z',
+        updated: '2026-11-24T00:00:00Z',
+      },
+    };
+    const effort = {
+      id: 'effort',
+      label: 'Effort',
+      kind: 'effort',
+      values: [
+        { value: 'low', label: 'Low' },
+        { value: 'high', label: 'High' },
+      ],
+    };
+    const connection = {
+      id: 'local',
+      ready: true,
+      call: async () => ({ providers: [{ id: 'p.a/a', name: 'Agent A', plugin: 'p.a', icon: 'data:image/svg+xml;base64,PHN2Zy8+' }] }),
+      subscribe: () => () => {},
+      models: async () => [
+        { id: 'm1', label: 'Model 1', capabilities: [], options: [effort] },
+        { id: 'm2', label: 'Model 2', capabilities: [], options: [effort] },
+      ],
+    };
+    const { ctx, ran } = fakeCtx(view);
+    ctx.ui.pickModel = async () => ({ provider: 'p.a/a', model: 'm2', options: { effort: 'high' } });
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address, connection: connection as never } });
+    flushSync();
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+
+    const button = target.querySelector<HTMLButtonElement>('button[aria-label^="Model:"]')!;
+    // The agent's icon and the chosen effort show on the button.
+    expect(button.querySelector('img')?.getAttribute('src')).toBe('data:image/svg+xml;base64,PHN2Zy8+');
+    expect(button.textContent).toContain('Model 1 · Low');
+    button.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+    expect(ran).toEqual([['thread.update', { address, model: 'm2', options: { effort: 'high' } }]]);
+    expect(target.textContent).not.toContain('Hand off to');
     unmount(c);
   });
 });
@@ -588,12 +653,18 @@ describe('composer and transcript polish (M7 step 7)', () => {
     const c = mount(Chat, { target, props: { ctx, address } });
     flushSync();
 
-    // Grouped tools (5 consecutive tool calls collapsed with failure count).
-    expect(target.textContent).toContain('5 tool calls · 1 failed');
+    // A finished turn collapses its tool calls under one header with the failure count.
+    const activity = target.querySelector<HTMLDetailsElement>('details.activity')!;
+    expect(activity.querySelector('summary')!.textContent).toContain('Used 5 tools · 1 failed');
+    expect(activity.open).toBe(false);
+    expect(activity.querySelectorAll('.item')).toHaveLength(5);
+    // The reply stays visible below it.
+    expect(target.querySelector('.summary')!.textContent).toContain('All checked.');
     // Per-turn changed files footer with +/- counts.
-    expect(target.textContent).toContain('1 file changed');
-    expect(target.textContent).toContain('src/app.ts');
-    expect(target.textContent).toContain('+2 -1');
+    const footer = target.querySelector<HTMLButtonElement>('button.changes-footer')!;
+    expect(footer.textContent).toContain('1 changed file');
+    expect(footer.textContent).toContain('+2');
+    expect(footer.textContent).toContain('−1');
     // Elapsed time shown on turn.
     expect(target.textContent).toContain('5s');
 
@@ -620,6 +691,98 @@ describe('composer and transcript polish (M7 step 7)', () => {
     expect(ta.value).toBe('/review ');
     expect(ran.length).toBe(2);
 
+    unmount(c);
+  });
+});
+
+describe('turn summary card and composer stop', () => {
+  const finished = (items: ThreadView['turns'][number]['items']): ThreadView => ({
+    ...base,
+    turns: [{ id: 'u1', input: 'edit', started: '2026-11-15T10:00:00Z', ended: '2026-11-15T10:00:09Z', outcome: 'done', items }],
+  });
+
+  it('opens a dialog with only this turn\'s diffs, in unified and split views', () => {
+    const { ctx } = fakeCtx(
+      finished([
+        { kind: 'tool', call: 'c1', name: 'Edit', input: { path: 'a.ts' }, ok: true },
+        { kind: 'file.changed', path: 'src/a.ts', diff: '@@ -1,2 +1,2 @@\n keep\n-old\n+new' },
+        { kind: 'file.changed', path: 'b.md', diff: '+hello' },
+        { kind: 'message', text: 'Edited two files.', done: true },
+      ]),
+    );
+    const target = document.createElement('div');
+    document.body.append(target);
+    const c = mount(Chat, { target, props: { ctx, address } });
+    flushSync();
+
+    // Changes are not repeated inline in a finished turn.
+    expect(target.querySelector('details.activity')!.querySelectorAll('.item')).toHaveLength(1);
+    expect(target.querySelector('dialog')).toBeNull();
+    const footer = target.querySelector<HTMLButtonElement>('button.changes-footer')!;
+    expect(footer.textContent).toContain('2 changed files');
+    footer.click();
+    flushSync();
+
+    const dialog = target.querySelector('dialog')!;
+    expect(dialog.hasAttribute('open')).toBe(true);
+    expect(dialog.querySelector('h2')!.textContent).toBe('Changed files');
+    const files = Array.from(dialog.querySelectorAll<HTMLButtonElement>('ul[aria-label="Files"] button'));
+    expect(files.map((b) => b.dataset.path)).toEqual(['src/a.ts', 'b.md']);
+    const diff = () => dialog.querySelector('section.diff')!;
+    expect(diff().getAttribute('aria-label')).toBe('Changes to src/a.ts');
+    expect(Array.from(diff().querySelectorAll('tr.del td')).map((td) => td.textContent)).toEqual(['2', '', '-old']);
+    expect(Array.from(diff().querySelectorAll('tr.add td')).map((td) => td.textContent)).toEqual(['', '2', '+new']);
+
+    const seg = (name: string) => Array.from(dialog.querySelectorAll<HTMLButtonElement>('button.seg')).find((b) => b.textContent === name)!;
+    seg('Split').click();
+    flushSync();
+    expect(seg('Split').getAttribute('aria-pressed')).toBe('true');
+    const pair = Array.from(diff().querySelectorAll('table.split tr')).find((tr) => tr.querySelector('td.code.del'))!;
+    expect(Array.from(pair.querySelectorAll('td.code')).map((td) => td.textContent)).toEqual(['old', 'new']);
+    seg('Unified').click();
+    flushSync();
+
+    files[1]!.click();
+    flushSync();
+    expect(diff().getAttribute('aria-label')).toBe('Changes to b.md');
+
+    dialog.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click();
+    flushSync();
+    expect(target.querySelector('dialog')).toBeNull();
+    unmount(c);
+    target.remove();
+  });
+
+  it('keeps approvals visible and shows a lone reply without an activity header', () => {
+    const { ctx } = fakeCtx(finished([{ kind: 'message', text: 'Just an answer.', done: true }]));
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address } });
+    flushSync();
+    expect(target.querySelector('details.activity')).toBeNull();
+    expect(target.querySelector('.summary')!.textContent).toContain('Just an answer.');
+    expect(target.querySelector('button.changes-footer')).toBeNull();
+    unmount(c);
+  });
+
+  it('swaps Send for Stop while a turn runs and back when it ends', () => {
+    const { ctx, ran, push } = fakeCtx(base);
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address } });
+    flushSync();
+    const btn = (label: string) => target.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+    expect(btn('Send')).toBeTruthy();
+    expect(btn('Stop')).toBeNull();
+
+    push({ ...base, status: 'running', turns: [{ id: 'u1', input: 'go', started: 't', items: [] }] });
+    flushSync();
+    expect(btn('Send')).toBeNull();
+    btn('Stop')!.click();
+    expect(ran).toEqual([['thread.cancel', undefined]]);
+
+    push({ ...base, status: 'idle', turns: [{ id: 'u1', input: 'go', started: 't', ended: 't', outcome: 'cancelled', items: [] }] });
+    flushSync();
+    expect(btn('Stop')).toBeNull();
+    expect(btn('Send')).toBeTruthy();
     unmount(c);
   });
 });

@@ -40,5 +40,47 @@
         "code": "not_found"
       }
     }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 34,
+    "method": "provider.models",
+    "params": {
+      "provider": "community.provider-gemini/gemini"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 34,
+    "result": {
+      "models": [
+        {
+          "id": "default",
+          "label": "Gemini CLI",
+          "capabilities": [
+            "approvals"
+          ],
+          "options": [
+            {
+              "id": "effort",
+              "label": "Effort",
+              "kind": "effort",
+              "values": [
+                {
+                  "value": "low",
+                  "label": "Low"
+                },
+                {
+                  "value": "high",
+                  "label": "High",
+                  "description": "More thorough reasoning"
+                }
+              ],
+              "default": "low"
+            }
+          ]
+        }
+      ]
+    }
   }
 ]

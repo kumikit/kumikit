@@ -82,7 +82,7 @@ after(async () => {
     const c = net.connect(socket);
     c.once('error', () => done());
     c.once('connect', () => {
-      c.write('{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.10","client":{"name":"e2e","version":"0"}}}\n');
+      c.write('{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.11","client":{"name":"e2e","version":"0"}}}\n');
       c.write('{"jsonrpc":"2.0","id":2,"method":"core.shutdown","params":{}}\n');
     });
     c.once('close', () => done());
@@ -136,7 +136,7 @@ async function flow(b) {
   pick(project);
   await palette(b, 'Open a project folder');
   await b.wait('nav[aria-label="Open workspaces"] button', 'proj');
-  await b.wait('select[aria-label="Agent"] option', 'Recorded M7 Agent');
+  await b.chooseAgent('Recorded M7 Agent');
 
   const input = await b.wait('main textarea[aria-label="Message"], main #kk-chat-input');
   await b.type(input, 'First M7 prompt');

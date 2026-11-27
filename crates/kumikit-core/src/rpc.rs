@@ -506,6 +506,7 @@ impl Conn {
                             id: m.id,
                             label: m.label,
                             capabilities: m.capabilities,
+                            options: m.options,
                         })
                         .collect(),
                 })
@@ -597,6 +598,7 @@ impl Conn {
                         p.model,
                         p.title,
                         p.permission_mode,
+                        p.options,
                         p.worktree_path,
                         p.parent,
                         p.side.unwrap_or(false),
@@ -623,6 +625,7 @@ impl Conn {
                         p.permission_mode,
                         p.title,
                         p.handoff,
+                        p.options,
                     )
                     .await
                     .map_err(kernel_err)?;

@@ -107,6 +107,26 @@ struct ProviderSpec {
     backend: String,
     /// The backend table, as JSON, for delegated entries.
     config: Option<String>,
+    /// The manifest icon as a `data:` URL (ADR 0033).
+    icon: Option<String>,
+}
+
+/// Reads a provider's icon from its package into a `data:` URL. A missing, unreadable or
+/// oversized file gives no icon (the manifest check refuses those at install).
+async fn icon_data_url(package: PathBuf, path: &str) -> Option<String> {
+    use base64::Engine as _;
+    let media = crate::manifest::icon_media_type(path)?;
+    let file = package.join(path);
+    let bytes = tokio::task::spawn_blocking(move || {
+        let meta = std::fs::metadata(&file).ok()?;
+        (meta.len() <= crate::manifest::ICON_MAX_BYTES).then(|| std::fs::read(&file).ok())?
+    })
+    .await
+    .ok()??;
+    Some(format!(
+        "data:{media};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
 }
 
 /// A plugin's error as a turn's error text. A denied host call keeps its code in front,
@@ -715,6 +735,17 @@ impl PluginHost {
         for (record, manifest) in &enabled {
             for entry in &manifest.contributes.providers {
                 let id = qualified(&record.id, &entry.id);
+                let icon = match &entry.icon {
+                    Some(path) => {
+                        let package = self
+                            .inner
+                            .manager
+                            .dirs()
+                            .package(&record.id, &record.version);
+                        icon_data_url(package, path).await
+                    }
+                    None => None,
+                };
                 let spec = match entry.backend() {
                     None => ProviderSpec {
                         id: id.clone(),
@@ -723,6 +754,7 @@ impl PluginHost {
                         contributor: record.id.clone(),
                         backend: record.id.clone(),
                         config: None,
+                        icon,
                     },
                     Some((key, table)) => {
                         let Some((backend, backend_version, schema)) = backends.get(key) else {
@@ -779,6 +811,7 @@ impl PluginHost {
                             contributor: record.id.clone(),
                             backend: backend.clone(),
                             config: Some(table.to_string()),
+                            icon,
                         }
                     }
                 };
@@ -1196,6 +1229,10 @@ impl Provider for WasmProvider {
         &self.spec.contributor
     }
 
+    fn icon(&self) -> Option<&str> {
+        self.spec.icon.as_deref()
+    }
+
     fn list_models(&self) -> BoxFuture<'_, ProviderResult<Vec<Model>>> {
         Box::pin(async move {
             let host = self.host()?;
@@ -1238,9 +1275,11 @@ impl Provider for WasmProvider {
                 host.drop_instance(&instance).await;
                 res?
             };
+            let (models, mut options) = models;
             let out: Vec<Model> = models
                 .into_iter()
                 .map(|m| Model {
+                    options: options.remove(&m.id).unwrap_or_default(),
                     id: m.id,
                     label: m.label,
                     capabilities: m.capabilities,

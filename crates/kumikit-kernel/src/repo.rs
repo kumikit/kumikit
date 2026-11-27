@@ -1,6 +1,8 @@
 //! SQL for the domain tables. Every function is synchronous and runs inside a store job
 //! (writes on the writer thread, reads on the read pool).
 
+use std::collections::BTreeMap;
+
 use kumikit_protocol::ThreadEvent;
 use kumikit_protocol::event::{MessageFrom, QueueEntry, QueueHold, QueueTrigger};
 use kumikit_protocol::model::{
@@ -202,7 +204,7 @@ pub fn workspace_list(conn: &Connection) -> KernelResult<Vec<Workspace>> {
     Ok(out)
 }
 
-const THREAD_COLUMNS: &str = "id, workspace, title, title_source, provider, model, permission_mode, worktree_path, forked_from_json, parent_thread, side, parent_seen_seq, status, archived, created, updated, head, provider_session, pending_handoff";
+const THREAD_COLUMNS: &str = "id, workspace, title, title_source, provider, model, permission_mode, worktree_path, forked_from_json, parent_thread, side, parent_seen_seq, status, archived, created, updated, head, provider_session, pending_handoff, options_json";
 
 #[allow(clippy::type_complexity)]
 fn thread_from_row(
@@ -226,6 +228,13 @@ fn thread_from_row(
     let parent_seen_seq: i64 = row.get("parent_seen_seq")?;
     let head: i64 = row.get("head")?;
     let pending_handoff: Option<String> = row.get("pending_handoff")?;
+    let options_json: Option<String> = row.get("options_json")?;
+    let options = match options_json {
+        None => BTreeMap::new(),
+        Some(raw) => serde_json::from_str(&raw).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
+        })?,
+    };
     Ok((
         ThreadRow {
             thread: Thread {
@@ -236,6 +245,7 @@ fn thread_from_row(
                 provider: row.get("provider")?,
                 model: row.get("model")?,
                 permission_mode: None,
+                options,
                 worktree_path: row.get("worktree_path")?,
                 forked_from: None,
                 parent: parent_thread.map(ThreadId),
@@ -319,8 +329,8 @@ pub fn thread_insert(conn: &Connection, t: &Thread) -> KernelResult<()> {
         .map(serde_json::to_string)
         .transpose()?;
     conn.execute(
-        "INSERT INTO threads (id, workspace, title, provider, model, permission_mode, worktree_path, forked_from_json, parent_thread, side, status, created, updated)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        "INSERT INTO threads (id, workspace, title, provider, model, permission_mode, worktree_path, forked_from_json, parent_thread, side, status, created, updated, options_json)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             t.id.as_str(),
             t.workspace.as_str(),
@@ -334,10 +344,32 @@ pub fn thread_insert(conn: &Connection, t: &Thread) -> KernelResult<()> {
             i64::from(t.side.unwrap_or(false)),
             t.status.as_str(),
             t.created.0,
-            t.updated.0
+            t.updated.0,
+            options_json(&t.options)?
         ],
     )?;
     Ok(())
+}
+
+fn options_json(options: &BTreeMap<String, String>) -> KernelResult<Option<String>> {
+    Ok(if options.is_empty() {
+        None
+    } else {
+        Some(serde_json::to_string(options)?)
+    })
+}
+
+/// Replaces a thread's model settings (ADR 0033).
+pub fn thread_set_options(
+    conn: &Connection,
+    id: &ThreadId,
+    options: &BTreeMap<String, String>,
+) -> KernelResult<ThreadRow> {
+    conn.execute(
+        "UPDATE threads SET options_json = ?2 WHERE id = ?1",
+        params![id.as_str(), options_json(options)?],
+    )?;
+    thread_require(conn, id)
 }
 
 /// Updates the parent-thread event sequence cursor already shared with a side thread.

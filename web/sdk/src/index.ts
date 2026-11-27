@@ -344,7 +344,30 @@ export interface PluginContext {
     renderItem(el: HTMLElement, props: RendererProps): Unmount;
     /** Mounts every registered `composer.accessory` contribution into `el` (since 0.1.5). */
     renderAccessories?(el: HTMLElement, props: ComposerProps): Unmount;
+    /** Opens the UI kernel's model picker next to `anchor`: search, recent models, the
+     * core's providers with their icons, their models and the chosen model's settings.
+     * Resolves with the choice when the picker closes, or `undefined` if nothing changed
+     * (since 0.1.6). */
+    pickModel?(anchor: HTMLElement, request: ModelPickRequest): Promise<ModelPick | undefined>;
   };
+}
+
+/** What `ctx.ui.pickModel` starts from (since 0.1.6). */
+export interface ModelPickRequest {
+  /** The connection whose providers to offer. */
+  connection: string;
+  /** The current provider, model and settings, if any. */
+  provider?: string;
+  model?: string;
+  options?: Readonly<Record<string, string>>;
+}
+
+/** A choice made in the model picker (since 0.1.6). */
+export interface ModelPick {
+  provider: string;
+  model: string;
+  /** Chosen settings by option id; a missing id means the model's default. */
+  options: Record<string, string>;
 }
 
 /** A theme variant as plugins see it. */

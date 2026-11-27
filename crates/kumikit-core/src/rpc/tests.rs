@@ -33,6 +33,7 @@ impl Provider for Echo {
             Ok(vec![Model {
                 id: "echo".into(),
                 label: "Echo".into(),
+                options: vec![],
                 capabilities: vec![],
             }])
         })
@@ -167,10 +168,10 @@ impl Client {
         let r = self
             .call(
                 "core.hello",
-                json!({"protocol":"0.10","client":{"name":"t","version":"1"}}),
+                json!({"protocol":"0.11","client":{"name":"t","version":"1"}}),
             )
             .await;
-        assert_eq!(r["result"]["protocol"], "0.10", "{r}");
+        assert_eq!(r["result"]["protocol"], "0.11", "{r}");
     }
 
     fn dir(&self) -> String {
@@ -241,12 +242,12 @@ async fn hello_describes_the_core() {
     let r = c
         .call(
             "core.hello",
-            json!({"protocol":"0.10","client":{"name":"t","version":"1"}}),
+            json!({"protocol":"0.11","client":{"name":"t","version":"1"}}),
         )
         .await;
     assert_eq!(
         r["result"],
-        json!({"protocol":"0.10","core":{"version":"0.0.0","name":"test","os":"test"},
+        json!({"protocol":"0.11","core":{"version":"0.0.0","name":"test","os":"test"},
                "plugins":[],"capabilities":["threads","approvals","plugins","providers","workspace_events","secrets","settings","commands","schedules","gateway"]})
     );
 }

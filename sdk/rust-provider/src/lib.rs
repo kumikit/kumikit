@@ -79,6 +79,61 @@ pub mod session_bindings {
     });
 }
 
+/// Generated bindings for `kumikit:models/provider-models@0.1.0` (model settings,
+/// ADR 0033).
+#[allow(missing_docs, clippy::all, unsafe_code)]
+pub mod models_bindings {
+    wit_bindgen::generate!({
+        path: [
+            "../../wit/kumikit-host@0.2.0",
+            "../../wit/kumikit-models@0.1.0",
+        ],
+        world: "kumikit:models/provider-models",
+        with: {
+            "kumikit:host/types@0.2.0": kumikit_plugin::bindings::kumikit::host::types,
+        },
+        generate_all,
+    });
+}
+
+/// Model settings such as effort or speed (`docs/spec/05-providers.md#model-settings`).
+///
+/// Call [`set_options`] from [`Provider::list_models`] for each model that has settings.
+/// The values the user picks reach [`Provider::start_session`] as `option.<id>` entries of
+/// [`SessionConfig::options`]; [`chosen`] reads one.
+pub mod models {
+    pub use crate::models_bindings::kumikit::models::options::{
+        ModelOption, OptionValue, set_options,
+    };
+
+    /// The prefix of a model setting's key in `SessionConfig::options`.
+    pub const OPTION_PREFIX: &str = "option.";
+
+    /// The value chosen for setting `id` in a session's options, if any.
+    pub fn chosen<'a>(options: &'a [(String, String)], id: &str) -> Option<&'a str> {
+        options
+            .iter()
+            .find(|(k, _)| k.strip_prefix(OPTION_PREFIX) == Some(id))
+            .map(|(_, v)| v.as_str())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::chosen;
+
+        #[test]
+        fn chosen_reads_prefixed_keys_only() {
+            let opts = vec![
+                ("permission-mode".to_owned(), "plan".to_owned()),
+                ("option.effort".to_owned(), "high".to_owned()),
+            ];
+            assert_eq!(chosen(&opts, "effort"), Some("high"));
+            assert_eq!(chosen(&opts, "permission-mode"), None);
+            assert_eq!(chosen(&opts, "speed"), None);
+        }
+    }
+}
+
 /// Additional session events (`commands.available` and `limit.reached`).
 pub mod session {
     pub use crate::session_bindings::kumikit::session::events::{

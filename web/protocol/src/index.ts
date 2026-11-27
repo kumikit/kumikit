@@ -46,6 +46,8 @@ export type * from "./LimitReached";
 export type * from "./Limits";
 export type * from "./MessageFrom";
 export type * from "./ModelInfo";
+export type * from "./ModelOption";
+export type * from "./ModelOptionValue";
 export type * from "./Notification";
 export type * from "./PairingCode";
 export type * from "./PermissionMode";

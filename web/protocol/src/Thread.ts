@@ -40,6 +40,10 @@ model: string,
  */
 permissionMode?: PermissionMode, 
 /**
+ * Chosen model settings, by option id (ADR 0033, since 0.11).
+ */
+options?: { [key in string]: string }, 
+/**
  * Linked Git worktree directory this thread runs in; absent means the workspace root.
  */
 worktreePath?: string, 

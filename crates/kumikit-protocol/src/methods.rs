@@ -836,6 +836,7 @@ pub struct PluginUninstallParams {
 /// A provider a core offers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct ProviderInfo {
     /// Qualified id: `<plugin id>/<local id>`.
     pub id: String,
@@ -843,6 +844,10 @@ pub struct ProviderInfo {
     pub name: String,
     /// The plugin whose manifest declares it.
     pub plugin: String,
+    /// The provider's icon from its manifest, as a `data:` URL of an SVG or PNG image
+    /// (since 0.11).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 /// Result of `provider.list`.
@@ -871,6 +876,44 @@ pub struct ModelInfo {
     pub label: String,
     /// Capability strings (`docs/spec/05-providers.md#capabilities`).
     pub capabilities: Vec<String>,
+    /// Settings the model offers, such as effort or speed (since 0.11).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<ModelOption>>", optional)]
+    pub options: Vec<ModelOption>,
+}
+
+/// A setting a model offers, such as effort or speed (since 0.11, ADR 0033).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ModelOption {
+    /// Id, the key in `Thread.options`.
+    pub id: String,
+    /// Display label.
+    pub label: String,
+    /// What kind of setting it is: `effort` and `speed` are documented; clients show
+    /// other kinds generically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// The values it can take, in display order.
+    pub values: Vec<ModelOptionValue>,
+    /// The value used when none is chosen; absent means the agent's own default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+}
+
+/// One value a [`ModelOption`] can take.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ModelOptionValue {
+    /// The value.
+    pub value: String,
+    /// Display label.
+    pub label: String,
+    /// Optional longer description.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// Result of `provider.models`.
@@ -987,6 +1030,9 @@ pub struct ThreadCreateParams {
     /// Optional linked Git worktree path for this thread (keeps the thread under `workspace`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree_path: Option<String>,
+    /// Model settings, by [`ModelOption`] id, checked against the model (since 0.11).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<std::collections::BTreeMap<String, String>>,
     /// Parent thread id for a linked side thread (since 0.9).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<ThreadId>,
@@ -1040,6 +1086,10 @@ pub struct ThreadUpdateParams {
     /// New permission mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<PermissionMode>,
+    /// New model settings; replaces all of them, and an empty map clears them. Values
+    /// the (new) model does not offer are refused (since 0.11).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<std::collections::BTreeMap<String, String>>,
     /// New title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,

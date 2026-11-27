@@ -3,7 +3,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 
-import { command, expect, mod, open, test } from './fixtures';
+import { command, expect, mod, open, test, modelButton } from './fixtures';
 
 async function axe(page: Page, where: string) {
   // AxeBuilder's types come from a newer playwright-core than the test runner's.
@@ -24,7 +24,7 @@ test('the main screens have no axe violations, light and dark', async ({ page, k
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await kk.pick(kk.project);
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
-  await expect(page.getByLabel('Agent')).toBeVisible();
+  await expect(modelButton(page)).toBeVisible();
   await page.getByLabel('Message').fill('Say hello');
   await page.getByLabel('Message').press('Enter');
   await expect(page.getByRole('log', { name: 'Transcript' })).toContainText(' out');
@@ -32,6 +32,13 @@ test('the main screens have no axe violations, light and dark', async ({ page, k
   for (const theme of ['Theme: Kumikit Light', 'Theme: Kumikit Dark']) {
     await command(page, theme);
     await axe(page, `${theme}, thread`);
+    // The model picker, with the recorded agent's Effort setting (ADR 0033).
+    await modelButton(page).click();
+    const picker = page.getByRole('dialog', { name: 'Choose a model' });
+    await expect(picker.getByRole('radiogroup', { name: 'Effort' })).toBeVisible();
+    await axe(page, `${theme}, model picker`);
+    await page.keyboard.press('Escape');
+    await expect(picker).toHaveCount(0);
     await command(page, 'Manage plugins');
     await axe(page, `${theme}, plugins`);
     await command(page, 'Open settings');
@@ -58,7 +65,7 @@ test('the main flow works with the keyboard alone', async ({ page, kk }) => {
   await command(page, 'New thread');
   await expect(page.getByLabel('Message')).toBeFocused();
   // The model list arrives from the core; wait until it is enabled before sending.
-  await expect(page.getByLabel('Model')).toBeEnabled();
+  await expect(modelButton(page)).toBeEnabled();
   await page.keyboard.type('Say hello');
   await page.keyboard.press('Enter');
   await expect(page.getByRole('log', { name: 'Transcript' })).toContainText('hello from kumikit');

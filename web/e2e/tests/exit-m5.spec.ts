@@ -8,7 +8,7 @@
 import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { ROOT, command, expect, open, test } from './fixtures';
+import { ROOT, command, expect, open, test, chooseAgent } from './fixtures';
 
 test.use({ registry: true });
 
@@ -80,7 +80,7 @@ test('registry tool plugin, gateway MCP turn and sandboxed panel work together',
   await kk.pick(kk.project);
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
   await expect(page.getByRole('navigation', { name: 'Open workspaces' }).getByRole('button', { name: 'proj', exact: true })).toBeVisible();
-  await page.getByLabel('Agent').selectOption({ label: 'Acme Agent' });
+  await chooseAgent(page, 'Acme Agent');
 
   await page.getByLabel('Message').fill('use the tool');
   await page.getByLabel('Message').press('Enter');

@@ -7,7 +7,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { command, expect, mod, open, test } from './fixtures';
+import { command, expect, mod, open, test, chooseAgent } from './fixtures';
 
 test('M7 threads: find, slash menu, @ mentions, /later, /btw side thread, and edit fork', async ({ page, kk }) => {
   writeFileSync(join(kk.project, 'notes.md'), '# Notes\n');
@@ -27,7 +27,7 @@ test('M7 threads: find, slash menu, @ mentions, /later, /btw side thread, and ed
   await kk.pick(kk.project);
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
   await expect(page.getByRole('navigation', { name: 'Open workspaces' }).getByRole('button', { name: 'proj', exact: true })).toBeVisible();
-  await page.getByLabel('Agent').selectOption({ label: 'Recorded agent 1' });
+  await chooseAgent(page, 'Recorded agent 1');
 
   const composer = page.locator('main').getByLabel('Message', { exact: true });
   await composer.fill('First prompt about woodworking');

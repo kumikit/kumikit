@@ -4,7 +4,7 @@
  */
 import type { Page } from '@playwright/test';
 
-import { command, expect, open, test, type Kumikit } from './fixtures';
+import { command, expect, open, test, type Kumikit, modelButton } from './fixtures';
 
 test.use({ updates: true });
 
@@ -44,7 +44,7 @@ test('Settings → Updates checks signed releases and defers automatic install u
 
   await kk.pick(kk.project);
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Open folder…' }).click();
-  await expect(page.getByLabel('Agent')).toBeVisible();
+  await expect(modelButton(page)).toBeVisible();
   await page.getByRole('button', { name: /Permissions:/ }).click();
   await page.getByRole('menuitemradio', { name: /Standard/ }).click();
   await page.getByLabel('Message').fill('Add a line to notes.txt');

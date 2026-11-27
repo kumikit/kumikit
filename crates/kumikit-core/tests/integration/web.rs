@@ -313,7 +313,7 @@ async fn the_socket_takes_the_cookie_only_from_this_cores_page() {
         // Authenticated by the cookie: the first message is core.hello.
         let mut ws = browser_ws(&info, &origin(&info), Some(&cookie)).await.unwrap();
         ws.send(Message::text(
-            json!({"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.10","client":{"name":"t","version":"0"}}}).to_string(),
+            json!({"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.11","client":{"name":"t","version":"0"}}}).to_string(),
         ))
         .await
         .unwrap();
@@ -322,7 +322,7 @@ async fn the_socket_takes_the_cookie_only_from_this_cores_page() {
                 break serde_json::from_str::<Value>(t.as_str()).unwrap();
             }
         };
-        assert_eq!(hello["result"]["protocol"], "0.10", "{hello}");
+        assert_eq!(hello["result"]["protocol"], "0.11", "{hello}");
 
         // Signing out revokes the device: its socket closes and the cookie stops working.
         let o = origin(&info);

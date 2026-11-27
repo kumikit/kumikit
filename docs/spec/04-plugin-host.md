@@ -90,13 +90,17 @@ memory-mb = 64
 call-timeout-s = 10
 
 [contributes]
-providers = [{ id = "claude", name = "Claude Code" }]
+providers = [{ id = "claude", name = "Claude Code", icon = "icon.svg" }]
 commands = [{ id = "login", title = "Sign in to Claude Code", scope = "core" }]
 settings = "settings.schema.json"
 methods = [{ name = "status", scope = "workspace" }]   # routed as <plugin id>/status
 tools = [{ name = "status", title = "Status", description = "…", input = "status.schema.json", effect = "read" }]
 ```
 
+- `providers`: each entry has `id`, `name`, an optional `icon` (path inside the package to
+  an `.svg` or `.png` file of at most 32 KiB, returned by `provider.list` as a `data:` URL;
+  [ADR 0033](../decisions/0033-model-settings-and-provider-icons.md)), and at most one
+  delegated backend key (`id`, `name` and `icon` are reserved).
 - `commands`: `scope` is `core` (default) or `workspace` (the command acts for the
   workspace it is run in); an optional `when` is a UI condition
   ([07](07-ui-plugins.md#level-1-declarative-contributions)).
@@ -108,7 +112,8 @@ tools = [{ name = "status", title = "Status", description = "…", input = "stat
 The manifest is validated at install against the JSON Schema published with the SDK
 (`sdk/schema/plugin-manifest.schema.json`), then checked for what a schema cannot express:
 the `api` range is satisfied by the kernel, every world is one the host supports, the
-runtime file exists in the package, provider ids are unique within the plugin, `spawn`
+runtime file exists in the package, provider ids are unique within the plugin, provider
+icons exist in the package as `.svg` or `.png` files of at most 32 KiB, `spawn`
 entries are bare program names (no path separators), limits are within the caps, and
 activation triggers are well formed, names (commands, methods, tools) are unique and well
 formed, files they name exist, a `schedule:` trigger comes with `schedules = true`, and a
@@ -138,6 +143,7 @@ types). A component imports only the interfaces its code calls.
 | `kumikit:host@0.2.0` | Host imports, each gated by permissions: `types`, `log`, `kv`, `secrets`, `events`, `process` (as in 0.1.0), and `settings` (own settings), `timers` (`permissions.schedules`), `client` (`permissions.client` and `workspaces`). `files` comes later. |
 | `kumikit:plugin@0.2.0` | Exports every plugin world has: `lifecycle` (`activate`, `deactivate`), `rpc` (`handle`), `commands` (`run`) and `timers` (`fire`). The Rust SDK's `Plugin` trait answers `not-found` for the ones a plugin does not implement. |
 | `kumikit:provider@0.2.0` | The provider world ([05](05-providers.md)) |
+| `kumikit:models@0.1.0` | Additive provider import (`options.set-options`) for per-model settings during `list-models` ([05](05-providers.md#model-settings), [ADR 0033](../decisions/0033-model-settings-and-provider-icons.md)) |
 | `kumikit:tool@0.1.0` | Tool contribution: `tool.call` ([03](03-kernel.md#tool-gateway)) |
 | `kumikit:bot` | The bot world ([09](09-bots.md)), planned for after M5 |
 
