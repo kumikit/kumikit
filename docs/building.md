@@ -88,7 +88,7 @@ cargo run -p kumikit-core -- serve       # a core on this machine's local socket
 `kumikit serve` prints `ready <address>` once it accepts connections and keeps your data
 in the platform's data directory ([01-architecture](spec/01-architecture.md#data-directories));
 `--data-dir` and `--socket` move both, which is handy for a throwaway core. `kumikit --help`
-lists the other commands (`plugin`, `theme`, `pair`, `devices`, `bridge`, `mcp`).
+lists the other commands (`plugin`, `theme`, `pair`, `devices`, `bridge`, `mcp`, `update`).
 
 ### 3. The UI bundle
 
@@ -97,8 +97,8 @@ node scripts/bundle.mjs
 ```
 
 This builds the UI kernel (desktop, browser and test builds), the first-party UI plugins
-and themes, and `provider-acp` (for `wasm32-wasip2`), and assembles them in
-`target/bundle/`:
+and themes, and the bundled core plugins (`provider-acp` and `threads` for `wasm32-wasip2`),
+and assembles them in `target/bundle/`:
 
 | Directory | What |
 |---|---|
@@ -106,7 +106,7 @@ and themes, and `provider-acp` (for `wasm32-wasip2`), and assembles them in
 | `ui-browser/` | The browser client, with its UI plugins |
 | `ui-browser-test/` | The build the Playwright tests use |
 | `ui-plugins/` | The bundled UI plugins and themes |
-| `core-plugins/` | `provider-acp` as a `.kkp`, preinstalled on a core started with `--bundled-plugins` |
+| `core-plugins/` | `provider-acp` and `threads` as `.kkp` packages, synced on a core started with `--bundled-plugins` (or auto-discovered next to `kumikit`) |
 
 Run it again after changing anything under `web/` or `plugins/`.
 

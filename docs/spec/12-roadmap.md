@@ -208,7 +208,8 @@ pass.
 
 ## M8 — Application updates and SSH remote sync
 
-Signed, idle-safe application updates and matching remote core installation over SSH:
+Signed, idle-safe application updates, matching remote core installation over SSH, and
+distribution/desktop polish:
 
 - Unified Ed25519-signed `release.json` manifest for desktop installers and core archives
   ([ADR 0031](../decisions/0031-signed-release-manifest-and-updates.md)), with build-time
@@ -216,12 +217,21 @@ Signed, idle-safe application updates and matching remote core installation over
 - Settings → Updates page displaying current version, update availability, manual install, and
   opt-in automatic updates that wait until all agents are idle (`core.activity` and
   `core.shutdown { ifIdle: true }`, protocol `0.10`).
-- `kumikit update` CLI subcommand for headless and TLS-paired cores.
+- `kumikit update` CLI subcommand for headless and TLS-paired cores (also replacing `$APPIMAGE`
+  when run via AppImage CLI forwarding, and syncing bundled `core-plugins/*.kkp`).
 - Verified client-side download and SSH streaming installation of matching `kumikit` binaries
-  into `~/.local/bin/kumikit`, prompted by default with optional per-profile or global auto-sync
+  into `~/.local/bin/kumikit` (plus `core-plugins/*.kkp` into `~/.local/share/kumikit/core-plugins/`),
+  prompted by default with optional per-profile or global auto-sync
   ([ADR 0032](../decisions/0032-ssh-remote-core-sync.md)).
+- Follow-up polish (`v0.1.0-m8.1`): bundled `kumikit.threads` alongside `kumikit.provider-acp`
+  in `core-plugins/` across desktop installers, standalone CLI archives, and SSH sync (with
+  auto-upgrade/restore on startup and idle local core rollover), AppImage CLI forwarding via
+  `AppRun`, and borderless window chrome (native macOS overlay traffic lights, Linux tiling WM
+  detection, and **Window buttons: Auto / Show / Hide** in Settings → General).
 
-**Status:** built. Plan:
+**Status:** done (`v0.1.0-m8` and `v0.1.0-m8.1`, merged to `main` and released on GitHub
+Releases with desktop installers, CLI archives, signed `release.json` / `release.json.sig`,
+and the `release-manifest` branch). Plan:
 [M8 — Application updates and SSH remote sync](../plans/2026-11-25-m8-updates-and-remote-sync.md).
 
 **Exit:** see the plan's exit criteria: signed update check, download, idle-gated auto-install,

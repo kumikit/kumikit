@@ -192,11 +192,14 @@ still load.
 
 The theme and appearance, default permission mode for new threads (default `standard`),
 open tabs and split layout, sidebar widths and open/collapsed state, which UI plugins are
-enabled and trusted, and each plugin's `ctx.storage` live in the webview's storage,
-inside the client data directory. Nothing secret is stored there. Core-level settings such as the Kumikit home folder (`~/.kumikit` by default on Linux/macOS,
-`%USERPROFILE%\.kumikit` on Windows) live on each core and are edited under Settings →
-General. Managed Git worktrees under `<homeDir>/worktrees/` can be inspected (with disk
-usage and linked thread counts) and deleted under Settings → Worktrees.
+enabled and trusted, each plugin's `ctx.storage`, opt-in automatic updates (`autoUpdate`,
+default `false`), opt-in SSH remote core auto-sync (`autoSyncSsh`, default `false`), and
+borderless window button visibility (`windowButtons`: `auto` | `show` | `hide`, default
+`auto`) live in the webview's storage, inside the client data directory. Nothing secret is
+stored there. Core-level settings such as the Kumikit home folder (`~/.kumikit` by default
+on Linux/macOS, `%USERPROFILE%\.kumikit` on Windows) live on each core and are edited under
+Settings → General. Managed Git worktrees under `<homeDir>/worktrees/` can be inspected
+(with disk usage and linked thread counts) and deleted under Settings → Worktrees.
 
 ### State per connection
 
