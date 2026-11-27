@@ -177,7 +177,7 @@ async function exitFlow(b) {
   await b.wait(APPROVAL, 'Needs your approval');
   await b.click(await button(b, APPROVAL, 'Allow'));
   await b.wait(APPROVAL, 'Allowed');
-  await b.wait('figcaption', 'Changed');
+  await b.wait('button', 'changed file');
 
   step('switching themes');
   // Switch themes.

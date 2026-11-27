@@ -274,7 +274,7 @@ async function flow(b) {
   await b.wait(APPROVAL, 'Needs your approval');
   await b.click(await button(b, APPROVAL, 'Allow'));
   await b.wait(APPROVAL, 'Allowed');
-  await b.wait('figcaption', 'Changed');
+  await b.wait('button', 'changed file');
   assert.ok((await tabText(b, 'dev-box')).includes('reconnecting'), 'the remote tab is still reconnecting');
   assert.ok(!(await tabText(b, 'local')).includes('reconnecting'), 'the local tab is still not reconnecting');
 
@@ -287,5 +287,5 @@ async function flow(b) {
   await b.wait(APPROVAL, 'Needs your approval');
   await b.click(await button(b, APPROVAL, 'Allow'));
   await b.wait(APPROVAL, 'Allowed');
-  await b.wait('figcaption', 'Changed');
+  await b.wait('button', 'changed file');
 }
