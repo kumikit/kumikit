@@ -88,36 +88,43 @@ pub struct SshSyncResult {
     pub updated_command: Option<String>,
 }
 
+// All remote helper scripts are wrapped in `sh -c '...'` with no embedded single quotes
+// and no file globs so they run identically regardless of the remote user's login shell
+// (`bash`, `zsh` with `NOMATCH`, `fish`, `csh`/`tcsh`, or `dash`).
 const PROBE_SCRIPT: &str = concat!(
-    "printf 'OS=%s\\nARCH=%s\\n' \"$(uname -s)\" \"$(uname -m)\"; ",
+    "sh -c '",
+    "printf \"OS=%s\\nARCH=%s\\n\" \"$(uname -s)\" \"$(uname -m)\"; ",
     "BIN=$(command -v kumikit 2>/dev/null || true); ",
     "if [ -z \"$BIN\" ] && [ -x \"$HOME/.local/bin/kumikit\" ]; then BIN=\"$HOME/.local/bin/kumikit\"; fi; ",
-    "printf 'BIN=%s\\n' \"$BIN\"; ",
-    "if [ -n \"$BIN\" ]; then VER=$(\"$BIN\" --version 2>/dev/null | head -n 1 || true); else VER=''; fi; ",
-    "printf 'VER=%s\\n' \"$VER\""
+    "printf \"BIN=%s\\n\" \"$BIN\"; ",
+    "if [ -n \"$BIN\" ]; then VER=$(\"$BIN\" --version 2>/dev/null | head -n 1 || true); else VER=\"\"; fi; ",
+    "printf \"VER=%s\\n\" \"$VER\"",
+    "'"
 );
 
 const INSTALL_STREAM_SCRIPT: &str = concat!(
+    "sh -c '",
     "set -eu; ",
     "mkdir -p \"$HOME/.local/bin\"; ",
     "tmp=$(mktemp -d \"$HOME/.local/bin/.kumikit-install.XXXXXX\"); ",
-    "trap 'rm -rf \"$tmp\"' EXIT; ",
+    "cleanup() { rm -rf \"$tmp\"; }; ",
+    "trap cleanup EXIT; ",
     "tar -xzf - -C \"$tmp\"; ",
     "chmod 755 \"$tmp/kumikit\"; ",
     "mv -f \"$tmp/kumikit\" \"$HOME/.local/bin/kumikit\"; ",
     "if [ -d \"$tmp/core-plugins\" ]; then ",
+    "mkdir -p \"$HOME/.local/share/kumikit\"; ",
+    "rm -rf \"$HOME/.local/share/kumikit/core-plugins\"; ",
     "mkdir -p \"$HOME/.local/share/kumikit/core-plugins\"; ",
-    "rm -f \"$HOME/.local/share/kumikit/core-plugins\"/*.kkp; ",
-    "for f in \"$tmp/core-plugins\"/*.kkp; do ",
-    "[ -f \"$f\" ] && mv -f \"$f\" \"$HOME/.local/share/kumikit/core-plugins/\"; ",
-    "done; ",
+    "cp -R \"$tmp/core-plugins/.\" \"$HOME/.local/share/kumikit/core-plugins/\"; ",
     "fi; ",
-    "printf 'BIN=%s\\n' \"$HOME/.local/bin/kumikit\"; ",
-    "printf 'VER=%s\\n' \"$(\"$HOME/.local/bin/kumikit\" --version 2>/dev/null | head -n 1 || true)\""
+    "printf \"BIN=%s\\n\" \"$HOME/.local/bin/kumikit\"; ",
+    "printf \"VER=%s\\n\" \"$(\"$HOME/.local/bin/kumikit\" --version 2>/dev/null | head -n 1 || true)\"",
+    "'"
 );
 
 const START_CORE_SCRIPT: &str =
-    "nohup \"$HOME/.local/bin/kumikit\" serve >/dev/null 2>&1 </dev/null &";
+    "sh -c 'nohup \"$HOME/.local/bin/kumikit\" serve >/dev/null 2>&1 </dev/null &'";
 
 struct ResolvedTarget {
     profile_name: Option<String>,
@@ -383,8 +390,8 @@ async fn run_ssh_capture(
 ) -> Result<(String, String), CommandError> {
     let args = ssh::args(destination, remote_cmd)
         .map_err(|e| CommandError::new("invalid", e.to_string()))?;
-    let mut child = Command::new(ssh_program)
-        .args(args)
+    let mut cmd = Command::new(ssh_program);
+    cmd.args(args)
         .stdin(if stdin_bytes.is_some() {
             Stdio::piped()
         } else {
@@ -392,7 +399,9 @@ async fn run_ssh_capture(
         })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
+        .kill_on_drop(true);
+    ssh::configure_no_window(&mut cmd);
+    let mut child = cmd
         .spawn()
         .map_err(|e| CommandError::new("unreachable", format!("cannot start ssh: {e}")))?;
     if let Some(bytes) = stdin_bytes
@@ -706,5 +715,28 @@ fi
         let after = probe(&fake_ssh, &profiles, "0.1.0-m8", &req).await.unwrap();
         assert_eq!(after.status, "match");
         assert_eq!(after.remote_version.as_deref(), Some("0.1.0-m8"));
+    }
+
+    #[test]
+    fn remote_scripts_are_shell_portable_and_glob_free() {
+        for script in [PROBE_SCRIPT, INSTALL_STREAM_SCRIPT, START_CORE_SCRIPT] {
+            assert!(
+                script.starts_with("sh -c '") && script.ends_with('\''),
+                "remote script must run via POSIX `sh -c '...'`: {script}"
+            );
+            let inner = &script["sh -c '".len()..script.len() - 1];
+            assert!(
+                !inner.contains('\''),
+                "single quotes inside `sh -c '...'` break non-POSIX login shells: {script}"
+            );
+            assert!(
+                !inner.contains('*'),
+                "remote script must not use shell globs (which fail under zsh NOMATCH): {script}"
+            );
+            assert!(
+                ssh::check_command(script).is_ok(),
+                "remote script must satisfy ssh::check_command: {script}"
+            );
+        }
     }
 }
