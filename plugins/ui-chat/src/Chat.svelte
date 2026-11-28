@@ -39,9 +39,12 @@
     parseMentionAt,
     splitFinishedTurn,
     totalChanges,
+    turnThinking,
+    withoutReasoning,
     type MentionMatch,
     type SlashMenuEntry,
   } from './transcript';
+  import ThinkingBox from './ThinkingBox.svelte';
 
   let {
     ctx,
@@ -1024,7 +1027,8 @@
           </details>
         {:else}
           {@const elapsed = formatElapsed(turn.started, turn.ended, nowMs)}
-          {@const displayEntries = groupTurnItems(turn.items)}
+          {@const displayEntries = groupTurnItems(withoutReasoning(turn.items))}
+          {@const thinking = turnThinking(turn.items)}
           {@const changedFiles = collectTurnFiles(turn.items)}
           {@const isMatch = findMatches.includes(turn.id)}
           <article class="turn" class:find-hit={isMatch} data-turn-id={turn.id} aria-label="Turn">
@@ -1096,7 +1100,7 @@
               {/if}
               {#if turn.ended}
                 {@const parts = splitFinishedTurn(turn.items)}
-                {#if parts.activity.length > 0}
+                {#if parts.activity.length > 0 || parts.thinking}
                   <details class="activity">
                     <summary>
                       <svg class="activity-ico" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1111,6 +1115,9 @@
                       {#each parts.activity as a (a.index)}
                         <div class="item" use:item={{ item: a.item, address, run }}></div>
                       {/each}
+                      {#if parts.thinking}
+                        <ThinkingBox text={parts.thinking} />
+                      {/if}
                     </div>
                   </details>
                 {/if}
@@ -1152,6 +1159,9 @@
                     <div class="item" use:item={{ item: entry.item, address, run }}></div>
                   {/if}
                 {/each}
+                {#if thinking}
+                  <ThinkingBox text={thinking} />
+                {/if}
               {/if}
               {#if !turn.ended && turn.items.length === 0}
                 <p class="working" aria-label="Working">Working…</p>
