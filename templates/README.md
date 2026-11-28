@@ -5,4 +5,6 @@ Starting points for plugin authors, kept working by `scripts/check-templates.sh`
 
 - [core-plugin-rust](core-plugin-rust/README.md): a provider, as a WASM component.
 - [ui-plugin-svelte](ui-plugin-svelte/README.md): a sandboxed panel in Svelte.
-- [theme](theme/README.md): colors, fonts and sizes; no code.
+
+Themes are plain `.json` files rather than plugins; see `themes/` and
+[docs/spec/08-themes.md](../docs/spec/08-themes.md).

@@ -3,6 +3,7 @@
  * the client data directory. Nothing secret is stored here.
  */
 import type { PermissionMode } from '@kumikit/protocol';
+import type { TokenName } from '@kumikit/ui-sdk';
 import {
   LEFT_DEFAULT,
   LEFT_MAX,
@@ -18,6 +19,15 @@ import {
   type LayoutNode,
   type LeftSidebarView,
 } from '../layout/layout';
+import { checkTokens } from '../theme/validate';
+
+/** A user-imported theme saved in client settings (ADR 0037). */
+export interface CustomTheme {
+  id: string;
+  name: string;
+  appearance: 'light' | 'dark';
+  tokens: Partial<Record<TokenName, string>>;
+}
 
 export interface TabSpec {
   connection: string;
@@ -31,10 +41,12 @@ export interface TabSpec {
 export type WindowButtonsMode = 'auto' | 'show' | 'hide';
 
 export interface Settings {
-  /** `<theme>:<variant>`, or absent to follow the appearance. */
+  /** Theme id (`tokyo-night`, `custom:my-theme`), or absent to follow the appearance. */
   themeVariant?: string;
   appearance: 'system' | 'light' | 'dark';
   reduceMotion: boolean;
+  /** User-imported `.json` themes stored in client settings (ADR 0037). */
+  customThemes: CustomTheme[];
   /** Mirror of the active pane's tabs (kept for compatibility with legacy storage). */
   tabs: TabSpec[];
   activeTab: number;
@@ -80,6 +92,7 @@ export interface Settings {
 export const DEFAULTS: Settings = {
   appearance: 'system',
   reduceMotion: false,
+  customThemes: [],
   tabs: [],
   activeTab: 0,
   layout: defaultLayout(),
@@ -128,10 +141,35 @@ export function parseSettings(text: string | null): Settings {
   const candidatePane = typeof r.activePaneId === 'string' ? findLeaf(layout, r.activePaneId) : undefined;
   const activePane = candidatePane ?? firstLeaf(layout);
 
+  const customThemes: CustomTheme[] = Array.isArray(r.customThemes)
+    ? (r.customThemes as unknown[]).flatMap((item): CustomTheme[] => {
+        if (typeof item !== 'object' || item === null) return [];
+        const t = item as Partial<Record<keyof CustomTheme, unknown>>;
+        if (
+          typeof t.id !== 'string' ||
+          !t.id ||
+          typeof t.name !== 'string' ||
+          !t.name.trim() ||
+          (t.appearance !== 'light' && t.appearance !== 'dark')
+        ) {
+          return [];
+        }
+        return [
+          {
+            id: t.id,
+            name: t.name.trim(),
+            appearance: t.appearance,
+            tokens: checkTokens(t.tokens).tokens,
+          },
+        ];
+      })
+    : [];
+
   const s: Settings = {
     ...DEFAULTS,
     appearance: r.appearance === 'light' || r.appearance === 'dark' ? r.appearance : 'system',
     reduceMotion: r.reduceMotion === true,
+    customThemes,
     tabs: activePane.tabs,
     activeTab: activePane.activeTab,
     layout,

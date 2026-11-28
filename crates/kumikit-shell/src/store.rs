@@ -471,14 +471,24 @@ impl Store {
 mod tests {
     use super::*;
 
-    const THEME: &str = r#"
-id = "community.night"
-name = "Night"
+    const BASE_UI: &str = r#"
+id = "kumikit.base"
+name = "Base"
 version = "1.0.0"
-kind = ["theme"]
+kind = ["ui"]
 api = "^0.1"
-[theme]
-variants = [{ id = "dark", appearance = "dark", tokens = "dark.json" }]
+[ui]
+entry = "dist/index.js"
+"#;
+
+    const EXTRA_UI: &str = r#"
+id = "community.extra"
+name = "Extra"
+version = "1.0.0"
+kind = ["ui"]
+api = "^0.1"
+[ui]
+entry = "dist/index.js"
 "#;
 
     const UI: &str = r#"
@@ -509,13 +519,13 @@ slots = [{ slot = "inspector.tab", id = "p", title = "P" }]
 
     fn store(root: &Path) -> Store {
         let bundled = root.join("bundled");
-        std::fs::create_dir_all(bundled.join("kumikit.base")).unwrap();
+        std::fs::create_dir_all(bundled.join("kumikit.base/dist")).unwrap();
+        std::fs::write(bundled.join("kumikit.base").join(MANIFEST), BASE_UI).unwrap();
         std::fs::write(
-            bundled.join("kumikit.base").join(MANIFEST),
-            THEME.replace("community.night", "kumikit.base"),
+            bundled.join("kumikit.base/dist/index.js"),
+            "export default {}",
         )
         .unwrap();
-        std::fs::write(bundled.join("kumikit.base").join("dark.json"), "{}").unwrap();
         Store {
             bundled: Some(bundled),
             installed: root.join("client/ui-plugins"),
@@ -526,11 +536,11 @@ slots = [{ slot = "inspector.tab", id = "p", title = "P" }]
     fn installs_lists_serves_and_removes() {
         let root = tempfile::tempdir().unwrap();
         let s = store(root.path());
-        let theme = package(
+        let extra = package(
             root.path(),
-            "night",
-            THEME,
-            &[("dark.json", r##"{"accent":"#f0f"}"##)],
+            "extra",
+            EXTRA_UI,
+            &[("dist/index.js", "export default {}")],
         );
         let ui = package(
             root.path(),
@@ -538,14 +548,14 @@ slots = [{ slot = "inspector.tab", id = "p", title = "P" }]
             UI,
             &[("dist/index.js", "export default {}")],
         );
-        assert_eq!(s.install(&theme).unwrap().id, "community.night");
+        assert_eq!(s.install(&extra).unwrap().id, "community.extra");
         assert_eq!(s.install(&ui).unwrap().version, "0.2.0");
         let list: Vec<(String, &str)> = s.list().into_iter().map(|e| (e.id, e.source)).collect();
         assert_eq!(
             list,
             [
                 ("kumikit.base".to_owned(), "bundled"),
-                ("community.night".to_owned(), "installed"),
+                ("community.extra".to_owned(), "installed"),
                 ("community.panel".to_owned(), "installed"),
             ]
         );
@@ -588,7 +598,11 @@ slots = [{ slot = "inspector.tab", id = "p", title = "P" }]
             s.panel_network("community.panel"),
             Some(vec!["api.example.com".to_owned()])
         );
-        assert_eq!(s.panel_network("kumikit.base"), None, "a theme is no panel");
+        assert_eq!(
+            s.panel_network("kumikit.base"),
+            None,
+            "an inline UI plugin is no panel"
+        );
         assert_eq!(s.panel_network("nobody.here"), None);
     }
 
@@ -601,6 +615,11 @@ slots = [{ slot = "inspector.tab", id = "p", title = "P" }]
                 "core",
                 "id = \"a.b\"\nname = \"X\"\nversion = \"0.1.0\"\nkind = [\"provider\"]\napi = \"^0.1\"\n",
                 "install it on a core",
+            ),
+            (
+                "theme",
+                "id = \"a.b\"\nname = \"X\"\nversion = \"0.1.0\"\nkind = [\"theme\"]\napi = \"^0.1\"\n",
+                "themes are plain .json files",
             ),
             (
                 "iframe-js",
@@ -639,21 +658,17 @@ slots = [{ slot = "inspector.tab", id = "p", title = "P" }]
             (
                 "api",
                 &UI.replace("^0.1", "^1.0"),
-                "does not accept the UI SDK 0.1.3",
+                "does not accept the UI SDK 0.1.7",
             ),
-            (
-                "bundled",
-                &THEME.replace("community.night", "kumikit.base"),
-                "bundled with the app",
-            ),
-            (
-                "font",
-                &THEME.replace("[theme]", "[theme]\nfonts = [\"a.ttf\"]"),
-                "must be a .woff2 file",
-            ),
+            ("bundled", BASE_UI, "bundled with the app"),
         ];
         for (name, manifest, expected) in cases {
-            let p = package(root.path(), name, manifest, &[("dark.json", "{}")]);
+            let files: &[(&str, &str)] = if name == "missing" {
+                &[]
+            } else {
+                &[("dist/index.js", "export default {}")]
+            };
+            let p = package(root.path(), name, manifest, files);
             let err = s.install(&p).unwrap_err().to_string();
             assert!(err.contains(expected), "{name}: {err}");
         }

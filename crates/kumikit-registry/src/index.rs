@@ -71,9 +71,9 @@ impl Plugin {
         self.id.split('.').next().unwrap_or_default()
     }
 
-    /// Whether it is a UI plugin or a theme (installed on a client, not a core).
+    /// Whether it is a UI plugin (installed on a client, not a core).
     pub fn is_client_side(&self) -> bool {
-        self.kind.iter().all(|k| k == "ui" || k == "theme") && !self.kind.is_empty()
+        self.kind.len() == 1 && self.kind[0] == "ui"
     }
 }
 
@@ -104,7 +104,7 @@ pub struct Version {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UiNeeds {
-    /// `inline` or `iframe`; absent for a theme.
+    /// `inline` or `iframe`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub isolation: Option<String>,
     /// Hosts a panel may contact.

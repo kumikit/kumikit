@@ -12,7 +12,8 @@ disabled; the UI kernel works (with an empty state) without any of them.
 | `kumikit.ui-chat` | client | Transcript and composer |
 | `kumikit.ui-settings` | client | Settings pages for the kernel and declarative plugin settings |
 | `kumikit.ui-usage` | client | Thread header plan-limit meter and Agent usage dialog (statistics, heatmap, refresh) |
-| `kumikit.theme-default` | client | Light and dark themes; the fallback for missing tokens |
+
+Bundled themes live in `themes/*.json` as plain resource files, not plugins ([08](08-themes.md)).
 
 ### Bundled core plugins
 
@@ -165,7 +166,7 @@ yanked = false
   index younger than 10 minutes; installing and checking for updates revalidate it
   (`If-None-Match`).
 - **Who.** Each side fetches what it installs: a core fetches core plugins (a remote core
-  downloads on its own machine), the desktop app's shell fetches UI plugins and themes.
+  downloads on its own machine), the desktop app's shell fetches UI plugins.
 - **Cache:** `<core data>/registry-cache/` and `<client data>/registry-cache/` (the index
   and its ETag, named by the SHA-256 of the URL).
 - **Several registries.** Each core and each client keeps an ordered list
@@ -190,7 +191,7 @@ kumikit plugin list | remove <id> [--yes] [--keep-data]
 The argument of `add` is a file when it names an existing file or ends in `.kkp`, and an
 id otherwise. The desktop plugin manager does the same through the protocol
 (`plugin.install` with `registry`, `path` or `package`) for core plugins, and through the
-shell's client plugin store for UI plugins and themes ([06](06-client.md#shell-rust-kumikit-shell)).
+shell's client plugin store for UI plugins ([06](06-client.md#shell-rust-kumikit-shell)).
 
 Install steps:
 
@@ -266,7 +267,7 @@ All take `--socket` (and the device commands `--data-dir`).
 
 - Each core keeps `plugins.lock` in its data directory, rewritten after every install,
   update, enable, disable and uninstall; the client keeps its own in the client data
-  directory for installed UI plugins and themes.
+  directory for installed UI plugins.
 
   ```toml
   # Written by Kumikit. Export it to reproduce these plugins on another core.

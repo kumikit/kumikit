@@ -69,8 +69,8 @@ Now:
 - `cargo clippy --target wasm32-wasip2 -p kumikit-plugin -p kumikit-provider -p kumikit-tool -p kumikit-test-hello -p kumikit-test-probe -p kumikit-test-client -p kumikit-test-tool -p kumikit-provider-acp -p kumikit-threads -- -D warnings`
 - `sh scripts/check-plugin-names.sh`: no plugin id, provider id or backend key in
   `crates/*/src`
-- `cargo run -p kumikit-core -- theme check --strict plugins/theme-default`: the
-  first-party theme passes the theme checks
+- `cargo run -p kumikit-core -- theme check --strict themes`: the
+  bundled themes pass the theme checks
 - `sh scripts/check-templates.sh`: the plugin templates build, pack, sign, install and
   run (needs the `wasm32-wasip2` target and `npm ci`)
 - `cargo deny check licenses bans sources` (CI runs it; locally when dependencies change)
@@ -200,7 +200,7 @@ Area → where the code will live → spec section (read it before touching the 
 | Agent providers | `plugins/provider-*` | [05-providers](docs/spec/05-providers.md) |
 | Desktop shell, UI kernel, connections, tabs | `crates/kumikit-shell`, `web/kernel` | [06-client](docs/spec/06-client.md) |
 | UI plugins, slots, declarative UI | `web/sdk`, `plugins/ui-*` | [07-ui-plugins](docs/spec/07-ui-plugins.md) |
-| Themes, tokens | `plugins/theme-*`, `web/kernel` theme engine | [08-themes](docs/spec/08-themes.md) |
+| Themes, tokens | `themes/`, `web/kernel` theme engine | [08-themes](docs/spec/08-themes.md) |
 | Bots | `plugins/bot-*`, `wit/` bot world | [09-bots](docs/spec/09-bots.md) |
 | Packages, registry, lockfiles | `crates/kumikit-core` (CLI), registry repo | [10-distribution](docs/spec/10-distribution.md) |
 | Threat model | everywhere | [11-security](docs/spec/11-security.md) |

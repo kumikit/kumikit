@@ -42,7 +42,7 @@ crates/
   kumikit-assets/        # UI files: path checks, MIME types, CSPs, UI manifest structure; shell, core, registry checker
   kumikit-registry/      # registry index, signed release manifests, fetching, resolution, install-time checks
   kumikit-registry-tool/ # `kumikit-registry check | build-index | release-manifest`, run by CI
-  kumikit-theme/         # theme checks (token types, contrast, fonts) for `kumikit theme check`
+  kumikit-theme/         # theme checks (token types, contrast) for `kumikit theme check`
   kumikit-kernel/        # domain model, event log, storage, secrets, processes, permissions
   kumikit-plugin-host/   # wasmtime component host, WIT bindings, sidecar host (later)
   kumikit-core/          # the `kumikit` binary: transports, auth, CLI
@@ -65,8 +65,8 @@ plugins/                 # preinstalled first-party plugins, built with the publ
   ui-chat/
   ui-settings/
   ui-usage/
-  theme-default/
-templates/               # plugin author templates: core plugin (Rust), UI plugin (Svelte), theme
+themes/                  # bundled theme resource files (*.json)
+templates/               # plugin author templates: core plugin (Rust), UI plugin (Svelte)
 test-plugins/            # plugins and helper programs used only by tests
 docs/
   spec/                  # this specification

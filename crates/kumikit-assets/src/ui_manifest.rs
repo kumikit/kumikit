@@ -1,15 +1,14 @@
-//! The structure of UI plugin and theme manifests (`docs/spec/07-ui-plugins.md#manifest`),
+//! The structure of UI plugin manifests (`docs/spec/07-ui-plugins.md#manifest`),
 //! checked where packages are installed or published: the desktop shell's client plugin
-//! store, `kumikit theme check` and the registry checker. The UI kernel checks the
-//! contents (slot names, token values) when it loads a plugin.
+//! store, `kumikit plugin pack` and the registry checker. The UI kernel checks the
+//! contents (slot names) when it loads a plugin.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
 /// The UI SDK version this Kumikit provides; manifests' `api` ranges must accept it.
-pub const UI_SDK_VERSION: &str = "0.1.3";
+pub const UI_SDK_VERSION: &str = "0.1.7";
 
 /// Slots a sandboxed panel may contribute to (07-ui-plugins, Level 2).
 pub const PANEL_SLOTS: &[&str] = &["sidebar.section", "inspector.tab", "view", "settings.page"];
@@ -36,8 +35,6 @@ struct Manifest {
     #[serde(default)]
     ui: Option<UiSection>,
     #[serde(default)]
-    theme: Option<ThemeSection>,
-    #[serde(default)]
     requires: Option<toml::Value>,
     #[serde(default)]
     contributes: Option<Contributes>,
@@ -58,28 +55,6 @@ struct UiSection {
 
 fn inline() -> String {
     "inline".into()
-}
-
-// Fields are declared so unknown ones are refused; the UI kernel reads most of them.
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ThemeSection {
-    variants: Vec<Variant>,
-    #[serde(default)]
-    fonts: Vec<String>,
-}
-
-// Fields are declared so unknown ones are refused; the UI kernel reads most of them.
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Variant {
-    id: String,
-    #[serde(default)]
-    name: Option<String>,
-    appearance: String,
-    tokens: String,
 }
 
 // Fields are declared so unknown ones are refused; the UI kernel reads most of them.
@@ -161,20 +136,27 @@ pub fn check(dir: &Path) -> Result<(String, String, serde_json::Value), String> 
         }
         Err(_) => problems.push(format!("api `{}` is not a version range", m.api)),
     }
-    let kind = match m.kind.as_slice() {
-        [k] if k == "ui" || k == "theme" => k.as_str(),
+    let is_ui = match m.kind.as_slice() {
+        [k] if k == "ui" => true,
+        [k] if k == "theme" => {
+            problems.push(
+                "themes are plain .json files, not plugins; add them in Settings -> Appearance"
+                    .into(),
+            );
+            false
+        }
         _ => {
-            if m.kind.iter().any(|k| k != "ui" && k != "theme") {
+            if m.kind.iter().any(|k| k != "ui") {
                 problems
                     .push("this is a core plugin; install it on a core from Manage plugins".into());
             } else {
-                problems.push("kind must be exactly one of [\"ui\"] or [\"theme\"]".into());
+                problems.push("kind must be [\"ui\"]".into());
             }
-            ""
+            false
         }
     };
-    match kind {
-        "ui" => match &m.ui {
+    if is_ui {
+        match &m.ui {
             None => problems.push("a UI plugin needs a [ui] section with an entry".into()),
             Some(ui) => {
                 inside(dir, &ui.entry, "the entry", &mut problems);
@@ -202,44 +184,7 @@ pub fn check(dir: &Path) -> Result<(String, String, serde_json::Value), String> 
                     other => problems.push(format!("isolation `{other}` is not known")),
                 }
             }
-        },
-        "theme" => {
-            match &m.theme {
-                None => problems.push("a theme needs a [theme] section with variants".into()),
-                Some(t) => {
-                    if t.variants.is_empty() {
-                        problems.push("a theme needs at least one variant".into());
-                    }
-                    let mut ids = BTreeMap::new();
-                    for v in &t.variants {
-                        if ids.insert(v.id.clone(), ()).is_some() {
-                            problems.push(format!("variant id `{}` is used twice", v.id));
-                        }
-                        if v.appearance != "light" && v.appearance != "dark" {
-                            problems.push(format!(
-                                "variant `{}`: appearance must be light or dark",
-                                v.id
-                            ));
-                        }
-                        if let Some(f) = inside(dir, &v.tokens, "the tokens file", &mut problems)
-                        && std::fs::read_to_string(&f)
-                            .ok()
-                            .and_then(|s| serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&s).ok())
-                            .is_none()
-                    {
-                        problems.push(format!("`{}` is not a JSON object", v.tokens));
-                    }
-                    }
-                    for f in &t.fonts {
-                        if !f.ends_with(".woff2") {
-                            problems.push(format!("font `{f}` must be a .woff2 file"));
-                        }
-                        inside(dir, f, "the font", &mut problems);
-                    }
-                }
-            }
         }
-        _ => {}
     }
     let iframe = m.ui.as_ref().is_some_and(|u| u.isolation == "iframe");
     if iframe && let Some(c) = &m.contributes {

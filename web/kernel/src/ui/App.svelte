@@ -197,7 +197,7 @@
         {:else if mainView.kind === 'plugins'}
           <OverlaySheet
             title={mainView.starter ? 'Starter pack' : 'Plugins'}
-            subtitle="Core plugins, UI plugins, themes & registries"
+            subtitle="Core plugins, UI plugins & registries"
             hasNestedDialog={Boolean(kernel.dialog)}
             onclose={() => (kernel.main = { kind: 'tab' })}
           >

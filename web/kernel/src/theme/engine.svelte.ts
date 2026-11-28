@@ -1,6 +1,6 @@
 /**
- * Applies the active theme's tokens as `--kk-*` custom properties (08-themes). Missing
- * tokens come from the fallback theme's variant of the same appearance. The platform
+ * Applies the active theme's tokens as `--kk-*` custom properties (08-themes, ADR 0037).
+ * Missing tokens come from the bundled fallback theme of the same appearance. Platform
  * modes are written after the theme, so a theme cannot override them.
  */
 import { TOKENS, type TokenName } from '@kumikit/ui-sdk';
@@ -8,18 +8,17 @@ import { TOKENS, type TokenName } from '@kumikit/ui-sdk';
 export type Appearance = 'light' | 'dark';
 
 export interface ThemeVariant {
-  /** The theme plugin's id. */
-  theme: string;
-  /** The variant id inside the theme. */
+  /** Unique theme id (for example `tokyo-night` or `custom:my-theme`). */
   id: string;
   /** Display name. */
   name: string;
   appearance: Appearance;
+  /** Whether the theme ships with Kumikit or was imported by the user. */
+  source: 'bundled' | 'custom';
   tokens: Partial<Record<TokenName, string>>;
 }
 
-/** What the user chose: a variant (`<theme>:<variant>`), or none to follow the
- * appearance with the fallback theme. */
+/** What the user chose: a theme id, or none to follow `appearance` with the fallback theme. */
 export interface ThemeChoice {
   variant?: string;
   appearance: 'system' | Appearance;
@@ -27,7 +26,7 @@ export interface ThemeChoice {
   reduceMotion?: boolean;
 }
 
-export const variantKey = (v: ThemeVariant): string => `${v.theme}:${v.id}`;
+export const variantKey = (v: Pick<ThemeVariant, 'id'>): string => v.id;
 
 /** `surface.panel` → `--kk-surface-panel`. */
 export const cssVar = (name: string): string => `--kk-${name.replaceAll('.', '-')}`;
@@ -49,14 +48,22 @@ export function platformRules(forceReducedMotion: boolean): string {
   ].join('\n');
 }
 
+/** Maps legacy plugin variant keys (`kumikit.theme-default:dark`) to resource ids. */
+function normalizeChoiceId(id: string | undefined): string | undefined {
+  if (id === 'kumikit.theme-default:dark') return 'kumikit-dark';
+  if (id === 'kumikit.theme-default:light') return 'kumikit-light';
+  return id;
+}
+
 export class ThemeEngine {
   variants = $state.raw<ThemeVariant[]>([]);
   /** Resolved tokens of what is shown now. */
   tokens = $state.raw<Partial<Record<TokenName, string>>>({});
   appearance = $state<Appearance>('light');
-  /** The variant shown, if any. */
+  /** The theme id shown, if any. */
   shown = $state<string | undefined>();
-  fallbackTheme: string | undefined;
+  fallbackLight = 'kumikit-light';
+  fallbackDark = 'kumikit-dark';
   #listeners = new Set<() => void>();
   #sheet: CSSStyleSheet | undefined;
 
@@ -71,19 +78,32 @@ export class ThemeEngine {
     return () => this.#listeners.delete(fn);
   }
 
+  #fallbackFor(appearance: Appearance): ThemeVariant | undefined {
+    const id = appearance === 'dark' ? this.fallbackDark : this.fallbackLight;
+    return (
+      this.variants.find((v) => v.id === id) ??
+      this.variants.find((v) => v.source === 'bundled' && v.appearance === appearance)
+    );
+  }
+
+  /** Resolved tokens for a single variant (its tokens over the fallback for its appearance). */
+  previewTokens(v: ThemeVariant): Partial<Record<TokenName, string>> {
+    const fallback = this.#fallbackFor(v.appearance);
+    return { ...(fallback?.tokens ?? {}), ...v.tokens };
+  }
+
   /** Works out the tokens for a choice; `systemDark` is the OS appearance. */
   resolve(choice: ThemeChoice, systemDark: boolean): { tokens: Partial<Record<TokenName, string>>; appearance: Appearance; shown?: string } {
-    const chosen = choice.variant ? this.variants.find((v) => variantKey(v) === choice.variant) : undefined;
+    const wanted = normalizeChoiceId(choice.variant);
+    const chosen = wanted ? this.variants.find((v) => v.id === wanted) : undefined;
     const appearance: Appearance = chosen?.appearance ?? (choice.appearance === 'system' ? (systemDark ? 'dark' : 'light') : choice.appearance);
-    const fallback =
-      this.variants.find((v) => v.theme === this.fallbackTheme && v.appearance === appearance) ??
-      this.variants.find((v) => v.theme === this.fallbackTheme);
+    const fallback = this.#fallbackFor(appearance);
     const shown = chosen ?? fallback;
     const result: { tokens: Partial<Record<TokenName, string>>; appearance: Appearance; shown?: string } = {
       tokens: { ...(fallback?.tokens ?? {}), ...(chosen?.tokens ?? {}) },
       appearance,
     };
-    if (shown) result.shown = variantKey(shown);
+    if (shown) result.shown = shown.id;
     return result;
   }
 

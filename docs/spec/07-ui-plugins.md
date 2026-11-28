@@ -30,39 +30,40 @@ Slots are versioned with the UI SDK. Adding a slot is a minor change.
 
 ## Versions
 
-The UI SDK is at **0.1.6** (0.1.0 plus sandboxed panels in 0.1.1, `CommandResult`
+The UI SDK is at **0.1.7** (0.1.0 plus sandboxed panels in 0.1.1, `CommandResult`
 and `x-secret` secret names in 0.1.2, the thread queue in `ThreadView` in 0.1.3,
 steering transcript items plus `ThreadView.notSteered` in 0.1.4, per-turn attribution,
-`ThreadView.switches` plus `handoff` transcript items in 0.1.5, and `ctx.ui.pickModel`
-in 0.1.6) and freezes at 1.0 after M5,
+`ThreadView.switches` plus `handoff` transcript items in 0.1.5, `ctx.ui.pickModel`
+in 0.1.6, and theme preview/import/remove helpers in 0.1.7) and freezes at 1.0 after M5,
 before the official registry opens to third parties
 ([ADR 0014](../decisions/0014-ui-sdk-versioning.md),
-[ADR 0020](../decisions/0020-interface-freeze-after-m5.md)). A UI plugin's or theme's `api` is a
+[ADR 0020](../decisions/0020-interface-freeze-after-m5.md)). A UI plugin's `api` is a
 range over the UI SDK version (`api = "^0.1"`), separate from the kernel plugin API of
 core plugins. The slot list and the token set of each published SDK version are files in
 `web/sdk/api/<version>/` (`slots.json`, `tokens.json`); `web/sdk/api/PUBLISHED` records
 their hashes, and a test fails if a published version changes. A version that changes neither list
-(0.1.1, 0.1.2, 0.1.3, 0.1.4, 0.1.5, 0.1.6) adds no directory; its lists are those of 0.1.0.
+(0.1.1 through 0.1.7) adds no directory; its lists are those of 0.1.0.
 
 ## Manifest
 
-UI plugins and themes use the same `plugin.toml` rules as core plugins for `id`, `name`,
+UI plugins use the same `plugin.toml` rules as core plugins for `id`, `name`,
 `version`, `description`, `license` and `repository`, checked against
-`sdk/schema/ui-plugin-manifest.schema.json`. They differ:
+`sdk/schema/ui-plugin-manifest.schema.json`. Themes are plain `.json` resource files, not
+plugins ([08](08-themes.md), [ADR 0037](../decisions/0037-themes-as-resource-files.md)).
 
-| | Core plugin | UI plugin | Theme |
-|---|---|---|---|
-| `kind` | provider, tool, bot, integration | `["ui"]` | `["theme"]` |
-| `api` | kernel plugin API (`^0.1`) | UI SDK (`^0.1`) | UI SDK (`^0.1`) |
-| Code | `[runtime]` (WASM) | `[ui] entry`, `isolation` | none |
-| Permissions | `[permissions]` | none; `[requires] core`, `[ui] network` for panels, and trust for third-party inline code | none |
-| Contributes | providers, commands, settings, … | `slots`, `commands`, `settings` | `[theme] variants`, `fonts` |
-| Installed by | the core (`plugin.install`) | the shell's client plugin store | the shell's client plugin store |
+| | Core plugin | UI plugin |
+|---|---|---|
+| `kind` | provider, tool, bot, integration | `["ui"]` |
+| `api` | kernel plugin API (`^0.2`) | UI SDK (`^0.1`) |
+| Code | `[runtime]` (WASM) | `[ui] entry`, `isolation` |
+| Permissions | `[permissions]` | none; `[requires] core`, `[ui] network` for panels, and trust for third-party inline code |
+| Contributes | providers, commands, settings, … | `slots`, `commands`, `settings` |
+| Installed by | the core (`plugin.install`) | the shell's client plugin store |
 
-A package is either a core plugin or exactly one of `ui` and `theme`; each installer
+A package is either a core plugin or a UI plugin (`kind = ["ui"]`); each installer
 refuses the other's packages. `isolation = "inline"` is level 3; `"iframe"` is level 2,
 whose `entry` is an HTML file. The shell checks the structure and that the files exist; the UI kernel
-checks the contents when it loads a plugin (slot names, token values, font files).
+checks the contents when it loads a plugin (slot names).
 `requires.core` lists core plugins as `<plugin id>@<semver range>` (for example
 `kumikit.git@^1`). An entry is met on a connection when that core reports the plugin as
 enabled (in `core.hello` or the latest `core.pluginsChanged`) at a version in the range. A

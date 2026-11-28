@@ -40,7 +40,8 @@ import type { Entry } from './slots/registry.svelte';
 import { RpcError } from './rpc/client';
 import { SettingsStore, type TabSpec } from './settings/settings.svelte';
 import { SlotRegistry } from './slots/registry.svelte';
-import { ThemeEngine, variantKey } from './theme/engine.svelte';
+import { ThemeEngine, variantKey, type ThemeVariant } from './theme/engine.svelte';
+import { parseThemeFile, parseThemeObject } from './theme/file';
 import { ThreadStore } from './threads/store.svelte';
 import { UpdateManager } from './updates/updates.svelte';
 import { pushRecent } from './ui/model-picker';
@@ -906,6 +907,110 @@ export class Kernel {
       this.threads.send({ connection, workspace, thread: thread.id }, text, options?.attachments),
     );
     return thread;
+  }
+
+  #bundledThemes: ThemeVariant[] = [];
+
+  /** Loads bundled themes from `./themes/index.json` and merges user-imported custom themes. */
+  async loadThemes(): Promise<void> {
+    const loaded: ThemeVariant[] = [];
+    try {
+      const r = await fetch('./themes/index.json');
+      if (r.ok) {
+        const list = (await r.json()) as unknown;
+        if (Array.isArray(list)) {
+          for (const raw of list) {
+            try {
+              const parsed = parseThemeObject(raw);
+              loaded.push({ ...parsed.theme, source: 'bundled' });
+            } catch {
+              // Skip malformed bundled theme entry.
+            }
+          }
+        }
+      }
+    } catch {
+      // No themes/index.json (development or unit tests without a bundle).
+    }
+    this.#bundledThemes = loaded;
+    this.#syncThemes();
+  }
+
+  #syncThemes(): void {
+    const custom: ThemeVariant[] = this.settings.value.customThemes.map((t) => ({
+      id: t.id,
+      name: t.name,
+      appearance: t.appearance,
+      source: 'custom',
+      tokens: t.tokens,
+    }));
+    this.theme.setVariants([...this.#bundledThemes, ...custom]);
+    this.refreshThemeCommands();
+    this.applyTheme();
+  }
+
+  /** Prompts for a `.json` theme file on disk, validates and saves it, and selects it. */
+  async importThemeFromFile(): Promise<import('@kumikit/ui-sdk').ThemeVariantInfo | undefined> {
+    const picked = await this.platform.pickBytes('.json,application/json');
+    if (!picked) return undefined;
+    const text = new TextDecoder().decode(picked.bytes);
+    return this.importThemeText(picked.name, text);
+  }
+
+  /** Validates and imports a theme from raw JSON text, saving it in client settings. */
+  importThemeText(fileName: string, text: string): import('@kumikit/ui-sdk').ThemeVariantInfo | undefined {
+    let parsed: ReturnType<typeof parseThemeFile>;
+    try {
+      parsed = parseThemeFile(text, fileName);
+    } catch (e) {
+      this.notify(`Cannot import theme: ${e instanceof Error ? e.message : String(e)}`, 'danger');
+      return undefined;
+    }
+    const id = `custom:${parsed.theme.id}`;
+    const entry = {
+      id,
+      name: parsed.theme.name,
+      appearance: parsed.theme.appearance,
+      tokens: parsed.theme.tokens,
+    };
+    const rest = this.settings.value.customThemes.filter((t) => t.id !== id);
+    this.settings.update({ customThemes: [...rest, entry], themeVariant: id });
+    this.#syncThemes();
+    if (parsed.errors.length > 0) {
+      this.notify(
+        `Theme ${entry.name}: ${parsed.errors.length} token(s) ignored (${parsed.errors.slice(0, 3).join('; ')})`,
+        'warning',
+      );
+    }
+    if (parsed.warnings.length > 0) {
+      this.notify(
+        `${entry.name} has low contrast in places (${parsed.warnings.length}): ${parsed.warnings.slice(0, 2).join('; ')}`,
+        'warning',
+      );
+    }
+    this.notify(`Added theme ${entry.name}`, 'success');
+    const variant = this.theme.variants.find((v) => v.id === id);
+    return variant
+      ? {
+          key: variant.id,
+          name: variant.name,
+          appearance: variant.appearance,
+          source: variant.source,
+          preview: this.theme.previewTokens(variant),
+        }
+      : undefined;
+  }
+
+  /** Removes a user-imported theme from client settings. */
+  removeCustomTheme(key: string): void {
+    const existing = this.settings.value.customThemes.find((t) => t.id === key);
+    if (!existing) return;
+    const next = this.settings.value.customThemes.filter((t) => t.id !== key);
+    const change: Partial<typeof this.settings.value> = { customThemes: next };
+    if (this.settings.value.themeVariant === key) change.themeVariant = undefined;
+    this.settings.update(change);
+    this.#syncThemes();
+    this.notify(`Removed theme ${existing.name}`, 'info');
   }
 
   applyTheme(): void {

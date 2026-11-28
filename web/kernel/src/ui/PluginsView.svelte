@@ -61,7 +61,7 @@
   }
 
   async function installClient() {
-    const path = await kernel.platform.pickFile('Install a UI plugin or theme', ['kkp']);
+    const path = await kernel.platform.pickFile('Install a UI plugin', ['kkp']);
     if (!path) return;
     const p = await client.install(path);
     if (p?.needsTrust) trusting = p;
@@ -193,7 +193,7 @@
             <div class="card-top">
               <div class="title-col">
                 <strong>{p.manifest.name}</strong>
-                <span class="sub-id">{p.entry.id} · v{p.entry.version} · {p.kind === 'theme' ? 'theme' : 'UI plugin'}{p.entry.source === 'bundled' ? ' · bundled' : ''}</span>
+                <span class="sub-id">{p.entry.id} · v{p.entry.version} · UI plugin{p.entry.source === 'bundled' ? ' · bundled' : ''}</span>
               </div>
               <span class="badge {p.enabled ? 'enabled' : 'disabled'}">
                 <span class="badge-dot {p.enabled ? 'enabled' : 'disabled'}" aria-hidden="true"></span>
@@ -215,7 +215,7 @@
             </div>
           </li>
         {:else}
-          <li class="kk-muted">No UI plugins or themes.</li>
+          <li class="kk-muted">No UI plugins.</li>
         {/each}
       </ul>
       {#if client.plugins.some((p) => p.kind === 'ui')}

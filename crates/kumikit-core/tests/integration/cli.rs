@@ -444,21 +444,23 @@ async fn bridge_copies_lines_to_the_local_core() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn theme_check_explains_problems_and_pack_takes_themes() {
+async fn theme_check_explains_problems_for_files_and_directories() {
     within(async {
         let dirs = Dirs::new();
-        let theme = dirs.root().join("night");
-        std::fs::create_dir_all(theme.join("fonts")).unwrap();
-        std::fs::write(
-            theme.join("plugin.toml"),
-            "id = \"acme.night\"\nname = \"Night\"\nversion = \"1.0.0\"\nkind = [\"theme\"]\napi = \"^0.1\"\n\
-             [theme]\nvariants = [{ id = \"dark\", appearance = \"dark\", tokens = \"dark.json\" }]\n\
-             fonts = [\"fonts/a.woff2\"]\n",
-        )
-        .unwrap();
-        std::fs::write(theme.join("fonts/a.woff2"), b"wOF2 test font").unwrap();
-        let tokens = |json: &str| std::fs::write(theme.join("dark.json"), json).unwrap();
-        let path = theme.to_str().unwrap().to_owned();
+        let themes_dir = dirs.root().join("themes");
+        std::fs::create_dir_all(&themes_dir).unwrap();
+        let file = themes_dir.join("night.json");
+        let write = |tokens: &str| {
+            std::fs::write(
+                &file,
+                format!(
+                    r##"{{"id":"night","name":"Night","appearance":"dark","tokens":{tokens}}}"##
+                ),
+            )
+            .unwrap();
+        };
+        let file_path = file.to_str().unwrap().to_owned();
+        let dir_path = themes_dir.to_str().unwrap().to_owned();
         let check = |args: Vec<String>| async move {
             let mut full = vec!["theme".to_owned(), "check".to_owned()];
             full.extend(args);
@@ -466,35 +468,48 @@ async fn theme_check_explains_problems_and_pack_takes_themes() {
             kumikit_raw(&refs).await
         };
 
-        tokens(r##"{"surface.panel": "#1a1b26", "text.primary": "#c0caf5"}"##);
-        let r = check(vec![path.clone(), "--strict".into()]).await;
-        assert!(r.ok && r.stdout.contains("passes every check"), "{}{}", r.stdout, r.stderr);
+        write(r##"{"surface.panel": "#1a1b26", "text.primary": "#c0caf5"}"##);
+        let r = check(vec![file_path.clone(), "--strict".into()]).await;
+        assert!(
+            r.ok && r.stdout.contains("passes every check"),
+            "{}{}",
+            r.stdout,
+            r.stderr
+        );
+        let r = check(vec![dir_path.clone(), "--strict".into()]).await;
+        assert!(
+            r.ok && r.stdout.contains("passes every check"),
+            "{}{}",
+            r.stdout,
+            r.stderr
+        );
 
         // Low contrast: a warning, which --strict turns into a failure.
-        tokens(r##"{"surface.panel": "#1a1b26", "text.primary": "#24283b"}"##);
-        let r = check(vec![path.clone()]).await;
-        assert!(r.ok && r.stdout.contains("warning: dark: text.primary on surface.panel"), "{}", r.stdout);
-        let r = check(vec![path.clone(), "--strict".into()]).await;
+        write(r##"{"surface.panel": "#1a1b26", "text.primary": "#24283b"}"##);
+        let r = check(vec![file_path.clone()]).await;
+        assert!(
+            r.ok && r
+                .stdout
+                .contains("warning: night: text.primary on surface.panel"),
+            "{}",
+            r.stdout
+        );
+        let r = check(vec![file_path.clone(), "--strict".into()]).await;
         assert!(!r.ok, "{}", r.stdout);
 
         // A value that is not of its type is an error; --json says the same.
-        tokens(r##"{"accent": "red; background: url(x)"}"##);
-        let r = check(vec![path.clone(), "--json".into()]).await;
+        write(r##"{"accent": "red; background: url(x)"}"##);
+        let r = check(vec![file_path.clone(), "--json".into()]).await;
         assert!(!r.ok);
         let v: serde_json::Value = serde_json::from_str(r.stdout.trim()).unwrap();
         assert_eq!(v["ok"], false);
-        assert!(v["errors"][0].as_str().unwrap().contains("accent is not a valid color"), "{v}");
-
-        // pack takes a theme and checks it as the app's store would; the .kkp checks too.
-        tokens(r##"{"accent": "#7aa2f7"}"##);
-        let out = dirs.root().join("night.kkp");
-        let r = kumikit(&dirs, &["pack", &path, "-o", out.to_str().unwrap()]).await;
-        assert!(r.ok, "{}{}", r.stdout, r.stderr);
-        let r = check(vec![out.to_str().unwrap().into()]).await;
-        assert!(r.ok, "{}{}", r.stdout, r.stderr);
-        std::fs::remove_file(theme.join("fonts/a.woff2")).unwrap();
-        let r = kumikit(&dirs, &["pack", &path]).await;
-        assert!(!r.ok && r.stderr.contains("the font `fonts/a.woff2` is missing"), "{}", r.stderr);
+        assert!(
+            v["errors"][0]
+                .as_str()
+                .unwrap()
+                .contains("accent is not a valid color"),
+            "{v}"
+        );
     })
     .await;
 }

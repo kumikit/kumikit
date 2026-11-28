@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { contrast } from '../src/theme/contrast';
 import { ThemeEngine, cssVar, platformRules, type ThemeVariant } from '../src/theme/engine.svelte';
+import { parseThemeFile, slugifyThemeId } from '../src/theme/file';
 import { checkTokens, isValid } from '../src/theme/validate';
 
 describe('token values', () => {
@@ -42,6 +43,47 @@ describe('token values', () => {
   });
 });
 
+describe('theme file parser (ADR 0037)', () => {
+  it('parses a valid single-file theme and derives id from filename when omitted', () => {
+    const r = parseThemeFile(
+      JSON.stringify({
+        name: 'Ocean Night',
+        appearance: 'dark',
+        tokens: { accent: '#00b4d8', 'surface.panel': '#03045e', 'text.primary': 'white; color: red' },
+      }),
+      'Ocean Night.json',
+    );
+    expect(r.theme).toEqual({
+      id: 'ocean-night',
+      name: 'Ocean Night',
+      appearance: 'dark',
+      tokens: { accent: '#00b4d8', 'surface.panel': '#03045e' },
+    });
+    expect(r.errors).toEqual(['text.primary: not a valid color']);
+    expect(slugifyThemeId('My Cool_Theme!!.json')).toBe('my-cool-theme');
+  });
+
+  it('rejects malformed JSON or missing required fields', () => {
+    expect(() => parseThemeFile('{')).toThrow(/Not valid JSON/);
+    expect(() => parseThemeFile('{}')).toThrow(/name/);
+    expect(() => parseThemeFile('{"name":"X","appearance":"neon","tokens":{}}')).toThrow(/appearance/);
+    expect(() => parseThemeFile('{"name":"X","appearance":"dark"}')).toThrow(/tokens/);
+    expect(() => parseThemeFile('{"id":"Bad_Id","name":"X","appearance":"dark","tokens":{}}')).toThrow(/id/);
+  });
+
+  it('validates every bundled theme file in themes/ with zero errors and zero contrast warnings', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs');
+    const dir = new URL('../../../themes/', import.meta.url);
+    const files = readdirSync(dir).filter((f) => f.endsWith('.json') && f !== 'index.json');
+    expect(files.length).toBeGreaterThanOrEqual(20);
+    for (const file of files) {
+      const parsed = parseThemeFile(readFileSync(new URL(file, dir), 'utf8'), file);
+      expect(parsed.errors, file).toEqual([]);
+      expect(parsed.warnings, file).toEqual([]);
+    }
+  });
+});
+
 describe('contrast', () => {
   it('matches the WCAG ratios', () => {
     expect(contrast('#000', '#fff')).toBeCloseTo(21, 1);
@@ -52,32 +94,39 @@ describe('contrast', () => {
 
 describe('the engine', () => {
   const base = (appearance: 'light' | 'dark'): ThemeVariant => ({
-    theme: 'base',
-    id: appearance,
-    name: appearance,
+    id: `kumikit-${appearance}`,
+    name: `Kumikit ${appearance}`,
     appearance,
+    source: 'bundled',
     tokens: { accent: appearance === 'dark' ? '#88f' : '#00f', 'surface.panel': appearance === 'dark' ? '#000' : '#fff' },
   });
-  const small: ThemeVariant = { theme: 'small', id: 'night', name: 'Night', appearance: 'dark', tokens: { accent: '#f0f' } };
+  const small: ThemeVariant = {
+    id: 'custom:night',
+    name: 'Night',
+    appearance: 'dark',
+    source: 'custom',
+    tokens: { accent: '#f0f' },
+  };
 
   function engine() {
     const e = new ThemeEngine();
-    e.fallbackTheme = 'base';
     e.setVariants([base('light'), base('dark'), small]);
     return e;
   }
 
   it('follows the system appearance with the fallback theme', () => {
     const e = engine();
-    expect(e.resolve({ appearance: 'system' }, true)).toMatchObject({ appearance: 'dark', shown: 'base:dark' });
+    expect(e.resolve({ appearance: 'system' }, true)).toMatchObject({ appearance: 'dark', shown: 'kumikit-dark' });
     expect(e.resolve({ appearance: 'system' }, false).tokens.accent).toBe('#00f');
     expect(e.resolve({ appearance: 'dark' }, false).appearance).toBe('dark');
   });
 
-  it('fills a small theme from the fallback of the same appearance', () => {
-    const r = engine().resolve({ variant: 'small:night', appearance: 'system' }, false);
+  it('fills a small theme from the fallback of the same appearance and resolves previewTokens', () => {
+    const e = engine();
+    const r = e.resolve({ variant: 'custom:night', appearance: 'system' }, false);
     expect(r.appearance).toBe('dark');
     expect(r.tokens).toEqual({ accent: '#f0f', 'surface.panel': '#000' });
+    expect(e.previewTokens(small)).toEqual({ accent: '#f0f', 'surface.panel': '#000' });
   });
 
   it('writes custom properties and platform rules after them', () => {
@@ -107,7 +156,7 @@ describe('the shared theme vectors (web/sdk/tests/theme-vectors.json)', () => {
   });
 });
 
-describe('contrast warnings at install', () => {
+describe('contrast warnings at import', () => {
   it('name the pairs below WCAG AA and skip tokens left to the fallback', async () => {
     const { contrastWarnings } = await import('../src/theme/contrast');
     expect(contrastWarnings({ 'surface.panel': '#1a1b26', 'text.primary': '#c0caf5' })).toEqual([]);

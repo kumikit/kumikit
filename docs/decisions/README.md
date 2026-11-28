@@ -59,3 +59,5 @@ Small, local choices do not need one; a clear commit message is enough.
 | [0033](0033-model-settings-and-provider-icons.md) | Model settings and provider icons | Accepted |
 | [0034](0034-agents-start-threads.md) | Agents start threads with a chosen model and settings | Accepted |
 | [0035](0035-usage-statistics-and-plan-limits.md) | Usage statistics and plan limits | Accepted |
+| [0036](0036-tool-started-threads-are-side-threads.md) | Tool-started threads are side threads | Accepted |
+| [0037](0037-themes-as-resource-files.md) | Themes as plain JSON resource files | Accepted |

@@ -319,12 +319,17 @@ export interface PluginContext {
     /** Resolved token values of the active theme. */
     readonly tokens: Readonly<Partial<Record<TokenName, string>>>;
     readonly appearance: 'light' | 'dark';
-    /** Every theme variant installed on this client. */
+    /** Every theme available on this client (bundled and user-imported). */
     readonly variants: readonly ThemeVariantInfo[];
     /** What the user chose. */
     readonly choice: ThemeChoiceInfo;
     /** Changes the user's choice; omitted fields keep their value. */
     select(choice: Partial<ThemeChoiceInfo>): void;
+    /** Prompts for a `.json` theme file on disk, validates it, saves it, and selects it
+     * (since 0.1.7). */
+    importFromFile?(): Promise<ThemeVariantInfo | undefined>;
+    /** Removes a user-imported theme by its key (since 0.1.7). */
+    remove?(key: string): void;
     onChange(fn: () => void): Dispose;
   };
   /** Small per-plugin storage on this client (strings only). */
@@ -370,12 +375,16 @@ export interface ModelPick {
   options: Record<string, string>;
 }
 
-/** A theme variant as plugins see it. */
+/** A theme as plugins see it. */
 export interface ThemeVariantInfo {
-  /** `<theme id>:<variant id>`. */
+  /** Unique theme id (for example `tokyo-night` or `custom:my-theme`). */
   key: string;
   name: string;
   appearance: 'light' | 'dark';
+  /** Whether the theme is bundled with Kumikit or added from a file by the user (since 0.1.7). */
+  source?: 'bundled' | 'custom';
+  /** Resolved palette tokens for rendering a preview thumbnail (since 0.1.7). */
+  preview?: Readonly<Partial<Record<TokenName, string>>>;
 }
 
 /** The user's theme choice. */

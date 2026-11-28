@@ -110,13 +110,13 @@ function setup() {
   }));
   core.handle('plugin.update', (p) => ({ plugin: { id: p.plugin, name: String(p.plugin), version: p.version, state: 'enabled', requested: PERMS, contributes: { providers: [], commands: [], settings: false }, signed: true } }));
   const calls: string[] = [];
-  const entry: ClientPluginEntry = { id: 'acme.night', version: '1.0.0', source: 'installed', manifest: { id: 'acme.night', name: 'Night', version: '1.0.0', kind: ['theme'], api: '^0.1', theme: { variants: [] } } };
+  const entry: ClientPluginEntry = { id: 'acme.night', version: '1.0.0', source: 'installed', manifest: { id: 'acme.night', name: 'Night', version: '1.0.0', kind: ['ui'], api: '^0.1', ui: { entry: 'index.html', isolation: 'iframe' } } };
   const platform: Platform = {
     ...core.platform(),
     registry: {
       search: async () => {
         calls.push('search');
-        return [{ id: 'acme.night', name: 'Night', kind: ['theme'], publisher: 'Acme', key: 'ed25519:k', registry: 'https://r.example/index.json', registryName: 'R', version: '1.0.0', ui: {}, starter: false }];
+        return [{ id: 'acme.night', name: 'Night', kind: ['ui'], publisher: 'Acme', key: 'ed25519:k', registry: 'https://r.example/index.json', registryName: 'R', version: '1.0.0', ui: { isolation: 'iframe' }, starter: false }];
       },
       install: async (r) => {
         calls.push(`install ${r.id} ${r.registry}`);

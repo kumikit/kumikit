@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kumikit.dev/schema/ui-plugin-manifest-0.1.json",
-  "title": "Kumikit UI plugin and theme manifest (plugin.toml), UI SDK 0.1",
-  "description": "Structure of plugin.toml for UI plugins and themes (docs/spec/07-ui-plugins.md#manifest, 08-themes.md). The app's plugin store, kumikit theme check and the registry checker also check what a schema cannot say: id and version formats, the api range, that files exist inside the package, panel network hosts, and that a theme's tokens are a JSON object.",
+  "title": "Kumikit UI plugin manifest (plugin.toml), UI SDK 0.1",
+  "description": "Structure of plugin.toml for UI plugins (docs/spec/07-ui-plugins.md#manifest). The app's plugin store, kumikit plugin pack and the registry checker also check what a schema cannot say: id and version formats, the api range, that files exist inside the package, and panel network hosts.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -37,8 +37,7 @@
       "maxItems": 1,
       "items": {
         "enum": [
-          "ui",
-          "theme"
+          "ui"
         ]
       }
     },
@@ -62,50 +61,6 @@
           ]
         },
         "network": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    "theme": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "variants"
-      ],
-      "properties": {
-        "variants": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "id",
-              "appearance",
-              "tokens"
-            ],
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "appearance": {
-                "enum": [
-                  "light",
-                  "dark"
-                ]
-              },
-              "tokens": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "fonts": {
           "type": "array",
           "items": {
             "type": "string"

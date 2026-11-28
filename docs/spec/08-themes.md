@@ -1,23 +1,42 @@
 # 08 — Themes
 
-A theme is a **data-only** UI plugin: design tokens and optional fonts. It runs no code, so
-anyone can publish one and installing one carries no risk.
+A theme is a **single JSON resource file**: metadata and design-token values. It runs no code
+and needs no manifest, `.kkp` package, or signing ([ADR 0037](../decisions/0037-themes-as-resource-files.md)).
 
-## Package
+## Format
 
-```toml
-id = "community.tokyo-night"
-name = "Tokyo Night"
-version = "1.0.0"
-kind = ["theme"]
-api = "^0.1"
-[theme]
-variants = [
-  { id = "dark", appearance = "dark", tokens = "dark.json" },
-  { id = "storm", appearance = "dark", tokens = "storm.json" },
-]
-fonts = ["fonts/Inter.woff2"]   # optional, referenced from tokens
+```json
+{
+  "$schema": "https://kumikit.dev/schema/theme-0.1.json",
+  "id": "tokyo-night",
+  "name": "Tokyo Night",
+  "appearance": "dark",
+  "tokens": {
+    "surface.frame": "#16161e",
+    "surface.panel": "#1a1b26",
+    "text.primary": "#c0caf5",
+    "accent": "#7aa2f7",
+    "radius.medium": "8px"
+  }
+}
 ```
+
+- `name` (non-empty string), `appearance` (`"light"` or `"dark"`), and `tokens` (a JSON
+  object of token names to values) are required.
+- `id` (lowercase letters, digits, and dashes) is required for bundled themes and optional
+  for user-imported files (derived from the file name or `name` when omitted).
+- Checked against `sdk/schema/theme.schema.json`.
+
+## Bundled and custom themes
+
+- Bundled themes live in `themes/*.json` (the default `kumikit-light` and `kumikit-dark`
+  themes plus a curated gallery of popular light and dark themes). `scripts/bundle.mjs`
+  writes `themes/index.json` alongside the desktop and browser UI bundles, and the UI
+  kernel loads them in one fetch (including in safe mode).
+- Users manage themes in **Settings → Appearance**: every theme shows a preview thumbnail
+  drawn with its resolved palette, and **Add theme…** imports any `.json` theme file from
+  disk into client settings (`Settings.customThemes`), working identically in desktop and
+  browser clients. Imported themes can be removed from Appearance.
 
 ## Tokens
 
@@ -40,37 +59,26 @@ and plugins use only the token names, as CSS custom properties.
 | Material | `overlay.blur`, `overlay.opacity` |
 | Motion | `motion.duration.short`, `motion.ease.out` |
 
-```json
-{
-  "$schema": "https://kumikit.dev/schema/tokens-0.1.json",
-  "surface.panel": "#1a1b26",
-  "text.primary": "#c0caf5",
-  "accent": "#7aa2f7",
-  "radius.medium": "8px"
-}
-```
-
-- Missing tokens fall back to the fallback theme's values for the same appearance, so a
-  theme can be as small as an accent color. The fallback theme is named in the app's
-  `bundled.json`, not in code; without it, the base styles use system colors.
+- Missing tokens fall back to the bundled default theme for the same appearance
+  (`kumikit-light` or `kumikit-dark`, named in `bundled.json`), so a theme can be as small
+  as an accent color. Without a fallback theme, the base styles use system colors.
 - The theme engine writes tokens through the CSSOM (one constructed stylesheet), which
   the CSP allows without inline styles. The appearance follows the system unless the user
-  picks a variant.
+  picks a theme.
 - Tokens map to CSS custom properties: `surface.panel` → `--kk-surface-panel`.
 - Values are validated by type (color, length, font list, duration, shadow). Anything that
   is not a valid value of its type is rejected, which also rules out CSS injection.
 
 ## Validation
 
-The UI kernel checks a theme when it is installed and loaded; theme authors run the same
-checks with `kumikit theme check <dir | file.kkp> [--strict] [--json]`:
-- The manifest's structure ([07](07-ui-plugins.md#manifest)).
-- Token values by type (above). An invalid value is an error.
+The UI kernel checks a theme when it is imported and loaded; theme authors run the same
+checks with `kumikit theme check <file.json | dir> [--strict] [--json]`:
+- Required structure: `name`, `appearance` (`light` or `dark`), optional valid `id`, and a
+  `tokens` object.
+- Token values by type (above). An invalid value or unknown token is an error.
 - Contrast: text tokens against the surfaces they are used on must meet WCAG AA (4.5:1 for
-  body text, 3:1 for large text and UI components). Failures are warnings; installing
+  body text, 3:1 for large text and UI components). Failures are warnings; importing
   anyway is allowed with a warning, and `--strict` makes them errors.
-- Every font the manifest lists exists in the package and is a WOFF2 web font (by its
-  name and its first bytes). A missing or other file is an error.
 
 The two implementations (TypeScript in the UI kernel, Rust in the `kumikit-theme` crate
 behind the CLI) share their data: the token set (`web/sdk/api/<version>/tokens.json`), the

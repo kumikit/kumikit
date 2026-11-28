@@ -48,7 +48,13 @@ export function createContext(k: Kernel, id: string, dispose: (() => void)[]): P
         return k.theme.appearance;
       },
       get variants() {
-        return k.theme.variants.map((v) => ({ key: variantKey(v), name: v.name, appearance: v.appearance }));
+        return k.theme.variants.map((v) => ({
+          key: variantKey(v),
+          name: v.name,
+          appearance: v.appearance,
+          source: v.source,
+          preview: k.theme.previewTokens(v),
+        }));
       },
       get choice() {
         const s = k.settings.value;
@@ -61,6 +67,8 @@ export function createContext(k: Kernel, id: string, dispose: (() => void)[]): P
         k.settings.update(variant === undefined ? { ...next, themeVariant: undefined } : { ...next, themeVariant: variant });
         k.applyTheme();
       },
+      importFromFile: () => k.importThemeFromFile(),
+      remove: (key) => k.removeCustomTheme(key),
       onChange: (fn) => keep(k.theme.onChange(fn)),
     },
     storage: {

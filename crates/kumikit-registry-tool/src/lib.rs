@@ -34,7 +34,7 @@ pub struct Facts {
     pub api: String,
     /// A core plugin's requested permissions.
     pub requested: Option<Permissions>,
-    /// A UI plugin's or theme's needs.
+    /// A UI plugin's needs.
     pub ui: Option<UiNeeds>,
     /// Who signed it.
     pub key: Option<PublicKey>,
@@ -67,7 +67,7 @@ struct ClientRequires {
 }
 
 fn is_client_kind(kind: &[String]) -> bool {
-    !kind.is_empty() && kind.iter().all(|k| k == "ui" || k == "theme")
+    kind.len() == 1 && kind[0] == "ui"
 }
 
 /// Reads an unpacked package: verifies its signature and validates its manifest (core

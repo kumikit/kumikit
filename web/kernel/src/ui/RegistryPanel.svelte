@@ -89,7 +89,7 @@
       if (toEnable.length > 0) importedGrant = toEnable;
     } else {
       const n = await reg.importClient(p.items);
-      kernel.notify(`Installed ${n} UI plugin(s) and theme(s)`, 'success');
+      kernel.notify(`Installed ${n} UI plugin(s)`, 'success');
     }
   }
 
@@ -126,7 +126,7 @@
     'not-from-registry': 'installed from a file on the other machine; install it from that file',
     'unknown-registry': 'its registry is not configured here; add it first',
   };
-  const kindText = (kind: string[]) => (kind.includes('theme') ? 'Theme' : kind.includes('ui') ? 'UI plugin' : 'Core plugin');
+  const kindText = (kind: string[]) => (kind.includes('ui') ? 'UI plugin' : 'Core plugin');
 </script>
 
 {#if reg.coreAvailable || reg.clientAvailable}
@@ -139,7 +139,7 @@
             class="kk-input search-input"
             type="search"
             aria-label="Search the registries"
-            placeholder="Search plugins, providers, themes…"
+            placeholder="Search plugins, providers, tools…"
             bind:value={query}
             onkeydown={onSearchKey}
           />
