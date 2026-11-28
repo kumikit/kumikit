@@ -10,6 +10,7 @@ import type { CommandRunParams } from "./CommandRunParams";
 import type { CoreActivityResult } from "./CoreActivityResult";
 import type { CoreConfigResult } from "./CoreConfigResult";
 import type { CoreConfigSetParams } from "./CoreConfigSetParams";
+import type { CoreStatsResult } from "./CoreStatsResult";
 import type { DeviceListResult } from "./DeviceListResult";
 import type { DeviceRef } from "./DeviceRef";
 import type { Empty } from "./Empty";
@@ -90,7 +91,7 @@ import type { WorktreeDeleteParams } from "./WorktreeDeleteParams";
 import type { WorktreeListResult } from "./WorktreeListResult";
 
 /** Protocol version spoken by this package, `MAJOR.MINOR`. */
-export const PROTOCOL_VERSION = "0.13";
+export const PROTOCOL_VERSION = "0.14";
 
 /** Every request method with its params and result types. */
 export type Methods = {
@@ -105,6 +106,7 @@ export type Methods = {
   "core.worktrees.list": { params: Empty; result: WorktreeListResult };
   "core.worktrees.delete": { params: WorktreeDeleteParams; result: Empty };
   "core.activity": { params: Empty; result: CoreActivityResult };
+  "core.stats": { params: Empty; result: CoreStatsResult };
   "core.shutdown": { params: ShutdownParams; result: Empty };
   "provider.list": { params: Empty; result: ProviderListResult };
   "provider.models": { params: ProviderModelsParams; result: ProviderModelsResult };

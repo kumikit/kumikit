@@ -715,7 +715,7 @@ pub fn append_event(
                 .map(serde_json::to_string)
                 .transpose()?;
             let next_at: Option<String> = match &entry.trigger {
-                Some(QueueTrigger::At { time }) => Some(time.0.clone()),
+                Some(QueueTrigger::At { time, .. }) => Some(time.0.clone()),
                 _ => None,
             };
             let wait_thread: Option<&str> = match &entry.trigger {
@@ -756,7 +756,7 @@ pub fn append_event(
                 .map(serde_json::to_string)
                 .transpose()?;
             let next_at: Option<String> = match &entry.trigger {
-                Some(QueueTrigger::At { time }) => Some(time.0.clone()),
+                Some(QueueTrigger::At { time, .. }) => Some(time.0.clone()),
                 _ => None,
             };
             let wait_thread: Option<&str> = match &entry.trigger {

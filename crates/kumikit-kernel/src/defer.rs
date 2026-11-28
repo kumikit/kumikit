@@ -15,10 +15,11 @@ use std::time::Duration;
 use jiff::{SignedDuration, Timestamp as JiffTs};
 use kumikit_protocol::ThreadEvent;
 use kumikit_protocol::event::{
-    MessageFrom, QueueAdded, QueueEntry, QueueRemoval, QueueRemoved, QueueTrigger, QueueUpdated,
+    MessageFrom, QueueAdded, QueueEntry, QueueRemoval, QueueRemoved, QueueRepeat, QueueTrigger,
+    QueueUpdated,
 };
 use kumikit_protocol::model::{
-    PermissionMode, QueueEntryId, Resolution, ThreadId, TurnId, TurnOutcome, UserInput,
+    PermissionMode, QueueEntryId, Resolution, ThreadId, Timestamp, TurnId, TurnOutcome, UserInput,
 };
 use serde_json::json;
 use tokio::sync::Notify;
@@ -76,10 +77,26 @@ fn format_cmd(argv: &[String]) -> String {
     argv.join(" ")
 }
 
+/// The next time a repeating message comes back: the rule's first time strictly after
+/// both the time it was due and `now`, so a core that was down does not replay a backlog.
+fn next_repeat(repeat: &QueueRepeat, due: JiffTs, now: JiffTs) -> KernelResult<JiffTs> {
+    let cron = crate::schedule::cron::Cron::parse(&repeat.cron).map_err(|e| {
+        KernelError::InvalidParams(format!("invalid repeat `{}`: {e}", repeat.cron))
+    })?;
+    let tz = crate::schedule::cron::zone(repeat.time_zone.as_deref())
+        .map_err(KernelError::InvalidParams)?;
+    cron.next_after(due.max(now), &tz).ok_or_else(|| {
+        KernelError::InvalidParams(format!("repeat `{}` never matches a date", repeat.cron))
+    })
+}
+
 fn validate_trigger(trigger: &QueueTrigger) -> KernelResult<()> {
     match trigger {
-        QueueTrigger::At { time } => {
-            parse_jiff(&time.0)?;
+        QueueTrigger::At { time, repeat } => {
+            let at = parse_jiff(&time.0)?;
+            if let Some(r) = repeat {
+                next_repeat(r, at, at)?;
+            }
             Ok(())
         }
         QueueTrigger::AfterTurn { .. } => Ok(()),
@@ -243,6 +260,18 @@ impl Kernel {
         }
 
         if let Some((plugin, grants)) = &actor {
+            // Plugins repeat work through schedules, which their grant gates.
+            if matches!(
+                &trigger,
+                QueueTrigger::At {
+                    repeat: Some(_),
+                    ..
+                }
+            ) {
+                return Err(KernelError::InvalidParams(format!(
+                    "plugin `{plugin}` cannot set a repeating deferred message; plugins use schedules"
+                )));
+            }
             let tid = thread.clone();
             let count = self
                 .inner
@@ -406,14 +435,25 @@ impl Kernel {
             .await?;
         for row in due {
             match row.entry.trigger.clone() {
-                Some(QueueTrigger::At { time }) => {
+                Some(QueueTrigger::At { time, repeat }) => {
                     let who = source_label(&row.entry.from);
-                    let trailer = format!("Deferred message: scheduled for {} · {who}", time.0);
+                    let trailer = match &repeat {
+                        Some(r) => format!(
+                            "Deferred message: scheduled for {} · repeats `{}` · {who}",
+                            time.0, r.cron
+                        ),
+                        None => format!("Deferred message: scheduled for {} · {who}", time.0),
+                    };
+                    let input = row.entry.input.clone();
                     if self
                         .fire_deferred(&row.thread, &row.entry.id, trailer, None)
                         .await?
                     {
                         fired += 1;
+                        if let Some(r) = repeat {
+                            self.queue_next_repeat(&row.thread, input, &time.0, r, now)
+                                .await;
+                        }
                     }
                 }
                 Some(QueueTrigger::PollCommand {
@@ -804,6 +844,34 @@ impl Kernel {
         Ok((code, timed_out, final_buf.into_string()))
     }
 
+    /// Queues the next message of a repeating series after one fired. A series ends when
+    /// the thread is archived or deleted, or the rule has no next time.
+    async fn queue_next_repeat(
+        &self,
+        thread: &ThreadId,
+        input: UserInput,
+        due: &str,
+        repeat: QueueRepeat,
+        now: JiffTs,
+    ) {
+        let next = parse_jiff(due).and_then(|due| next_repeat(&repeat, due, now));
+        let result = match next {
+            Ok(next) => {
+                let trigger = QueueTrigger::At {
+                    time: Timestamp(next.to_string()),
+                    repeat: Some(repeat),
+                };
+                self.thread_defer_internal(thread, input, trigger, None)
+                    .await
+                    .map(|_| ())
+            }
+            Err(e) => Err(e),
+        };
+        if let Err(e) = result {
+            tracing::info!(%thread, error = %e, "a repeating message stopped");
+        }
+    }
+
     /// Fires a deferred entry: clears its trigger, appends its trailer (and optional
     /// command output), and starts it if the thread is idle and unheld (or leaves it in
     /// the ready queue if busy — never steers). Returns `true` if the entry was fired.
@@ -1021,6 +1089,7 @@ mod tests {
                 UserInput::text("check deploy"),
                 QueueTrigger::At {
                     time: Timestamp(due.into()),
+                    repeat: None,
                 },
             )
             .await
@@ -1092,6 +1161,7 @@ mod tests {
                 UserInput::text("after busy"),
                 QueueTrigger::At {
                     time: Timestamp("2026-11-15T10:20:00.000Z".into()),
+                    repeat: None,
                 },
             )
             .await
@@ -1108,6 +1178,159 @@ mod tests {
         assert!(snap.queue[0].trigger.is_none());
         assert!(snap.queue[0].input.text.contains("after busy"));
         kernel.thread_cancel(&t1).await.unwrap();
+        kernel.close().await;
+    }
+
+    #[tokio::test]
+    async fn a_repeating_message_comes_back_until_it_is_removed() {
+        let (_dir, kernel, _provider, t1, _) = setup().await;
+        // Weekdays at 09:00 in London (GMT in November): 2026-11-16 is a Monday.
+        let repeat = QueueRepeat {
+            cron: "0 9 * * 1-5".into(),
+            time_zone: Some("Europe/London".into()),
+        };
+        kernel
+            .thread_defer(
+                &t1,
+                UserInput::text("daily check"),
+                QueueTrigger::At {
+                    time: Timestamp("2026-11-16T09:00:00Z".into()),
+                    repeat: Some(repeat.clone()),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            kernel
+                .defer_tick("2026-11-16T09:00:00Z".parse().unwrap())
+                .await
+                .unwrap(),
+            1
+        );
+        let evs = wait_events(&kernel, &t1, 0, "turn.ended").await;
+        let started = evs
+            .iter()
+            .find_map(|e| match &e.event {
+                ThreadEvent::TurnStarted(t) => Some(t),
+                _ => None,
+            })
+            .unwrap();
+        assert!(started.input.text.starts_with("daily check"));
+        assert!(started.input.text.contains("repeats `0 9 * * 1-5`"));
+
+        // The next one is queued for Tuesday 09:00, with the original text.
+        let next = kernel.thread_get(&t1).await.unwrap().queue;
+        assert_eq!(next.len(), 1);
+        assert_eq!(next[0].input.text, "daily check");
+        assert_eq!(
+            next[0].trigger,
+            Some(QueueTrigger::At {
+                time: Timestamp("2026-11-17T09:00:00Z".into()),
+                repeat: Some(repeat.clone()),
+            })
+        );
+
+        // A core that was down over the weekend does not replay what it missed: after
+        // Friday's run at 18:00, the next one is Monday.
+        let friday = kernel
+            .thread_defer(
+                &t1,
+                UserInput::text("late"),
+                QueueTrigger::At {
+                    time: Timestamp("2026-11-20T09:00:00Z".into()),
+                    repeat: Some(repeat.clone()),
+                },
+            )
+            .await
+            .unwrap();
+        kernel.queue_remove(&t1, &next[0].id).await.unwrap();
+        assert_eq!(
+            kernel
+                .defer_tick("2026-11-20T18:00:00Z".parse().unwrap())
+                .await
+                .unwrap(),
+            1
+        );
+        wait_events(&kernel, &t1, 0, "turn.ended").await;
+        let queue = kernel.thread_get(&t1).await.unwrap().queue;
+        let monday = queue
+            .iter()
+            .find(|q| q.id != friday.id && q.trigger.is_some())
+            .unwrap();
+        assert_eq!(
+            monday.trigger,
+            Some(QueueTrigger::At {
+                time: Timestamp("2026-11-23T09:00:00Z".into()),
+                repeat: Some(repeat.clone()),
+            })
+        );
+
+        // Removing the queued one ends the series.
+        kernel.queue_remove(&t1, &monday.id).await.unwrap();
+        assert_eq!(
+            kernel
+                .defer_tick("2026-11-30T09:00:00Z".parse().unwrap())
+                .await
+                .unwrap(),
+            0
+        );
+        kernel.close().await;
+    }
+
+    #[tokio::test]
+    async fn stats_count_running_turns_and_the_database() {
+        let (_dir, kernel, provider, t1, _) = setup().await;
+        let idle = kernel.stats().await.unwrap();
+        assert_eq!((idle.active_turns, idle.processes), (0, 0));
+        assert!(idle.database_bytes > 0);
+
+        provider.block_next.store(true, Ordering::SeqCst);
+        let entered = provider.entered.notified();
+        tokio::pin!(entered);
+        entered.as_mut().enable();
+        kernel
+            .thread_send(&t1, UserInput::text("busy"))
+            .await
+            .unwrap();
+        entered.await;
+        assert_eq!(kernel.stats().await.unwrap().active_turns, 1);
+        kernel.thread_cancel(&t1).await.unwrap();
+        kernel.close().await;
+    }
+
+    #[tokio::test]
+    async fn a_bad_repeat_rule_and_a_plugin_repeat_are_refused() {
+        let (_dir, kernel, _provider, t1, _) = setup().await;
+        let at = |cron: &str, tz: Option<&str>| QueueTrigger::At {
+            time: Timestamp("2026-11-16T09:00:00Z".into()),
+            repeat: Some(QueueRepeat {
+                cron: cron.into(),
+                time_zone: tz.map(str::to_owned),
+            }),
+        };
+        for trigger in [
+            at("every day", None),
+            at("0 9 * * *", Some("Mars/Base")),
+            at("0 9 30 2 *", None),
+        ] {
+            let err = kernel
+                .thread_defer(&t1, UserInput::text("x"), trigger)
+                .await
+                .unwrap_err();
+            assert_eq!(err.code(), ErrorCode::InvalidParams, "{err}");
+        }
+        let err = kernel
+            .thread_defer_from(
+                &t1,
+                UserInput::text("x"),
+                at("0 9 * * *", None),
+                "acme.bot".into(),
+                Grants::default(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), ErrorCode::InvalidParams, "{err}");
+        assert!(err.to_string().contains("plugins use schedules"), "{err}");
         kernel.close().await;
     }
 

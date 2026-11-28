@@ -23,4 +23,4 @@ mod turns;
 pub mod usage;
 
 pub use error::{KernelError, KernelResult};
-pub use kernel::{CORE_RESTARTED, Kernel, KernelConfig, ThreadSubscription};
+pub use kernel::{CORE_RESTARTED, Kernel, KernelConfig, KernelStats, ThreadSubscription};

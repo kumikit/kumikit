@@ -109,6 +109,19 @@ pub(crate) struct Inner {
     pub(crate) gateway: crate::gateway::State,
     pub(crate) usage: crate::usage::State,
     pub(crate) default_home_dir: PathBuf,
+    /// The database file, for its size in `stats`.
+    database: PathBuf,
+}
+
+/// What a kernel uses and runs now, for `core.stats`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KernelStats {
+    /// Bytes of the database file with its write-ahead log and shared-memory files.
+    pub database_bytes: u64,
+    /// Turns running or awaiting approval.
+    pub active_turns: u32,
+    /// Programs the process supervisor runs now.
+    pub processes: u32,
 }
 
 /// A started provider session.
@@ -129,6 +142,7 @@ pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 impl Kernel {
     /// Opens the database (running migrations) and ends turns a previous run left open.
     pub async fn open(config: KernelConfig) -> KernelResult<Kernel> {
+        let database = config.database.clone();
         let path = config.database.clone();
         let store = tokio::task::spawn_blocking(move || Store::open(&path, MIGRATIONS))
             .await
@@ -152,6 +166,7 @@ impl Kernel {
                 gateway: Default::default(),
                 usage: Default::default(),
                 default_home_dir: config.default_home_dir,
+                database,
             }),
         };
         kernel.recover().await?;
@@ -226,6 +241,31 @@ impl Kernel {
             active_turns,
             ready_queued,
             idle: active_turns == 0 && ready_queued == 0,
+        })
+    }
+
+    /// What the kernel uses and runs now: the database size, active turns and supervised
+    /// processes.
+    pub async fn stats(&self) -> KernelResult<KernelStats> {
+        let active_turns = u32::try_from(lock(&self.inner.runs).len()).unwrap_or(u32::MAX);
+        let processes = u32::try_from(self.inner.supervisor.processes().len()).unwrap_or(u32::MAX);
+        let db = self.inner.database.clone();
+        let database_bytes = tokio::task::spawn_blocking(move || {
+            let mut total = 0u64;
+            for suffix in ["", "-wal", "-shm"] {
+                let mut name = db.clone().into_os_string();
+                name.push(suffix);
+                // A missing WAL or shared-memory file is normal; it adds nothing.
+                total += std::fs::metadata(PathBuf::from(name)).map_or(0, |m| m.len());
+            }
+            total
+        })
+        .await
+        .map_err(|e| StoreError::Task(e.to_string()))?;
+        Ok(KernelStats {
+            database_bytes,
+            active_turns,
+            processes,
         })
     }
 

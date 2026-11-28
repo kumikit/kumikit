@@ -222,15 +222,33 @@ pub struct PluginEvent {
     pub data: Value,
 }
 
+/// When a repeating deferred message comes back (since 0.14).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct QueueRepeat {
+    /// Five-field cron expression (`minute hour day-of-month month day-of-week`) or a macro
+    /// such as `@daily`, read in `timeZone`.
+    pub cron: String,
+    /// IANA time zone name, such as `Europe/London`; the core's zone when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_zone: Option<String>,
+}
+
 /// Condition a deferred queue entry waits for before joining the ready queue (ADR 0027,
 /// since 0.9).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum QueueTrigger {
-    /// Fire once at or after `time` (RFC 3339).
+    /// Fire at or after `time` (RFC 3339); with `repeat`, the kernel then queues the same
+    /// message again at the rule's next time (since 0.14).
     At {
         /// Target time.
         time: Timestamp,
+        /// Repeat on a schedule after firing; once when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        repeat: Option<QueueRepeat>,
     },
     /// Fire when `thread`'s running or next turn ends.
     #[serde(rename_all = "camelCase")]
