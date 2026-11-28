@@ -31,7 +31,13 @@
 //!   arrives it replies `steered: <text>` as `text.done` and ends the turn.
 //! - `ignore-cancel`: like `hang`, but keeps reading after `cancelled`; it returns only
 //!   when the child's stdout closes (the host killed it after the grace period).
+//! - `limits <percent>`: reports a plan limits snapshot with one window at that percent
+//!   (`kumikit:usage/report`). `usage-models`: reports usage by model.
+//!
+//! It also exports the limits reader (`kumikit:usage/probe`): `read-limits` returns one
+//! window whose percent counts the reads, kept in its key-value store.
 
+use kumikit_provider::usage::{self, LimitWindow, Limits, LimitsReader, ModelUsage};
 use kumikit_provider::{
     CallContext, CommandResult, Error, ErrorCode, Event, Model, Plugin, Provider, ProviderRef,
     SessionConfig, SpawnRequest, UserInput, events, kv, log, process, secrets, settings,
@@ -274,9 +280,57 @@ fn strip_title_hint(text: &str) -> &str {
     }
 }
 
+fn limits(percent: f32) -> Limits {
+    Limits {
+        plan: Some("Probe plan".into()),
+        account: None,
+        account_url: None,
+        windows: vec![LimitWindow {
+            id: "five-hour".into(),
+            label: "5 hours".into(),
+            group: None,
+            used_percent: percent,
+            resets_at: Some("2026-11-15T15:00:00.000Z".into()),
+            model: None,
+        }],
+    }
+}
+
+impl LimitsReader for Probe {
+    fn read_limits(_provider: ProviderRef) -> Result<Option<Limits>, Error> {
+        let reads = kv::get("limit-reads")?
+            .and_then(|v| String::from_utf8(v).ok())
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or(0)
+            + 1;
+        kv::set("limit-reads", reads.to_string().as_bytes())?;
+        Ok(Some(limits(reads as f32 * 10.0)))
+    }
+}
+
+kumikit_provider::export_limits_reader!(Probe);
+
 fn probe(command: &str) -> Result<(), Error> {
     let words: Vec<&str> = command.split_whitespace().collect();
     match words.as_slice() {
+        ["limits", percent] => {
+            let percent: f32 = percent
+                .parse()
+                .map_err(|_| fail(ErrorCode::InvalidArgument, "not a number"))?;
+            usage::emit_limits(&limits(percent))?;
+            emit(Event::TextDone("reported".into()))
+        }
+        ["usage-models"] => {
+            let m = |model: &str, input, cached| ModelUsage {
+                model: model.into(),
+                input_tokens: input,
+                output_tokens: 3,
+                cached_input_tokens: cached,
+                cost: Some(0.5),
+            };
+            usage::emit_turn_usage(&[m("probe", 100, 60), m("probe-small", 10, 0)])?;
+            emit(Event::TextDone("reported".into()))
+        }
         ["spawn", program, rest @ ..] => {
             let mut req = request(program, &["cwd"]);
             req.cwd = rest.first().map(|c| (*c).to_owned());

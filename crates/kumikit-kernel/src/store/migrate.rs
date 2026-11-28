@@ -25,6 +25,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0016_title_source.sql"),
     include_str!("../../migrations/0017_forks_and_side_threads.sql"),
     include_str!("../../migrations/0018_thread_options.sql"),
+    include_str!("../../migrations/0019_usage.sql"),
 ];
 
 /// Applies the migrations `conn` has not seen yet, each in its own transaction. Fails
@@ -57,8 +58,8 @@ mod tests {
     #[test]
     fn fresh_database_reaches_latest() {
         let mut conn = Connection::open_in_memory().unwrap();
-        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 18);
-        assert_eq!(version(&conn), 18);
+        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 19);
+        assert_eq!(version(&conn), 19);
         let tables: i64 = conn
             .query_row(
                 "SELECT count(*) FROM sqlite_master WHERE type = 'table'
@@ -82,7 +83,7 @@ mod tests {
             [],
         )
         .unwrap();
-        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 18);
+        assert_eq!(migrate(&mut conn, MIGRATIONS).unwrap(), 19);
         let n: i64 = conn
             .query_row("SELECT count(*) FROM workspaces", [], |r| r.get(0))
             .unwrap();
@@ -123,6 +124,77 @@ mod tests {
         };
         assert_eq!(source("kumikit.seeded"), ("bundled".into(), None));
         assert_eq!(source("acme.local"), ("file".into(), None));
+    }
+
+    #[test]
+    fn schema_19_backfills_each_turns_last_usage_once() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn, &MIGRATIONS[..18]).unwrap();
+        conn.execute_batch(
+            "INSERT INTO workspaces (id, name, root, created) VALUES ('w', 'w', '/w', 't');
+             INSERT INTO threads (id, workspace, provider, model, status, created, updated)
+                 VALUES ('a', 'w', 'p/x', 'm1', 'idle', 't', 't'),
+                        ('f', 'w', 'p/x', 'm1', 'idle', 't', 't');
+             INSERT INTO turns (id, thread, started_seq, started, provider, model)
+                 VALUES ('t1', 'a', 1, '2026-11-15T10:00:00.000Z', 'p/y', 'm2'),
+                        ('t2', 'a', 4, '2026-11-15T11:00:00.000Z', NULL, NULL),
+                        ('t3', 'a', 6, '2026-11-15T12:00:00.000Z', NULL, NULL);
+             INSERT INTO events (thread, seq, time, kind, data) VALUES
+                 ('a', 1, 't', 'turn.started', '{\"turn\":\"t1\"}'),
+                 ('a', 2, 't', 'usage', '{\"turn\":\"t1\",\"inputTokens\":5,\"outputTokens\":1}'),
+                 ('a', 3, 't', 'usage', '{\"turn\":\"t1\",\"inputTokens\":10,\"outputTokens\":2,\"cost\":0.5}'),
+                 ('a', 4, 't', 'turn.started', '{\"turn\":\"t2\"}'),
+                 ('a', 5, 't', 'usage', '{\"turn\":\"t2\",\"inputTokens\":7,\"outputTokens\":3}'),
+                 ('a', 6, 't', 'turn.started', '{\"turn\":\"t3\"}'),
+                 ('f', 1, 't', 'usage', '{\"turn\":\"t1\",\"inputTokens\":10,\"outputTokens\":2}');",
+        )
+        .unwrap();
+        migrate(&mut conn, MIGRATIONS).unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT turn, thread, provider, model, input_tokens, output_tokens, cost
+                 FROM usage_records ORDER BY turn",
+            )
+            .unwrap();
+        type Row = (String, String, String, String, i64, i64, Option<f64>);
+        let rows: Vec<Row> = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                ))
+            })
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    "t1".into(),
+                    "a".into(),
+                    "p/y".into(),
+                    "m2".into(),
+                    10,
+                    2,
+                    Some(0.5)
+                ),
+                (
+                    "t2".into(),
+                    "a".into(),
+                    "p/x".into(),
+                    "m1".into(),
+                    7,
+                    3,
+                    None
+                ),
+            ]
+        );
     }
 
     #[test]

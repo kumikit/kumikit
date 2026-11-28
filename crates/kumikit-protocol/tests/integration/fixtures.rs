@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 use kumikit_protocol::jsonrpc::{ErrorResponse, Notification, Request, SuccessResponse};
 use kumikit_protocol::methods::{self, Method, MethodVisitor, NotificationMethod};
-use kumikit_protocol::{ThreadEvent, WorkspaceEvent};
+use kumikit_protocol::{ThreadEvent, UsageEvent, WorkspaceEvent};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -190,7 +190,11 @@ fn every_method_and_event_kind_has_a_fixture() {
             missing.push(format!("notification {name}"));
         }
     }
-    for kind in ThreadEvent::KINDS.into_iter().chain(WorkspaceEvent::KINDS) {
+    for kind in ThreadEvent::KINDS
+        .into_iter()
+        .chain(WorkspaceEvent::KINDS)
+        .chain(UsageEvent::KINDS)
+    {
         if events.get(kind).is_none_or(Vec::is_empty) {
             missing.push(format!("event {kind}"));
         }

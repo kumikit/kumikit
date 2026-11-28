@@ -215,6 +215,56 @@ published `kumikit:provider@0.2.0` world. The host links the additive import
   `.png` inside the package, at most 32 KiB). The plugin host reads it at registration
   and `provider.list` returns it as a `data:` URL in `ProviderInfo.icon`.
 
+## Usage and limits
+
+Decided in [ADR 0035](../decisions/0035-usage-statistics-and-plan-limits.md). Token usage
+and cost come from `usage` events, which the kernel adds up for `usage.summary`
+([03](03-kernel.md#usage)). Plan limits, such as a 5-hour and a weekly window, come from
+`kumikit:usage@0.1.0`, which providers use as far as their agent allows.
+
+**During a turn.** The host links the `report` import for every provider, without a
+`runtime.worlds` entry:
+
+- `emit-limits(limits)` reports the account's plan limits as the agent showed them. The
+  snapshot is stored for the provider that runs the turn and replaces its earlier one.
+  - `limits` is `{ plan?, account?, account-url?, windows }`.
+  - Each window is `{ id, label, group?, used-percent (0–100), resets-at? (RFC 3339),
+    model? }`.
+  - The provider writes the labels ("5 hours", "Weekly"). Clients show them as given.
+  - `model` marks a window that covers only some models: a model id, or a family name
+    the model ids contain.
+- `emit-turn-usage(models)` reports the turn's usage by model, instead of the plain
+  `usage` event. Each entry is `{ model, input-tokens (including cached),
+  output-tokens, cached-input-tokens, cost? }`. The kernel records one `usage` event
+  with the sums and the breakdown. Like `usage`, it is the turn's total so far.
+- Outside a turn both fail with `conflict`.
+
+**On demand.** A plugin whose component exports `kumikit:usage/probe` lists
+`kumikit:usage/reader@0.1.0` in `runtime.worlds`, next to `kumikit:provider/plugin@0.2.0`
+or `kumikit:plugin/plugin@0.2.0`.
+
+- `read-limits(provider-ref)` returns the limits, or `none` when the account has no plan
+  limits to show.
+- A refresh goes to the plugin that declares the provider, if its component exports the
+  reader; otherwise to the provider's backend, if that does.
+- So a declarative ACP provider can add a small base-world component only for this, and
+  its sessions still run on `provider-acp`:
+
+  ```toml
+  [runtime]
+  wasm = "reader.wasm"
+  worlds = ["kumikit:plugin/plugin@0.2.0", "kumikit:usage/reader@0.1.0"]
+  ```
+
+- The host runs `read-limits` in a short-lived instance that is never activated. It gets
+  the declaring plugin's grants and its isolated probe directory (`KUMIKIT_PROBE_DIR`),
+  and it is cancelled after 30 s.
+- It runs only when a user asks (`usage.refresh`), never on a timer. Its errors reach
+  the client as `plugin_failed`.
+- A reader must not run a model prompt. If the agent's CLI might treat a usage command
+  as a prompt, the reader checks the CLI's version first.
+- Rust providers use `kumikit_provider::usage` and `export_limits_reader!`.
+
 ## Testing providers
 
 - Every provider plugin ships recorded transcripts of its agent's real output (fixtures)

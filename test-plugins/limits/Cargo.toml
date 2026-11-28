@@ -1,0 +1,19 @@
+[package]
+name = "kumikit-test-limits"
+description = "Test plugin: a base-world component that only reads plan limits (ADR 0035)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+kumikit-provider.workspace = true
+kumikit-plugin.workspace = true

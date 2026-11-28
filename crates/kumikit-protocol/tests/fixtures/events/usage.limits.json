@@ -1,0 +1,26 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "usage",
+      "seq": 1,
+      "time": "2026-11-15T10:00:03.000Z",
+      "kind": "usage.limits",
+      "data": {
+        "provider": "community.provider-gemini/gemini",
+        "limits": {
+          "windows": [
+            {
+              "id": "five-hour",
+              "label": "5 hours",
+              "usedPercent": 26.0,
+              "resetsAt": "2026-11-15T14:59:00.000Z"
+            }
+          ]
+        },
+        "observed": "2026-11-15T10:00:03.000Z"
+      }
+    }
+  }
+]

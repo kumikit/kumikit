@@ -1,0 +1,16 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "usage",
+      "seq": 2,
+      "time": "2026-11-15T10:00:04.000Z",
+      "kind": "usage.recorded",
+      "data": {
+        "provider": "community.provider-gemini/gemini",
+        "thread": "01JCTH00000000000000000001"
+      }
+    }
+  }
+]

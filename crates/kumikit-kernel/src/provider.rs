@@ -19,8 +19,8 @@ use kumikit_protocol::event::{
 };
 pub use kumikit_protocol::methods::{ModelOption, ModelOptionValue};
 use kumikit_protocol::model::{
-    Approval, ApprovalId, ApprovalStatus, Decision, SlashCommand, ThreadId, Timestamp, TurnId,
-    UserInput,
+    Approval, ApprovalId, ApprovalStatus, Decision, ModelUsage, SlashCommand, ThreadId, Timestamp,
+    TurnId, UsageLimits, UserInput,
 };
 use serde_json::Value;
 use tokio::sync::Notify;
@@ -158,6 +158,20 @@ pub trait Provider: Send + Sync + fmt::Debug {
     fn cancel(&self, session: String) -> BoxFuture<'_, ()>;
     /// Ends a session.
     fn end_session(&self, session: String) -> BoxFuture<'_, ()>;
+    /// Whether [`Provider::read_limits`] can read the account's plan limits on demand
+    /// (ADR 0035). Defaults to false.
+    fn reads_limits(&self) -> bool {
+        false
+    }
+    /// Reads the account's plan limits now; `None` when the provider has none to show.
+    /// Called only when the user asks (`usage.refresh`).
+    fn read_limits(&self) -> BoxFuture<'_, ProviderResult<Option<UsageLimits>>> {
+        Box::pin(async {
+            Err(ProviderError::new(
+                "this provider cannot read its plan limits",
+            ))
+        })
+    }
 }
 
 /// An event a provider may emit. Kernel-only kinds are not representable.
@@ -218,6 +232,11 @@ pub enum ProviderEvent {
         output_tokens: u64,
         /// Cost in US dollars, if known.
         cost: Option<f64>,
+    },
+    /// `usage` with a breakdown by model (ADR 0035); the kernel adds up the totals.
+    UsageByModel {
+        /// Usage per model; the turn's total so far.
+        models: Vec<ModelUsage>,
     },
     /// `plugin.event`; the kernel fills in the plugin id.
     Plugin {
@@ -433,7 +452,10 @@ impl EventSink {
                 input_tokens,
                 output_tokens,
                 cost,
+                cached_input_tokens: None,
+                models: Vec::new(),
             }),
+            ProviderEvent::UsageByModel { models } => usage_by_model(turn, models)?,
             ProviderEvent::Plugin { kind, data } => ThreadEvent::PluginEvent(PluginEvent {
                 plugin: self.plugin.clone(),
                 kind,
@@ -450,6 +472,29 @@ impl EventSink {
             }
         };
         self.kernel.append(&self.thread, event).await
+    }
+
+    /// Reports the account's plan limits, seen during this turn (ADR 0035). They are
+    /// stored for the provider that runs the turn, replacing its earlier snapshot.
+    pub async fn report_limits(&self, limits: UsageLimits) -> KernelResult<()> {
+        self.check_open()?;
+        let turn = self.turn.clone();
+        let thread = self.thread.clone();
+        let provider = self
+            .kernel
+            .inner
+            .store
+            .read(move |c| {
+                Ok::<_, KernelError>(c.query_row(
+                    "SELECT coalesce(t.provider, th.provider) FROM turns t
+                     JOIN threads th ON th.id = t.thread WHERE t.id = ?1 AND t.thread = ?2",
+                    [turn.as_str(), thread.as_str()],
+                    |r| r.get::<_, String>(0),
+                )?)
+            })
+            .await?;
+        self.kernel.report_limits(&provider, Some(limits)).await?;
+        Ok(())
     }
 
     /// Asks for an approval. The kernel assigns its id and appends
@@ -479,4 +524,41 @@ impl EventSink {
             .await?;
         Ok(id)
     }
+}
+
+/// A `usage` event from a breakdown by model: the totals are the sums, the cost is present
+/// when any model had one.
+fn usage_by_model(turn: TurnId, models: Vec<ModelUsage>) -> KernelResult<ThreadEvent> {
+    if models.len() > crate::usage::MAX_MODELS {
+        return Err(KernelError::InvalidParams(format!(
+            "at most {} models in one usage report",
+            crate::usage::MAX_MODELS
+        )));
+    }
+    let mut input_tokens = 0u64;
+    let mut output_tokens = 0u64;
+    let mut cached = 0u64;
+    let mut cost: Option<f64> = None;
+    for m in &models {
+        if m.cost.is_some_and(|c| !c.is_finite()) {
+            return Err(KernelError::InvalidParams(format!(
+                "model {} has an invalid cost",
+                m.model
+            )));
+        }
+        input_tokens = input_tokens.saturating_add(m.input_tokens);
+        output_tokens = output_tokens.saturating_add(m.output_tokens);
+        cached = cached.saturating_add(m.cached_input_tokens.unwrap_or(0));
+        if let Some(c) = m.cost {
+            cost = Some(cost.unwrap_or(0.0) + c);
+        }
+    }
+    Ok(ThreadEvent::Usage(Usage {
+        turn,
+        input_tokens,
+        output_tokens,
+        cost,
+        cached_input_tokens: Some(cached),
+        models,
+    }))
 }

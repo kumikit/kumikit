@@ -610,7 +610,7 @@ fi
 if [ "$1" = "bridge" ]; then
   if [ -f "$HOME/.kumikit-served" ]; then
     read -r _line
-    echo '{"jsonrpc":"2.0","id":0,"result":{"protocol":"0.11","core":{"version":"0.1.0-m8","name":"remote","os":"linux"},"plugins":[],"capabilities":[]}}'
+    echo '{"jsonrpc":"2.0","id":0,"result":{"protocol":"0.12","core":{"version":"0.1.0-m8","name":"remote","os":"linux"},"plugins":[],"capabilities":[]}}'
     exit 0
   fi
   exit 1

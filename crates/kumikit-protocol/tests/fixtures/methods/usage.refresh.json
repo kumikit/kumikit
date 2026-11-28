@@ -1,0 +1,48 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 43,
+    "method": "usage.refresh",
+    "params": {
+      "provider": "community.provider-gemini/gemini"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 43,
+    "result": {
+      "provider": "community.provider-gemini/gemini",
+      "limits": {
+        "plan": "Pro",
+        "windows": [
+          {
+            "id": "five-hour",
+            "label": "5 hours",
+            "usedPercent": 27.5,
+            "resetsAt": "2026-11-15T14:59:00.000Z"
+          }
+        ]
+      },
+      "observed": "2026-11-15T10:00:09.000Z"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 44,
+    "method": "usage.refresh",
+    "params": {
+      "provider": "test.example/example"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 44,
+    "error": {
+      "code": -32000,
+      "message": "provider test.example/example cannot read its plan limits",
+      "data": {
+        "code": "unsupported"
+      }
+    }
+  }
+]

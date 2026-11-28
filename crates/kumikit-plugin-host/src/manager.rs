@@ -254,6 +254,8 @@ struct Entry {
     manifest: Result<Arc<Manifest>, String>,
     /// The compiled, linked component, once prepared in this process.
     prepared: Option<Prepared>,
+    /// The same component linked as a plan limits reader (ADR 0035), once prepared.
+    reader: Option<Prepared>,
 }
 
 impl Entry {
@@ -320,6 +322,7 @@ impl Manager {
                     record,
                     manifest,
                     prepared: None,
+                    reader: None,
                 },
             );
         }
@@ -379,6 +382,44 @@ impl Manager {
             .map_err(|e| HostError::Invalid(format!("plugin {id}: {e}")))?;
         if let Some(entry) = lock(&self.inner.entries).get_mut(id) {
             entry.prepared = Some(prepared.clone());
+        }
+        Ok(prepared)
+    }
+
+    /// The plugin's component linked as a plan limits reader (ADR 0035); compiled on first
+    /// use in this process. Fails for a plugin whose manifest does not list the reader
+    /// world.
+    pub async fn prepared_reader(&self, id: &str) -> Result<Prepared, HostError> {
+        let view = self.get(id)?;
+        if let Some(p) = lock(&self.inner.entries)
+            .get(id)
+            .and_then(|e| e.reader.clone())
+        {
+            return Ok(p);
+        }
+        let manifest = view
+            .manifest
+            .ok_or_else(|| HostError::PluginFailed(format!("plugin {id} cannot be loaded")))?;
+        let (Some(world), Some(wasm), true) =
+            (manifest.world(), manifest.wasm(), manifest.reads_limits())
+        else {
+            return Err(HostError::Invalid(format!(
+                "plugin {id} has no plan limits reader"
+            )));
+        };
+        let path = self
+            .inner
+            .dirs
+            .package(&view.record.id, &view.record.version)
+            .join(wasm);
+        let prepared = self
+            .inner
+            .runtime
+            .prepare_reader(&path, world)
+            .await
+            .map_err(|e| HostError::Invalid(format!("plugin {id}: {e}")))?;
+        if let Some(entry) = lock(&self.inner.entries).get_mut(id) {
+            entry.reader = Some(prepared.clone());
         }
         Ok(prepared)
     }
@@ -585,6 +626,7 @@ impl Manager {
             record,
             manifest: Ok(Arc::new(manifest)),
             prepared: None,
+            reader: None,
         };
         let view = entry.view();
         lock(&self.inner.entries).insert(view.record.id.clone(), entry);
@@ -683,6 +725,7 @@ impl Manager {
             record,
             manifest: Ok(Arc::new(manifest)),
             prepared: None,
+            reader: None,
         };
         let view = entry.view();
         lock(&self.inner.entries).insert(id.to_owned(), entry);
@@ -755,6 +798,9 @@ impl Manager {
         // Compile now, so a broken or unsupported component fails here, not on first use.
         if manifest.wasm().is_some() {
             self.prepared(id).await?;
+        }
+        if manifest.reads_limits() {
+            self.prepared_reader(id).await?;
         }
         self.inner
             .kernel

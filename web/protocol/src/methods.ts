@@ -31,6 +31,7 @@ import type { PluginUpdatesParams } from "./PluginUpdatesParams";
 import type { PluginUpdatesResult } from "./PluginUpdatesResult";
 import type { PluginWorkspacesResult } from "./PluginWorkspacesResult";
 import type { PluginsChanged } from "./PluginsChanged";
+import type { ProviderLimits } from "./ProviderLimits";
 import type { ProviderListResult } from "./ProviderListResult";
 import type { ProviderModelsParams } from "./ProviderModelsParams";
 import type { ProviderModelsResult } from "./ProviderModelsResult";
@@ -69,6 +70,11 @@ import type { ThreadSteerResult } from "./ThreadSteerResult";
 import type { ThreadUpdateParams } from "./ThreadUpdateParams";
 import type { ThreadUpdateResult } from "./ThreadUpdateResult";
 import type { UnsubscribeParams } from "./UnsubscribeParams";
+import type { UsageLimitsParams } from "./UsageLimitsParams";
+import type { UsageLimitsResult } from "./UsageLimitsResult";
+import type { UsageRefreshParams } from "./UsageRefreshParams";
+import type { UsageSummary } from "./UsageSummary";
+import type { UsageSummaryParams } from "./UsageSummaryParams";
 import type { WorkspaceFilesListParams } from "./WorkspaceFilesListParams";
 import type { WorkspaceFilesListResult } from "./WorkspaceFilesListResult";
 import type { WorkspaceGitCheckoutParams } from "./WorkspaceGitCheckoutParams";
@@ -84,7 +90,7 @@ import type { WorktreeDeleteParams } from "./WorktreeDeleteParams";
 import type { WorktreeListResult } from "./WorktreeListResult";
 
 /** Protocol version spoken by this package, `MAJOR.MINOR`. */
-export const PROTOCOL_VERSION = "0.11";
+export const PROTOCOL_VERSION = "0.12";
 
 /** Every request method with its params and result types. */
 export type Methods = {
@@ -102,6 +108,9 @@ export type Methods = {
   "core.shutdown": { params: ShutdownParams; result: Empty };
   "provider.list": { params: Empty; result: ProviderListResult };
   "provider.models": { params: ProviderModelsParams; result: ProviderModelsResult };
+  "usage.limits": { params: UsageLimitsParams; result: UsageLimitsResult };
+  "usage.refresh": { params: UsageRefreshParams; result: ProviderLimits };
+  "usage.summary": { params: UsageSummaryParams; result: UsageSummary };
   "workspace.list": { params: Empty; result: WorkspaceListResult };
   "workspace.open": { params: WorkspaceOpenParams; result: WorkspaceOpenResult };
   "workspace.chat": { params: Empty; result: WorkspaceOpenResult };

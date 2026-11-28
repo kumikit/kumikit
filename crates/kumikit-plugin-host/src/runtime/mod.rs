@@ -26,7 +26,7 @@ use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
 use wasmtime_wasi::{FsPerms, WasiCtx};
 
 use crate::engine::{self, EngineConfig, Limits, PluginEngine, TickGuard};
-use crate::manifest::{WORLD_PLUGIN, WORLD_PROVIDER, WORLD_TOOL};
+use crate::manifest::{WORLD_PLUGIN, WORLD_PROVIDER, WORLD_TOOL, WORLD_USAGE_READER};
 use bindings::base::kumikit::host::types::Error as GuestError;
 pub use bindings::base::kumikit::plugin::types::{CallContext, CommandResult, WorkspaceRef};
 use bindings::provider::kumikit::provider::types::{Model, ProviderRef, SessionConfig, UserInput};
@@ -70,6 +70,9 @@ pub enum Prepared {
     Provider(bindings::provider::PluginPre<HostState>),
     /// Tool world.
     Tool(bindings::tool::PluginPre<HostState>),
+    /// The plan limits reader (ADR 0035): a plugin's component linked a second time, for
+    /// `read-limits` only. Its instances are never activated.
+    Reader(bindings::usage_reader::ReaderPre<HostState>),
 }
 
 impl std::fmt::Debug for Prepared {
@@ -78,6 +81,7 @@ impl std::fmt::Debug for Prepared {
             Prepared::Base(_) => "Prepared::Base",
             Prepared::Provider(_) => "Prepared::Provider",
             Prepared::Tool(_) => "Prepared::Tool",
+            Prepared::Reader(_) => "Prepared::Reader",
         })
     }
 }
@@ -166,6 +170,17 @@ impl Runtime {
                     HasSelf<HostState>,
                 >(&mut base, |s| s)
                 .map_err(|e| e.to_string())?;
+                // Types a limits reader built on the base world refers to (ADR 0035).
+                bindings::provider::kumikit::provider::types::add_to_linker::<
+                    HostState,
+                    HasSelf<HostState>,
+                >(&mut base, |s| s)
+                .map_err(|e| e.to_string())?;
+                bindings::usage_report::kumikit::usage::types::add_to_linker::<
+                    HostState,
+                    HasSelf<HostState>,
+                >(&mut base, |s| s)
+                .map_err(|e| e.to_string())?;
                 let mut provider = wasi_linker(engine.engine()).map_err(|e| e.to_string())?;
                 bindings::provider::Plugin::add_to_linker::<HostState, HasSelf<HostState>>(
                     &mut provider,
@@ -189,6 +204,12 @@ impl Runtime {
                     HostState,
                     HasSelf<HostState>,
                 >(&mut provider, |s| s)
+                .map_err(|e| e.to_string())?;
+                // Providers reporting plan limits or usage by model import it (ADR 0035).
+                bindings::usage_report::Reporter::add_to_linker::<HostState, HasSelf<HostState>>(
+                    &mut provider,
+                    |s| s,
+                )
                 .map_err(|e| e.to_string())?;
                 let mut tool = wasi_linker(engine.engine()).map_err(|e| e.to_string())?;
                 bindings::tool::Plugin::add_to_linker::<HostState, HasSelf<HostState>>(
@@ -277,6 +298,36 @@ impl Runtime {
         }
     }
 
+    /// Compiles the component at `wasm` and links it as a limits reader (ADR 0035), with
+    /// the imports of its main world `main` (`kumikit:provider/plugin` or
+    /// `kumikit:plugin/plugin`).
+    pub async fn prepare_reader(&self, wasm: &Path, main: &str) -> Result<Prepared, PrepareError> {
+        let linkers = self.linkers()?;
+        let engine = linkers.engine.engine().clone();
+        let path = wasm.to_path_buf();
+        let component = tokio::task::spawn_blocking(move || Component::from_file(&engine, &path))
+            .await
+            .map_err(|e| PrepareError(e.to_string()))?
+            .map_err(|e| PrepareError(format!("not a valid component: {e:#}")))?;
+        let linker = match main {
+            WORLD_PROVIDER => &linkers.provider,
+            WORLD_PLUGIN => &linkers.base,
+            other => {
+                return Err(PrepareError(format!(
+                    "a limits reader runs with {WORLD_PROVIDER} or {WORLD_PLUGIN}, not {other}"
+                )));
+            }
+        };
+        let pre = linker.instantiate_pre(&component).map_err(|e| {
+            PrepareError(format!(
+                "the component needs something this core does not provide: {e:#}"
+            ))
+        })?;
+        bindings::usage_reader::ReaderPre::new(pre)
+            .map(Prepared::Reader)
+            .map_err(|e| PrepareError(format!("does not implement {WORLD_USAGE_READER}: {e:#}")))
+    }
+
     fn engine(&self) -> Result<&PluginEngine, PrepareError> {
         Ok(&self.linkers()?.engine)
     }
@@ -305,6 +356,7 @@ enum Bindings {
     Base(bindings::base::Plugin),
     Provider(bindings::provider::Plugin),
     Tool(bindings::tool::Plugin),
+    Reader(bindings::usage_reader::Reader),
 }
 
 type Job = Box<
@@ -427,6 +479,10 @@ impl Instance {
                 .await
                 .map(Bindings::Provider),
             Prepared::Tool(pre) => pre.instantiate_async(&mut store).await.map(Bindings::Tool),
+            Prepared::Reader(pre) => pre
+                .instantiate_async(&mut store)
+                .await
+                .map(Bindings::Reader),
         }
         .map_err(|e| trap(&plugin, &store, &e))?;
 
@@ -510,6 +566,8 @@ impl Instance {
                             .call_activate(&mut *store)
                             .await
                     }
+                    // A reader instance runs `read-limits` only; it is never activated.
+                    Bindings::Reader(_) => Ok(Ok(())),
                 };
                 finish(&plugin, store, r)
             })
@@ -539,6 +597,7 @@ impl Instance {
                             .call_deactivate(&mut *store)
                             .await
                     }
+                    Bindings::Reader(_) => Ok(()),
                 };
                 finish(&plugin, store, r)
             })
@@ -573,6 +632,10 @@ impl Instance {
                         p.kumikit_plugin_rpc()
                             .call_handle(&mut *store, &method, &params, &ctx)
                             .await
+                    }
+                    Bindings::Reader(_) => {
+                        store.data_mut().id.workspaces = acting;
+                        return (Err(CallError::WrongWorld(WORLD_PLUGIN)), true);
                     }
                 };
                 store.data_mut().id.workspaces = acting;
@@ -610,6 +673,10 @@ impl Instance {
                             .call_run(&mut *store, &id, &args, &ctx)
                             .await
                     }
+                    Bindings::Reader(_) => {
+                        store.data_mut().id.workspaces = acting;
+                        return (Err(CallError::WrongWorld(WORLD_PLUGIN)), true);
+                    }
                 };
                 store.data_mut().id.workspaces = acting;
                 finish(&plugin, store, r)
@@ -644,6 +711,7 @@ impl Instance {
                             .call_fire(&mut *store, &key, &due)
                             .await
                     }
+                    Bindings::Reader(_) => return (Err(CallError::WrongWorld(WORLD_PLUGIN)), true),
                 };
                 finish(&plugin, store, r)
             })
@@ -705,6 +773,30 @@ impl Instance {
                 let options = store.data_mut().model_options.take().unwrap_or_default();
                 let (r, alive) = finish(&plugin, store, r);
                 (r.map(|r| r.map(|models| (models, options))), alive)
+            })
+        })
+        .await
+    }
+
+    /// Calls `read-limits` on a reader instance (ADR 0035).
+    pub async fn read_limits(
+        &self,
+        provider: ProviderRef,
+    ) -> Result<
+        Result<Option<bindings::usage_report::kumikit::usage::types::Limits>, GuestError>,
+        CallError,
+    > {
+        let plugin = self.inner.plugin.clone();
+        self.call(move |store, b| {
+            Box::pin(async move {
+                let Bindings::Reader(p) = b else {
+                    return (Err(CallError::WrongWorld(WORLD_USAGE_READER)), true);
+                };
+                let r = p
+                    .kumikit_usage_probe()
+                    .call_read_limits(&mut *store, &provider)
+                    .await;
+                finish(&plugin, store, r)
             })
         })
         .await

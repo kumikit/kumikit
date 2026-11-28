@@ -62,7 +62,7 @@ Approval  { id, thread, turn, kind, summary, detail, status }
 | `file.changed` | `turn`, `path`, `diff?` | provider |
 | `approval.requested` | `approval` | provider, or the kernel for gateway calls (kind `tool`) |
 | `approval.resolved` | `approval`, `decision` (`allow`, `allow_always`, `deny`, `cancelled`), `by?` (the paired device that answered; absent for local and SSH connections and for cancellations), `plugin?` (the plugin that answered through the client interface) | kernel |
-| `usage` | `turn`, `inputTokens`, `outputTokens`, `cost?` | provider |
+| `usage` | `turn`, `inputTokens` (including cached input), `outputTokens`, `cost?`, `cachedInputTokens?`, `models?` (the same usage by model: `{ model, inputTokens, outputTokens, cachedInputTokens?, cost? }`; the totals are their sums). The turn's total so far: a later one replaces an earlier one. | provider |
 | `turn.ended` | `turn`, `outcome` (`done`, `cancelled`, `failed`), `error?` | kernel |
 | `plugin.event` | `plugin`, `kind`, `data` | any plugin, namespaced |
 | `queue.added` | `entry` (`{ id, turn, input, from?, trigger? }`), `front?` (true: it went to the front), `reason?` (`not_steered` when a steer fell back to the queue or was not taken before the turn ended) | kernel |
@@ -113,6 +113,30 @@ Decided in [ADR 0027](../decisions/0027-durable-queue-and-deferred-messages.md).
 `plugin.event` lets a plugin add its own event kinds without a protocol change. Clients
 that do not understand one skip it; a UI plugin can register a renderer for it.
 
+## Usage
+
+Decided in [ADR 0035](../decisions/0035-usage-statistics-and-plan-limits.md).
+
+- **Records.** Each `usage` event updates its turn's row in `usage_records`, in the same
+  transaction: provider and model (the turn's, else the thread's), the turn's start
+  time, input, output and cached input tokens, cost, and the `models` breakdown. The row
+  keeps the last report, because `usage` is a running total. Rows hold no text and
+  outlive their thread and workspace, so deleting them doesn't change the statistics.
+  Copied events in a fork have no turn of their own and aren't counted again.
+- **Summary.** `usage.summary` adds up the rows whose turn started in the period. A row
+  with a breakdown counts per model, and a row without one counts under its own model.
+  `daily` groups by the client's local days, from its UTC offset.
+- **Limits.** The kernel keeps each provider's latest plan limits snapshot
+  (`provider_limits`), from a provider's report during a turn or from a refresh, and
+  announces each one on the `usage` topic. A snapshot is tidied before it is stored:
+  - percentages are clamped to 0–100, and a NaN is refused;
+  - there are at most 32 windows;
+  - texts are cut to 200 bytes;
+  - reset times must be RFC 3339;
+  - an account URL is kept only if it is `https`.
+- **Refresh.** `usage.refresh` calls the provider's reader at most once per 60 s
+  (concurrent calls wait for one read). Nothing reads limits on a timer.
+
 ## Storage
 
 - One SQLite database per core, WAL mode. Schema migrations are numbered, forward-only,
@@ -125,8 +149,8 @@ that do not understand one skip it; a UI plugin can register a renderer for it.
 - Derived columns (thread `status`, `updated`, turn `ended`/`outcome`, approval `status`)
   are written in the same transaction as the event that changes them, so they cannot
   disagree with the log.
-- Core tables (workspaces, threads, events, approvals, devices, plugins) belong to the
-  kernel. Plugins never get SQL access to them.
+- Core tables (workspaces, threads, events, approvals, devices, plugins, usage records
+  and provider limits) belong to the kernel. Plugins never get SQL access to them.
 - The `devices` table records paired devices ([02](02-protocol.md#pairing)): id (ULID),
   name, the SHA-256 of the device token, created and last-seen times (last seen is
   written at most once a minute per device). The token itself is never stored. Revoking

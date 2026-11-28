@@ -361,6 +361,13 @@ impl client::Host for HostState {
                     format!("topic {name} is reserved"),
                 ));
             }
+            // Usage data is for clients; no plugin permission covers it.
+            Topic::Usage => {
+                return Err(err(
+                    ErrorCode::InvalidArgument,
+                    "the usage topic is not available to plugins",
+                ));
+            }
         };
         let res = SubscriptionRes {
             topic,

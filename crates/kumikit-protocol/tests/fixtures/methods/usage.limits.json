@@ -1,0 +1,67 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 41,
+    "method": "usage.limits",
+    "params": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 41,
+    "result": {
+      "providers": [
+        {
+          "provider": "community.provider-gemini/gemini",
+          "limits": {
+            "plan": "Pro",
+            "accountUrl": "https://example.com/account",
+            "windows": [
+              {
+                "id": "five-hour",
+                "label": "5 hours",
+                "usedPercent": 26.0,
+                "resetsAt": "2026-11-15T14:59:00.000Z"
+              },
+              {
+                "id": "weekly",
+                "label": "Weekly",
+                "usedPercent": 19.0,
+                "resetsAt": "2026-11-17T14:59:00.000Z"
+              },
+              {
+                "id": "weekly-pro",
+                "label": "Weekly",
+                "group": "Pro models",
+                "usedPercent": 4.5,
+                "model": "pro"
+              }
+            ]
+          },
+          "observed": "2026-11-15T10:00:03.000Z"
+        },
+        {
+          "provider": "test.example/example"
+        }
+      ]
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 42,
+    "method": "usage.limits",
+    "params": {
+      "provider": "nope/nope"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 42,
+    "error": {
+      "code": -32000,
+      "message": "no provider nope/nope",
+      "data": {
+        "code": "not_found"
+      }
+    }
+  }
+]

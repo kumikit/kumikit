@@ -93,7 +93,7 @@ async fn serve_makes_no_registry_request() {
         let hello = c
             .call(
                 "core.hello",
-                json!({"protocol":"0.11", "client": {"name": "t", "version": "0"}}),
+                json!({"protocol":"0.12", "client": {"name": "t", "version": "0"}}),
             )
             .await;
         assert!(

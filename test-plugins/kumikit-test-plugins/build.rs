@@ -15,6 +15,7 @@ use std::process::Command;
 const GUESTS: &[(&str, &str)] = &[
     ("kumikit-test-hello", "kumikit_test_hello"),
     ("kumikit-test-probe", "kumikit_test_probe"),
+    ("kumikit-test-limits", "kumikit_test_limits"),
     ("kumikit-test-client", "kumikit_test_client"),
     ("kumikit-test-tool", "kumikit_test_tool"),
     // A first-party plugin, built here so end-to-end tests can install it.

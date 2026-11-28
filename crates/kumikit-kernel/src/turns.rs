@@ -192,6 +192,7 @@ impl Kernel {
                 name: p.name().to_owned(),
                 plugin: p.contributor().to_owned(),
                 icon: p.icon().map(str::to_owned),
+                reads_limits: p.reads_limits().then_some(true),
             })
             .collect();
         list.sort_by(|a, b| a.id.cmp(&b.id));

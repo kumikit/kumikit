@@ -150,6 +150,7 @@ Methods are namespaced. Kernel namespaces are fixed; plugins get their own.
 | `workspace.*` | `list`, `open`, `close`, `files.list`, `files.read` | Reads are scoped to the workspace root |
 | `thread.*` | `list`, `create`, `get`, `send`, `cancel`, `respondApproval`, `archive` | |
 | `provider.*` | `list`, `models` | Aggregated across provider plugins |
+| `usage.*` | `summary`, `limits`, `refresh` | Token usage of this core's turns and providers' plan limits ([ADR 0035](../decisions/0035-usage-statistics-and-plan-limits.md)) |
 | `settings.*` | `get`, `set`, `schema` | Per plugin, validated against its schema |
 | `secret.*` | `set`, `delete`, `list` | **Write-only**: a client can set a secret, never read one |
 | `plugin.*` | `list`, `install`, `enable`, `disable`, `uninstall`, `updates`, `update`, `lock` | |
@@ -199,7 +200,7 @@ and both sides ignore fields they do not know.
 | `plugin.list` | — | `plugins`: every installed plugin (`id`, `name`, `version`, `description?`, `repository?`, `state`, `requested`, `granted?`, `contributes`, `signed`, `publisher?`, `source?`, `failure?`, `error?`) |
 | `core.activity` | — | `activeTurns`, `readyQueued`, `idle` (`activeTurns === 0 && readyQueued === 0`). Summarises live agent work across all workspaces (including side threads and scheduled turns) so updaters and tools can wait for idle before stopping the core (since 0.10). |
 | `core.shutdown` | `ifIdle?` | `{}`, sent before the core stops. When `ifIdle` is true and any turn is active or an unpaused queued message is ready to start, fails with `conflict` and leaves the core running (since 0.10). Otherwise running turns end as on any stop: the next start ends them as `core_restarted`. |
-| `provider.list` | — | `providers`: `{ id (qualified), name, plugin, icon? }` for every available provider, read from manifests without activating anything. `icon` (since 0.11) is the manifest icon as a `data:` URL of an SVG or PNG. |
+| `provider.list` | — | `providers`: `{ id (qualified), name, plugin, icon?, readsLimits? }` for every available provider, read from manifests without activating anything. `icon` (since 0.11) is the manifest icon as a `data:` URL of an SVG or PNG. `readsLimits` (since 0.12) is present and true when a plugin's component exports the plan limits reader for it. |
 | `provider.models` | `provider` (qualified id) | `models`: `{ id, label, capabilities, options? }`. Activates the provider's plugin; an unknown provider gives `not_found`. `options` (since 0.11) lists the model's settings: `{ id, label, kind?, values: [{ value, label, description? }], default? }` ([05](05-providers.md#model-settings)). |
 | `plugin.install` | Exactly one of `path` on the core's machine (a `.kkp` file, or a directory holding a `plugin.toml`, packed as `kumikit plugin pack` would, and the packed archive's SHA-256 recorded), `package`, the bytes of a `.kkp` in base64 (so a client can install on a core on another machine; limited by the 8 MiB message), and `registry { id, version?, sha256?, registry? }` (`registry`: one index URL to use instead of the core's list), fetched by the core from its registries ([10](10-distribution.md#install)) | `plugin`, in state `installed`. Invalid packages and manifests fail with `invalid_params`, listing the problems; an id that is already installed fails with `conflict`; a hash, signature, pinned-key or index mismatch fails with `untrusted`; a registry that cannot be reached with `unavailable`; an id no registry lists with `not_found`. |
 | `plugin.updates` | `refresh?` (revalidate the indexes now) | `updates`: `{ plugin, from, to, registry, requested, widens }` for each installed registry plugin whose registry offers a higher version. Applies nothing. |
@@ -212,6 +213,21 @@ and both sides ignore fields they do not know.
 | `plugin.enable` | `plugin`, `grant` | `plugin`. `grant` must equal the plugin's requested permissions (they are granted as a whole), otherwise `conflict`. Compiles the component. |
 | `plugin.disable` | `plugin` | `plugin`. Cancels the plugin's running turns and unloads it. |
 | `plugin.uninstall` | `plugin`, `deleteData?` | `{}`. Disables it first; deletes its kv and data directory only if `deleteData` is true. |
+| `usage.summary` | `provider?` (qualified id), `days` (1–400, today included), `tzOffsetMinutes?` (the client's offset from UTC, east positive, −1080 to 1080; default 0) | `totals` (`{ inputTokens, outputTokens, cachedInputTokens, cost?, turns }`), `threads` (threads with a counted turn), `models` (`{ provider, model, …totals }`, most tokens first), `daily` (`{ date, tokens, cost? }`, the client's days, oldest first, days without usage left out). Counts the turns this core ran that reported usage, by the day they started ([03](03-kernel.md#usage)). `inputTokens` includes cached input; `cost` adds up the turns that reported one and is absent when none did. Out-of-range `days` or offset gives `invalid_params`. |
+| `usage.limits` | `provider?` | `providers`: `{ provider, limits?, observed? }` for every available provider in `provider.list` order, or the one asked for (`not_found` if unknown). `limits` is the latest snapshot (`{ plan?, account?, accountUrl?, windows }`, each window `{ id, label, group?, usedPercent (0–100), resetsAt?, model? }`); absent when none was reported or the provider said it has none. `observed` is when it was taken. |
+| `usage.refresh` | `provider` | `{ provider, limits?, observed }`. Asks the provider to read its plan limits now ([05](05-providers.md#usage-and-limits)). Within 60 s of the last refresh of that provider it returns the stored snapshot instead. `unsupported` for a provider without a reader (`ProviderInfo.readsLimits` absent), `plugin_failed` when the reader fails, `not_found` for an unknown provider. |
+
+### Additions in 0.12
+
+Usage statistics and plan limits ([ADR 0035](../decisions/0035-usage-statistics-and-plan-limits.md)):
+
+- `usage.summary`, `usage.limits` and `usage.refresh` (above), and the `usage` topic
+  ([below](#usage-topic)).
+- `ProviderInfo` gains `readsLimits?` (present and true when `usage.refresh` can read the
+  provider's plan limits).
+- The `usage` event gains `cachedInputTokens?` and `models?` (`{ model, inputTokens,
+  outputTokens, cachedInputTokens?, cost? }`, the turn's usage by model; the event's
+  totals are their sums).
 
 ### Additions in 0.11
 
@@ -363,9 +379,9 @@ per-thread sequence number. Clients read state by subscribing.
               "kind": "text.delta", "data": { "turn": "t3", "text": "Looking at…" } } }
 ```
 
-Topics: `thread:<id>` and `workspace:<id>` are defined. `core` (plugins, status) and
-`approvals` (all pending approvals on this core) are reserved: subscribing to them fails
-with `unsupported` until their delivery rules are specified.
+Topics: `thread:<id>`, `workspace:<id>` and `usage` are defined. `core` (plugins, status)
+and `approvals` (all pending approvals on this core) are reserved: subscribing to them
+fails with `unsupported` until their delivery rules are specified.
 
 ### Workspace topic
 
@@ -385,6 +401,21 @@ show every thread's status without subscribing to each thread:
 - A client subscribes first, then calls `thread.list`, and keeps whichever copy of a
   thread has the later `updated`, so nothing is missed between the two calls.
 - An unknown workspace gives `not_found`.
+
+### Usage topic
+
+`usage` (since 0.12) tells a client that the core's usage data changed, so a usage meter
+can follow it without polling:
+
+| Kind | Data |
+|---|---|
+| `usage.limits` | `{ provider, limits?, observed }`: a provider's new plan limits snapshot, as `usage.limits` returns it |
+| `usage.recorded` | `{ provider, thread }`: a turn added token usage; refetch `usage.summary` if it is shown |
+
+- Like the workspace topic it has no log: `after` must be 0, `head` is 0, and `seq`
+  counts from 1 within the subscription.
+- A listener that falls behind gets every provider's `usage.limits` again, so it
+  converges.
 
 The rules below are for thread topics.
 

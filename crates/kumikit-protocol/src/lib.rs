@@ -14,7 +14,7 @@ pub mod topic;
 pub mod version;
 
 pub use error::{ErrorCode, RpcError};
-pub use event::{EventNotification, ThreadEvent, TopicEvent, WorkspaceEvent};
+pub use event::{EventNotification, ThreadEvent, TopicEvent, UsageEvent, WorkspaceEvent};
 pub use methods::{Method, NotificationMethod};
 pub use topic::Topic;
 pub use version::{APP_VERSION, PROTOCOL_VERSION, ProtocolVersion};

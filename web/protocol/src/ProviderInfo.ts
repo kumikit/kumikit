@@ -20,4 +20,9 @@ plugin: string,
  * The provider's icon from its manifest, as a `data:` URL of an SVG or PNG image
  * (since 0.11).
  */
-icon?: string, };
+icon?: string, 
+/**
+ * Present and true when the provider can read its plan limits on demand, through
+ * `usage.refresh` (since 0.12).
+ */
+readsLimits?: boolean, };

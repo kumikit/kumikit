@@ -834,6 +834,7 @@ pub fn append_event(
                 [thread.as_str()],
             )?;
         }
+        ThreadEvent::Usage(u) => crate::usage::record(conn, thread, u)?,
         ThreadEvent::TurnEnded(e) => {
             let n = conn.execute(
                 "UPDATE turns SET ended = ?3, outcome = ?4
