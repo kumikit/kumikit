@@ -28,6 +28,8 @@
     | 'archive'
     | 'archive-restore'
     | 'trash'
+    | 'pencil'
+    | 'more'
     | 'worktree'
     | 'win-minimize'
     | 'win-maximize'
@@ -138,6 +140,12 @@
     <line x1="3" y1="8.5" x2="13" y2="8.5" />
   {:else if name === 'win-maximize'}
     <rect x="3.25" y="3.25" width="9.5" height="9.5" rx="1" />
+  {:else if name === 'pencil'}
+    <path d="M10.6 2.9a1.5 1.5 0 0 1 2.1 2.1L5.3 12.4 2.5 13.2l.8-2.8z" />
+  {:else if name === 'more'}
+    <circle cx="3.5" cy="8" r="0.6" fill="currentColor" />
+    <circle cx="8" cy="8" r="0.6" fill="currentColor" />
+    <circle cx="12.5" cy="8" r="0.6" fill="currentColor" />
   {:else if name === 'win-restore'}
     <rect x="2.75" y="5" width="7.75" height="7.75" rx="0.9" />
     <path d="M5.5 5V3.75a0.75 0.75 0 0 1 0.75-.75h6a0.75 0.75 0 0 1 0.75.75v6a0.75 0.75 0 0 1-.75.75H10.5" />

@@ -66,6 +66,7 @@ export type MainView =
 export type Dialog =
   | { kind: 'palette' }
   | { kind: 'open-folder'; connection: string }
+  | { kind: 'rename-thread'; address: ThreadAddress; title: string }
   | {
       kind: 'confirm';
       title: string;
@@ -598,6 +599,26 @@ export class Kernel {
     onConfirm: () => Promise<void> | void;
   }): void {
     this.dialog = { kind: 'confirm', ...options };
+  }
+
+  /** Opens the rename dialog for a thread, prefilled with its current title. */
+  renameThread(address: ThreadAddress, title: string): void {
+    this.dialog = { kind: 'rename-thread', address, title };
+  }
+
+  /**
+   * Saves a thread's title as the user's own: the agent's suggestions no longer replace
+   * it (ADR 0030). Returns `true` when it was saved.
+   */
+  async saveThreadTitle(address: ThreadAddress, title: string): Promise<boolean> {
+    const trimmed = title.trim();
+    if (!trimmed) return false;
+    const saved = await this.attempt('Cannot rename thread', () =>
+      this.threads.update(address, { title: trimmed }),
+    );
+    if (!saved) return false;
+    this.notify('Thread renamed', 'success');
+    return true;
   }
 
   /** Removes every tab of a deleted workspace across all split panes, closing empty secondary panes. */

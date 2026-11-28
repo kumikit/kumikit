@@ -148,7 +148,7 @@ Svelte 5 with runes, TypeScript strict, Vite
 | Declarative renderer | Renders core plugins' declarative UI: settings forms, status items, views |
 | Theme engine | Applies the active theme's tokens as CSS custom properties ([08](08-themes.md)) |
 | Plugin manager | Overlay sheet covering most of the window (closes via its close button, Escape, or clicking outside) to discover, install, update and configure plugins on the client and on each core |
-| Sidebar | One group per connection (label and status), with its workspaces and their threads (tree or active-threads view, worktree threads marked under their parent workspace), quick per-workspace thread creation, right-click thread menu (Archive, Delete), a collapsible filterable **Archived** section at the bottom (collapsed by default, right-click Unarchive or Delete), kept current by the `workspace:<id>` topic, plus docked `sidebar.section` plugin panels |
+| Sidebar | One group per connection (label and status), with its workspaces and their threads (tree or active-threads view, worktree threads marked under their parent workspace), quick per-workspace thread creation, thread menu by right-click or the row's `⋯` button (Rename, Archive, Delete), a collapsible filterable **Archived** section at the bottom (collapsed by default, right-click Unarchive or Delete), kept current by the `workspace:<id>` topic, plus docked `sidebar.section` plugin panels |
 | Inspector dock | Resizable right-hand sidebar hosting `inspector.tab` plugin contributions for the active tab's core and workspace, with closable open tabs and a `+` icon menu that opens a plugin as a new tab or focuses its existing tab |
 | Cores view | Overlay sheet covering most of the window (closes via its close button, Escape, or clicking outside) that lists connections, adds a core by address and pairing code (showing the fingerprint before the code is sent) or by SSH destination, and removes one |
 
@@ -276,8 +276,13 @@ of the desktop or browser bundle.
   **Chats** live in a dedicated **Chats** group without requiring a project folder or Git
   branch picker.
 - Right-clicking a project or thread in the left sidebar opens a context menu (**Delete**
-  for projects; **Archive** / **Unarchive** and **Delete** for threads); destructive
-  deletions always ask for confirmation in an in-app dialog first. Outside editable text
+  for projects; **Rename**, **Archive** / **Unarchive** and **Delete** for threads). Each
+  thread row also has a `⋯` icon button on its right, shown on hover, focus or while the
+  thread is open, that opens the same menu under the button. **Rename** opens a dialog
+  with the current title; Enter saves, Escape cancels, and empty titles are refused. A
+  renamed thread keeps the new title. Rename is unavailable while a turn runs, as the
+  core refuses it then, and archived threads cannot be renamed. Destructive deletions
+  always ask for confirmation in an in-app dialog first. Outside editable text
   inputs and custom context menus, the default webview context menu is suppressed.
 - Links in agent output and plugin markdown are not opened by the app; it offers to copy
   them. Raw HTML in markdown is shown as text.
