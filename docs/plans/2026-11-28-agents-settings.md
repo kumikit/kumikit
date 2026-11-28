@@ -59,7 +59,7 @@ So the protocol gains the declared providers.
 - [x] **7. Spec and docs.** `06-client.md` (Plugin manager, Settings: the Agents page and
   what counts as an agent), `05-providers.md` (where users manage providers),
   `10-distribution.md` (starter pack note), README if it describes installing agents.
-- [ ] **8. Verify.** `check-docs.sh`, `check-plugin-names.sh`, `check-no-keys.sh`,
+- [x] **8. Verify.** `check-docs.sh`, `check-plugin-names.sh`, `check-no-keys.sh`,
   `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
   `cargo test --workspace`, `cargo test -p kumikit-protocol`, `tsc --noEmit -p
   web/protocol`, `npm run check`, `npm test`, `node scripts/bundle.mjs`, and the Playwright

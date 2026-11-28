@@ -988,6 +988,65 @@ describe('usage limits and post-turn checks (M7 step 8)', () => {
   });
 });
 
+describe('threads an agent starts (ADR 0036)', () => {
+  it('appear live in the side panel of the thread that started them, and only there', async () => {
+    const parent: ThreadAddress = { connection: 'local', workspace: 'w', thread: 'main-th' };
+    const started: ThreadView = {
+      ...base,
+      address: { connection: 'local', workspace: 'w', thread: 'started-1' },
+      turns: [{ id: 't1', input: 'review the diff', started: '2026-11-15T10:00:00Z', items: [{ kind: 'message', text: 'reviewing', done: false }] }],
+    };
+    const { ctx } = fakeCtx(started);
+    ctx.threads = {
+      watch: (_addr, fn) => {
+        fn(started);
+        return () => {};
+      },
+    };
+    let push: ((ev: { kind: string; data: unknown }) => void) | undefined;
+    const conn = {
+      id: 'local',
+      ready: true,
+      call: async (method: string) => (method === 'thread.list' ? { threads: [] } : {}),
+      subscribe: (_topic: string, _after: number, fn: (ev: { kind: string; data: unknown }) => void) => {
+        push = fn;
+        return () => {};
+      },
+      models: async () => [],
+    } as unknown as import('@kumikit/ui-sdk').Connection;
+
+    const target = document.createElement('div');
+    const c = mount(SideThread, { target, props: { ctx, address: parent, connection: conn } });
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+    expect(target.querySelector('select[aria-label="Side thread history"]')).toBeNull();
+
+    const thread = (id: string, parentId: string, title: string) => ({
+      id,
+      workspace: 'w',
+      provider: 'p',
+      model: 'm',
+      title,
+      status: 'running',
+      side: true,
+      parent: parentId,
+      created: '2026-11-15T10:00:00Z',
+      updated: '2026-11-15T10:00:00Z',
+    });
+    // A thread started from another thread is not shown here.
+    push!({ kind: 'thread.created', data: { thread: thread('other-1', 'other-th', 'Elsewhere') } });
+    push!({ kind: 'thread.created', data: { thread: thread('started-1', 'main-th', 'Review') } });
+    flushSync();
+    await Promise.resolve();
+    flushSync();
+    expect(target.textContent).toContain('Review (running)');
+    expect(target.textContent).toContain('reviewing');
+    expect(target.textContent).not.toContain('Elsewhere');
+    unmount(c);
+  });
+});
+
 describe('the thinking box', () => {
   const at = (items: ThreadView['turns'][number]['items'], ended = true): ThreadView => ({
     ...base,

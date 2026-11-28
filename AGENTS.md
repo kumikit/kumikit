@@ -19,13 +19,15 @@ usage limits and turn checks) and M8 (signed application updates, idle-gated aut
 `kumikit update` CLI, matching SSH remote core sync, bundled `provider-acp` + `threads` in
 `core-plugins/`, AppImage CLI forwarding, and borderless window chrome — `v0.1.0-m8.1`) are
 done; M9 (agent orchestration, an open milestone:
-[plan](docs/plans/2026-11-28-m9-agent-orchestration.md)) is in progress. Done so far:
+[plan](docs/plans/2026-11-28-m9-agent-orchestration.md)) is in progress: so far agents
+start side threads, usage statistics and plan limits, themes as JSON files and Settings →
+Agents (`v0.1.0-m9.2`, protocol 0.13). Done so far:
 `kumikit serve`, the kernel, WASM plugins (WIT
-0.2.0 plus `kumikit:tool@0.1.0`, `kumikit:turn@0.1.0`, `kumikit:threads@0.1.0` and
-`kumikit:session@0.1.0`) with permissions, secrets, settings, plugin methods, core
+0.2.0 plus `kumikit:tool@0.1.0`, `kumikit:turn@0.1.0`, `kumikit:threads@0.2.0`,
+`kumikit:usage@0.1.0` and `kumikit:session@0.1.0`) with permissions, secrets, settings, plugin methods, core
 commands, outgoing HTTP, client interface, schedules and MCP tool gateway, bundled
 `provider-acp` and `threads` core plugins, `kumikit plugin`, the desktop app (Tauri shell,
-Svelte UI kernel, UI SDK 0.1.5, ui-chat, ui-settings, theme-default), remote cores over TLS
+Svelte UI kernel, UI SDK 0.1.7, ui-chat, ui-settings, ui-usage, bundled JSON themes), remote cores over TLS
 with pairing and device tokens or through SSH, the browser client served by a core, signed
 packages, plugin registries with installs by id, updates and lockfiles, sandboxed UI panels,
 `kumikit theme check`, plugin templates, and the external first-party plugin repositories
