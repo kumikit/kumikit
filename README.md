@@ -25,7 +25,7 @@ small pieces without nails.
 > durable queues, steering, provider handoff, deferred messages, forks and side threads,
 > the desktop app with borderless window chrome, resizable sidebars and split panes, remote
 > cores over TLS or SSH (with verified matching core sync), the browser client, signed
-> idle-safe application updates (`Settings → Updates` and `kumikit update`), package
+> idle-safe application updates (`Settings → About` and `kumikit update`), package
 > signing, the official plugin registry
 > ([`kumikit/registry`](https://github.com/kumikit/registry)), bundled `provider-acp` and
 > `threads` core plugins, and the first-party starter pack of providers and tools.
@@ -48,7 +48,7 @@ from them, import a lockfile or check for updates: a core contacts them for core
 the desktop app for UI plugins and themes. Nothing is checked in the background, and the
 first-run screen asks before it shows the registry's starter pack.
 
-Application update checks (`Settings → Updates` and `kumikit update`) contact GitHub
+Application update checks (`Settings → About` and `kumikit update`) contact GitHub
 (`raw.githubusercontent.com` and `github.com`) only when you ask, or periodically if you
 explicitly opt into **Automatic updates** (off by default). Every release manifest is
 verified against Kumikit's pinned Ed25519 public key before downloading, and automatic

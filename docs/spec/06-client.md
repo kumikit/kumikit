@@ -140,6 +140,7 @@ Svelte 5 with runes, TypeScript strict, Vite
 | Connection manager | One connection per profile (local, paired remotes, SSH), each connecting on its own; reconnect with backoff (0.5 s doubling to 30 s) and a "Reconnect now" action; per-connection status (`connecting`, `ready`, `reconnecting`, `mismatch`, and `unauthorized` and `certificate_changed`, which stop retrying); after a reconnect it repeats `core.hello` and resubscribes every topic with its last `seq` |
 | Layout and splits | Resizable, collapsible left sidebar and right inspector dock, thin top toolbar (sidebar toggles, open folder, new thread, split controls) and bottom status bar (plugins, settings, theme, command palette on the left; status items and core connection state on the right), and a recursive horizontal/vertical split tree of workspace panes (right-clicking a pane offers Split horizontally and Split vertically); splitting opens a fresh draft thread in the same workspace, where a unified model picker button (opening the UI kernel's searchable picker with Recent picks, providers with manifest icons or letter badges, their models, and per-model setting rows such as Effort and Speed, shared with `ui-chat` via `ctx.ui.pickModel`) and permission-mode controls (initialized from Settings → General's default permission mode, defaulting to `standard`, with a padlock menu to pick `standard`, `accept_edits`, `plan`, or `full_access`) live on the left under the composer and an active Git branch/worktree picker (distinct worktree icon when opened in a linked worktree vs branch icon in the root project folder; Switch to default branch, Other branch…, New thread in a worktree… keeping the thread under the parent workspace, Copy project path) lives on the right under both the draft and active chat composers (with a paperclip file picker defaulting to the project or worktree folder on desktop, drag-and-drop, and clipboard image/file paste) |
 | Thread queue | `ui-chat` shows the thread's queue above the composer: each queued message with Send now, Edit (Enter saves, Escape cancels) and Remove, reordering by drag or Alt+Up/Down, and, while the queue is held, why and a Resume button. The list follows the log (`ThreadView.queue`, UI SDK 0.1.3); every change goes through the `thread.queue.*` commands to the core. |
+| Scheduled messages | The composer's clock button opens a popover anchored above it to defer a message (`thread.defer`): the current draft (or "Continue where you left off." when empty), quick time presets (in 15 min, in 1 h, tonight 21:00, tomorrow 09:00), a local date and time, **Repeat** (once, every hour, every day, weekdays, every week), and **More options…** for command triggers (`after_command`, `poll_command`). Escape (returning focus to the clock button) or clicking outside closes it. Repeating entries show their rule (for example "every weekday at 09:00") in the queue panel. |
 | Turn cards | While a turn runs, `ui-chat` shows its items as they stream, folding five or more consecutive tool calls into a group. The turn's reasoning is not listed among its items: it is one **Thinking...** box placed beneath the tool calls, collapsed by default, which expands to a limited-height scrolling text (the newest text stays in view while it streams). A finished turn becomes a summary card: one collapsed header ("Used 3 tools", "2 steps" without tools, "Thinking" with only reasoning, plus any failures) that expands to every tool call, intermediate message and, last, the collapsed **Thinking...** box; approvals and steers stay visible; the final reply alone shows below, without thinking, clamped with **Read more** / **Show less** when long. A footer button ("2 changed files +89 −48" with a five-cell change bar) opens a modal dialog listing only that turn's `file.changed` items, with each file's diff in a Unified or Split view and an optional Wrap toggle; Escape, the close button or a click on the backdrop closes it. |
 | Composer send and stop | While a turn is active (`running` or `awaiting_approval`), a **Stop** button (`thread.cancel`) takes the place of **Send**; Send comes back when the turn ends. Enter still queues the draft while a turn runs, and Escape twice also stops it. |
 | Thread store | Owns every wire subscription (one per topic per connection), folds thread events into view state, and shares it with plugins (`ctx.threads`) |
@@ -218,6 +219,18 @@ tab's by default, with a core selector when several are connected), it shows:
 
 The palette's "Agents" command opens the page, and so does the new-thread composer when
 the core has no agent.
+
+### About
+
+**Settings → About** (the last page of the Client group, also opened by the page id
+`updates`, where the status bar's update notice points) shows:
+
+- the app's version and how it was installed, the signed update check and install, and
+  the automatic update and SSH sync options ([ADR 0031](../decisions/0031-signed-release-manifest-and-updates.md));
+- **Resource usage** for each connected core, from `core.stats`: the core's memory, its
+  active agents (turns running or awaiting approval), the programs it runs, its database
+  size and uptime. It is read when the page is shown and on **Refresh**; nothing polls. A
+  core that cannot answer shows why.
 
 ### Client settings
 

@@ -20,8 +20,9 @@ usage limits and turn checks) and M8 (signed application updates, idle-gated aut
 `core-plugins/`, AppImage CLI forwarding, and borderless window chrome — `v0.1.0-m8.1`) are
 done; M9 (agent orchestration, an open milestone:
 [plan](docs/plans/2026-11-28-m9-agent-orchestration.md)) is in progress: so far agents
-start side threads, usage statistics and plan limits, themes as JSON files and Settings →
-Agents (`v0.1.0-m9.2`, protocol 0.13). Done so far:
+start side threads, usage statistics and plan limits, themes as JSON files, Settings →
+Agents, Settings → About with per-core resource usage, and repeating scheduled prompts
+from the composer (`v0.1.0-m9.2`, protocol 0.14). Done so far:
 `kumikit serve`, the kernel, WASM plugins (WIT
 0.2.0 plus `kumikit:tool@0.1.0`, `kumikit:turn@0.1.0`, `kumikit:threads@0.2.0`,
 `kumikit:usage@0.1.0` and `kumikit:session@0.1.0`) with permissions, secrets, settings, plugin methods, core

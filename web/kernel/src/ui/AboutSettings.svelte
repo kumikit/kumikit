@@ -1,9 +1,10 @@
-<!-- Application updates settings (ADR 0031, ADR 0032): current stamped version, manual
-     signed update check and install, opt-in idle-gated automatic updates, and global SSH
-     remote core auto-sync preference. -->
+<!-- Settings → About (06-client, About): the app's version and install kind, signed update
+     checks and installs (ADR 0031, ADR 0032), what each connected core uses, opt-in
+     idle-gated automatic updates, and the SSH remote core auto-sync preference. -->
 <script lang="ts">
   import type { Kernel } from '../app.svelte';
   import type { AppInstallKind } from '../platform/index';
+  import ResourceUsage from './ResourceUsage.svelte';
 
   let { kernel }: { kernel: Kernel } = $props();
 
@@ -56,14 +57,14 @@
 
 <div class="updates">
   <div class="intro">
-    <h2>Updates</h2>
-    <p class="kk-muted">Check for signed Kumikit releases and control automatic updates.</p>
+    <h2>About</h2>
+    <p class="kk-muted">Your Kumikit version and its updates, and what each connected core uses.</p>
   </div>
 
   <section class="card" aria-labelledby="kk-version-heading">
     <div class="version-row">
       <div class="version-col">
-        <h3 id="kk-version-heading">Current version</h3>
+        <h3 id="kk-version-heading">Version and updates</h3>
         <div class="version-badges">
           <strong class="version-num" data-app-version>
             v{u.info?.currentVersion ?? home?.hello?.core.version ?? '0.1.0'}
@@ -94,8 +95,9 @@
     {#if !u.supported}
       <p class="hint">Application updates are managed from the Kumikit desktop app or via <code>kumikit update</code>.</p>
     {:else if u.phase === 'up_to_date'}
+      <!-- One element: `.status` is a flex row, which would split the text runs apart. -->
       <p class="status ok" role="status">
-        You are on the latest signed release (<code>v{u.checkResult?.latestVersion ?? u.info?.currentVersion}</code>).
+        <span>You are on the latest signed release (<code>v{u.checkResult?.latestVersion ?? u.info?.currentVersion}</code>).</span>
       </p>
     {:else if u.phase === 'available' && u.checkResult}
       <div class="status info" role="status">
@@ -165,6 +167,8 @@
       <p class="err" role="alert">{u.error}</p>
     {/if}
   </section>
+
+  <ResourceUsage {kernel} />
 
   {#if u.supported}
     <section class="section" aria-labelledby="kk-auto-updates-heading">

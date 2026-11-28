@@ -20,17 +20,21 @@ async function installRecordedProvider(page: Page, kk: Kumikit, transcript: stri
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 }
 
-test('Settings → Updates checks signed releases and defers automatic install until agents are idle', async ({
+test('Settings → About checks signed releases and defers automatic install until agents are idle', async ({
   page,
   kk,
 }) => {
   await open(page, kk);
 
-  // Open Settings → Updates.
+  // Open Settings → About.
   await page.getByRole('button', { name: 'Open settings' }).click();
-  await page.getByRole('navigation', { name: 'Settings pages' }).getByRole('button', { name: 'Updates' }).click();
+  await page.getByRole('navigation', { name: 'Settings pages' }).getByRole('button', { name: 'About' }).click();
 
   await expect(page.locator('[data-app-version]')).toHaveText('v0.1.0-m7.4');
+  // Resource usage of the local core, from `core.stats`.
+  const usage = page.getByRole('group', { name: 'Resource usage of This computer' });
+  await expect(usage).toContainText('Core memory');
+  await expect(usage).toContainText(/Active agents\s*None/);
   const autoBox = page.getByLabel(/Automatically download and install updates/);
   await expect(autoBox).not.toBeChecked();
 
@@ -53,7 +57,9 @@ test('Settings → Updates checks signed releases and defers automatic install u
 
   // Turn on opt-in automatic updates while the agent is waiting for approval.
   await page.getByRole('button', { name: 'Open settings' }).click();
-  await page.getByRole('navigation', { name: 'Settings pages' }).getByRole('button', { name: 'Updates' }).click();
+  await page.getByRole('navigation', { name: 'Settings pages' }).getByRole('button', { name: 'About' }).click();
+  // The waiting turn shows as an active agent.
+  await expect(usage).toContainText(/Active agents\s*1 running/);
   await autoBox.check();
 
   // Must download and verify, then WAIT because 1 turn is active — never interrupting it!

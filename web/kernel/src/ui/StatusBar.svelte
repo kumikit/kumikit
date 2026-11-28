@@ -75,7 +75,7 @@
         type="button"
         class="conn-btn"
         title="An update is downloaded and will install once all agents are idle"
-        onclick={() => (kernel.main = { kind: 'settings', page: 'updates' })}
+        onclick={() => (kernel.main = { kind: 'settings', page: 'about' })}
       >
         <span class="kk-status awaiting_approval" aria-hidden="true"></span>
         <span>Update waiting for idle</span>
@@ -85,7 +85,7 @@
         type="button"
         class="conn-btn"
         title="Open Settings → Updates"
-        onclick={() => (kernel.main = { kind: 'settings', page: 'updates' })}
+        onclick={() => (kernel.main = { kind: 'settings', page: 'about' })}
       >
         <span class="kk-status ready" aria-hidden="true"></span>
         <span>Update v{kernel.updates.downloaded?.version ?? kernel.updates.checkResult?.latestVersion}</span>

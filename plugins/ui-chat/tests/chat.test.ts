@@ -868,7 +868,7 @@ describe('usage limits and post-turn checks (M7 step 8)', () => {
       'Copy reply',
       'Fork from here',
       'Fork thread',
-      'Send later',
+      'Schedule',
       'Turn check settings',
     ]) {
       const btn = target.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);

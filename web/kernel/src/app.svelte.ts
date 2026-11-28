@@ -1238,7 +1238,7 @@ export class Kernel {
     });
     if (this.updates.supported) {
       c.register({ id: 'app.updates.check', title: 'Check for updates' }, () => {
-        this.main = { kind: 'settings', page: 'updates' };
+        this.main = { kind: 'settings', page: 'about' };
         void this.updates.checkNow();
       });
     }

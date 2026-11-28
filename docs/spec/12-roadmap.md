@@ -265,6 +265,10 @@ An open milestone: features that let agents coordinate other agents, added as th
 - Agents are managed in Settings → Agents, apart from other plugins, with each agent's
   settings in place (`InstalledPlugin.providers`, protocol `0.13`;
   [06](06-client.md#agents)).
+- Settings → About replaces Settings → Updates, adding per-core resource usage (`core.stats`:
+  memory, active agents, processes, database size and uptime), and the composer's Schedule
+  popover schedules one-shot or repeating deferred prompts (`QueueRepeat` on `thread.defer`,
+  protocol `0.14`; [06](06-client.md#about)).
 
 Released so far: `v0.1.0-m9.1` (agents start threads, usage and limits) and `v0.1.0-m9.2`
 (side threads, themes, Agents page).

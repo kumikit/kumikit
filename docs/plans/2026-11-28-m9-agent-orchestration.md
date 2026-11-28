@@ -282,6 +282,14 @@ Done in its own plan: [an Agents page in Settings](2026-11-28-agents-settings.md
 
 - [x] All steps, released in `v0.1.0-m9.2` (protocol 0.13).
 
+### Feature 6 — Settings → About and scheduled prompts
+
+Done in its own plan: [Settings → About, and scheduled prompts from the composer](2026-11-28-about-and-scheduled-prompts.md).
+
+- [x] Bracket fix on the update status sentence, Settings → About with per-core `core.stats`
+  resource usage, repeating `thread.defer` triggers (`repeat`), and the composer Schedule
+  popover (protocol 0.14).
+
 ### Releases
 
 - `v0.1.0-m9.1`: Features 1 and 2; `kumikit.provider-claude` and
