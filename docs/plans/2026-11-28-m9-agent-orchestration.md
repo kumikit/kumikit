@@ -34,7 +34,7 @@
   parsing in `format.rs` with unit tests, an updated README, and plugin version 0.2.0.
 - [x] **Step 1.6 — Verify:** fmt, clippy (host and wasm), `cargo test --workspace`,
   `check-docs.sh`, `check-plugin-names.sh`, `check-no-keys.sh`.
-- [ ] **Step 1.7 — Publish:** add `kumikit-threads@0.2.0` to `wit/PUBLISHED` when it ships
+- [x] **Step 1.7 — Publish:** add `kumikit-threads@0.2.0` to `wit/PUBLISHED` when it ships
   in a release.
 
 ### Feature 2 — Usage statistics and plan limits (ADR 0035)
@@ -242,7 +242,7 @@ Steps:
   `npm run check`, `npm test`, the e2e suite, `check-docs.sh`, `check-plugin-names.sh`,
   `check-no-keys.sh`, `footprint.sh` (no instance at startup: the probe runs only on
   refresh).
-- [ ] **Step 2.10 — Publish:** add `kumikit-usage@0.1.0` to `wit/PUBLISHED` when it
+- [x] **Step 2.10 — Publish:** add `kumikit-usage@0.1.0` to `wit/PUBLISHED` when it
   ships in a release.
 
 ## Notes
