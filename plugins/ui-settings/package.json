@@ -9,5 +9,5 @@
     "build": "vite build --logLevel warn",
     "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
   },
-  "dependencies": { "@kumikit/ui-sdk": "0.1.6", "@kumikit/protocol": "0.1.0" }
+  "dependencies": { "@kumikit/ui-sdk": "0.1.7", "@kumikit/protocol": "0.1.0" }
 }
