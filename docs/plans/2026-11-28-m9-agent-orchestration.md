@@ -260,12 +260,34 @@ inspector tab that already lists the side threads (`/btw`) of the active thread.
   `parent` and `side`, is hidden from `thread.list` and shown with `includeSide`, that a
   thread without an origin has neither, and that an `accept_edits` origin gives `standard`
   when no mode is asked for.
-- [ ] **Step 3.3 — Verify the side panel:** a started thread shows in the side panel of its
-  origin, live, and not in the sidebar. Checked by reading `plugins/ui-chat/src/SideThread.svelte`
-  (it loads `thread.list` with `includeSide` and keeps threads whose `parent` is the
-  active thread, live from `thread.created`); not yet run in the desktop app or e2e.
-- [ ] **Step 3.4 — Verify:** fmt, clippy (host and wasm), `cargo test --workspace`,
-  `check-docs.sh`, `check-plugin-names.sh`, `check-no-keys.sh`.
+- [x] **Step 3.3 — Verify the side panel:** a started thread shows in the side panel of its
+  origin, live, and not in the sidebar. Tested: the kernel keeps a `thread.created` side
+  thread out of the sidebar list (`web/kernel/tests/connection.test.ts`); `SideThread`
+  shows a started thread as it arrives, and only in its origin's panel
+  (`plugins/ui-chat/tests/chat.test.ts`); the core gives it `parent` and `side`
+  (`gateway.rs`, `client_interface.rs`). Writing the test found that a thread arriving in
+  an empty panel was listed but not shown; it is now shown at once.
+- [x] **Step 3.4 — Verify:** fmt, clippy (host and wasm), `cargo test --workspace`,
+  `check-docs.sh`, `check-plugin-names.sh`, `check-no-keys.sh`; CI on PR #25.
+
+### Feature 4 — Themes as JSON resource files (ADR 0037)
+
+Done in its own plan: [themes as resource files](2026-11-28-themes-as-resource-files.md).
+
+- [x] All steps, released in `v0.1.0-m9.2`.
+
+### Feature 5 — Settings → Agents
+
+Done in its own plan: [an Agents page in Settings](2026-11-28-agents-settings.md).
+
+- [x] All steps, released in `v0.1.0-m9.2` (protocol 0.13).
+
+### Releases
+
+- `v0.1.0-m9.1`: Features 1 and 2; `kumikit.provider-claude` and
+  `kumikit.provider-antigravity` 0.2.0 in the registry.
+- `v0.1.0-m9.2`: Features 3, 4 and 5; `kumikit.threads` yanked from the registry (it is
+  bundled); `kumikit.provider-claude` 0.2.1 with the thinking-box stream fix.
 
 ## Notes
 

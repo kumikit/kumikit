@@ -256,6 +256,18 @@ An open milestone: features that let agents coordinate other agents, added as th
   during turns and on-demand `reader` probes, including for declarative ACP providers),
   and the bundled `kumikit.ui-usage` thread-header meter and **Agent usage** dialog
   ([ADR 0035](../decisions/0035-usage-statistics-and-plan-limits.md)).
+- Threads an agent starts are side threads of the thread that started it, shown in its
+  side panel, not in the sidebar
+  ([ADR 0036](../decisions/0036-tool-started-threads-are-side-threads.md)).
+- Themes are plain JSON resource files: 24 bundled themes with previews in Settings →
+  Appearance and import from a file; the `theme` plugin kind is gone
+  ([ADR 0037](../decisions/0037-themes-as-resource-files.md)).
+- Agents are managed in Settings → Agents, apart from other plugins, with each agent's
+  settings in place (`InstalledPlugin.providers`, protocol `0.13`;
+  [06](06-client.md#agents)).
+
+Released so far: `v0.1.0-m9.1` (agents start threads, usage and limits) and `v0.1.0-m9.2`
+(side threads, themes, Agents page).
 
 **Status:** in progress. Plan:
 [M9 — Agent orchestration](../plans/2026-11-28-m9-agent-orchestration.md).
