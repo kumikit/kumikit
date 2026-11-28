@@ -1,0 +1,4 @@
+kumikit-signature 1
+key ed25519:00Ji-S866EV-IwRItk9Gk-M5N--4nvBzbbqvT6MRNNg
+file 1439498b64c44e8857e16a253e64bb06c51f18c6ff5ea37e2bacc4d969634eff release.json
+sig yYnsZ1D4RGsaO2GlNVVFvCvX1zySO3hRQ2cxz9ahvflIDgF75DxQZQcveLS2pU0CRSSnMEvfz7mzUAEZraMYCg

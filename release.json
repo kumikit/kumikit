@@ -1,0 +1,71 @@
+{
+  "format": 1,
+  "version": "0.1.0-m9.2",
+  "tag": "v0.1.0-m9.2",
+  "publishedAt": "2026-11-28T18:30:25.321037134Z",
+  "notesUrl": "https://github.com/kumikit/kumikit/releases/tag/v0.1.0-m9.2",
+  "core": {
+    "aarch64-apple-darwin": {
+      "url": "https://github.com/kumikit/kumikit/releases/download/v0.1.0-m9.2/kumikit-v0.1.0-m9.2-aarch64-apple-darwin.tar.gz",
+      "sha256": "28e9df5e1fa0601213c4aa7bdb1205e9337f3920eb0a5211283a8ac7482eaaf6",
+      "size": 10499116,
+      "format": "tar.gz"
+    },
+    "aarch64-unknown-linux-gnu": {
+      "url": "https://github.com/kumikit/kumikit/releases/download/v0.1.0-m9.2/kumikit-v0.1.0-m9.2-aarch64-unknown-linux-gnu.tar.gz",
+      "sha256": "816c86820fafa0a598eedbb7b09b499857c1b5ba6fe3f8da190629c3142ddfc8",
+      "size": 9528881,
+      "format": "tar.gz"
+    },
+    "x86_64-pc-windows-msvc": {
+      "url": "https://github.com/kumikit/kumikit/releases/download/v0.1.0-m9.2/kumikit-v0.1.0-m9.2-x86_64-pc-windows-msvc.zip",
+      "sha256": "99980827554f0f6800b748430b5ea338a13bb76b7beec3073db2faa61160b784",
+      "size": 10419606,
+      "format": "zip"
+    },
+    "x86_64-unknown-linux-gnu": {
+      "url": "https://github.com/kumikit/kumikit/releases/download/v0.1.0-m9.2/kumikit-v0.1.0-m9.2-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "6e87726a104dd5f46eeeebe06b5e01851ce9a6481e5221e476dfd6049a776b10",
+      "size": 10477484,
+      "format": "tar.gz"
+    }
+  },
+  "desktop": {
+    "linux-x86_64-appimage": {
+      "url": "https://github.com/kumikit/kumikit/releases/download/v0.1.0-m9.2/Kumikit-v0.1.0-m9.2-x86_64.AppImage",
+      "sha256": "847596e86750568c98125f5fcd1aaabada1cd9b39827e943c971e61c0fc86aed",
+      "size": 92891640,
+      "format": "appimage"
+    },
+    "linux-x86_64-deb": {
+      "url": "https://github.com/kumikit/kumikit/releases/download/v0.1.0-m9.2/Kumikit-v0.1.0-m9.2-x86_64.deb",
+      "sha256": "b0a1a763a182c2dfe6e610151a1a555ac4c9e9c7817d243fe52d79011e45913c",
+      "size": 14633032,
+      "format": "deb"
+    },
+    "linux-x86_64-rpm": {
+      "url": "https://github.com/kumikit/kumikit/releases/download/v0.1.0-m9.2/Kumikit-v0.1.0-m9.2-x86_64.rpm",
+      "sha256": "f878b2e53be5795df94eb4f6f1e9fc6fda031c9d9db5d10fb6c93a53b0f47638",
+      "size": 14635558,
+      "format": "rpm"
+    },
+    "macos-aarch64-app": {
+      "url": "https://github.com/kumikit/kumikit/releases/download/v0.1.0-m9.2/Kumikit-v0.1.0-m9.2-aarch64.app.tar.gz",
+      "sha256": "e98761a9198c9b2755c09ba7a1e74608d325659304198d0d787ef776c53d9f04",
+      "size": 14444170,
+      "format": "app.tar.gz"
+    },
+    "macos-aarch64-dmg": {
+      "url": "https://github.com/kumikit/kumikit/releases/download/v0.1.0-m9.2/Kumikit-v0.1.0-m9.2-aarch64.dmg",
+      "sha256": "41839f91a5805b3c678565ddac0b28d6c12aa5625ba8826be6772b8c474ada42",
+      "size": 14595230,
+      "format": "dmg"
+    },
+    "windows-x86_64-nsis": {
+      "url": "https://github.com/kumikit/kumikit/releases/download/v0.1.0-m9.2/Kumikit-v0.1.0-m9.2-x86_64-setup.exe",
+      "sha256": "c05a5e8deff16ccde59dd88d1f236b1eaa8a89e99d95184c8a50f31d65f29020",
+      "size": 12300562,
+      "format": "nsis"
+    }
+  }
+}
