@@ -145,6 +145,8 @@ types). A component imports only the interfaces its code calls.
 | `kumikit:provider@0.2.0` | The provider world ([05](05-providers.md)) |
 | `kumikit:models@0.1.0` | Additive provider import (`options.set-options`) for per-model settings during `list-models` ([05](05-providers.md#model-settings), [ADR 0033](../decisions/0033-model-settings-and-provider-icons.md)) |
 | `kumikit:tool@0.1.0` | Tool contribution: `tool.call` ([03](03-kernel.md#tool-gateway)) |
+| `kumikit:threads@0.1.0` | Additive client import for threads: `defer`, `list-queue`, `remove-queued`, `read-events`, `suggest-title` ([ADR 0030](../decisions/0030-thread-agent-tools-plugin.md)) |
+| `kumikit:threads@0.2.0` | 0.1.0 plus `list-models` and `create-thread` with model settings and a bounded permission mode ([03](03-kernel.md#client-interface), [ADR 0034](../decisions/0034-agents-start-threads.md)); the Rust SDK uses it, and the host links both |
 | `kumikit:bot` | The bot world ([09](09-bots.md)), planned for after M5 |
 
 Shape of the host interface (abridged; `wit/` is the source):

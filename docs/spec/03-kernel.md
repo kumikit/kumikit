@@ -199,6 +199,22 @@ plugin sends carry `from { plugin }` in `turn.started`; approvals it answers car
 `plugin` in `approval.resolved`; it cannot answer `allow_always`. Subscriptions are
 resources with a `wasi:io` pollable, so a plugin can wait on several things at once.
 
+`kumikit:threads@0.2.0` adds to this:
+
+- `list-models(provider)` (`threads.create`): the provider's models and their settings,
+  as in `provider.models`.
+- `create-thread(request)` (`threads.create`): a thread with `provider`, `model`,
+  `title`, model settings (`options`, checked against the model as in `thread.create`)
+  and `permission-mode`. All are optional. The permission mode is bounded
+  ([ADR 0034](../decisions/0034-agents-start-threads.md)):
+  - A plugin never creates a `full_access` thread.
+  - `origin` names the thread the plugin acts for (a tool passes `tool-call.thread`). It
+    must be in the same workspace, and the new thread can't be looser than it. Strictness,
+    from most to least strict: `plan`, `standard`, `accept_edits`, `full_access`.
+  - With no mode given, the thread gets `standard`, or the origin's mode if that is
+    stricter.
+  - A refused mode fails with `permission-denied`.
+
 ## Schedules
 
 Decided in [ADR 0024](../decisions/0024-schedules.md).
