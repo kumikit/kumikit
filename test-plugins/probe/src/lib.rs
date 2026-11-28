@@ -173,13 +173,13 @@ impl Provider for Probe {
 
     fn send(session: String, input: UserInput) -> Result<(), Error> {
         match model_of(&session) {
-            "echo" => echo(&input.text),
+            "echo" => echo(strip_title_hint(&input.text)),
             "tool-approval" => tool_approval(),
             "fail" => {
                 emit(Event::TextDelta("about to fail".into()))?;
                 Err(fail(ErrorCode::Internal, "scripted failure"))
             }
-            _ => probe(&input.text),
+            _ => probe(strip_title_hint(&input.text)),
         }
     }
 
@@ -261,6 +261,16 @@ fn request(program: &str, args: &[&str]) -> SpawnRequest {
         cwd: None,
         env: Vec::new(),
         secret_env: Vec::new(),
+    }
+}
+
+/// The kernel puts a title hint before the first message of an untitled thread, followed
+/// by a blank line (spec 03, Threads). The scenarios read only the user's own message.
+fn strip_title_hint(text: &str) -> &str {
+    if text.starts_with("[Thread title]") {
+        text.split_once("\n\n").map_or(text, |(_, rest)| rest)
+    } else {
+        text
     }
 }
 

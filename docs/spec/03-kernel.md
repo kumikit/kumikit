@@ -36,6 +36,15 @@ Approval  { id, thread, turn, kind, summary, detail, status }
 - `status` of an approval: `pending`, `allowed`, `denied`, `cancelled`. A decision is
   `allow`, `allow_always` or `deny`.
 - `Turn.outcome`: `done`, `cancelled`, `failed`.
+- `Thread.titleSource` is unset (the title was given at creation, or there is none),
+  `agent` (a suggestion from an agent through `threads.title.suggest`) or `user` (a
+  rename). A suggestion never replaces a `user` title.
+- **Title hint.** On a thread's first user turn, while `titleSource` is unset and the
+  thread is not a side thread, the kernel puts a short note ahead of the user's message
+  for the provider: the thread has no title yet, and if a tool suggests titles, it should
+  call it once with a short title. The note is not added to the log, which keeps the
+  user's own text, and it names no tool. The note ends at the first blank line
+  ([ADR 0030](../decisions/0030-thread-agent-tools-plugin.md)).
 - The domain model is the shared language of providers and clients. It is the reason the
   kernel, not a plugin, owns threads ([ADR 0006](../decisions/0006-kernel-owns-domain-model.md)).
 

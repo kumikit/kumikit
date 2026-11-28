@@ -13,6 +13,16 @@ use crate::clock::{SequentialIds, StepClock};
 use crate::provider::{BoxFuture, Model, ProviderError, ProviderEvent, ProviderResult};
 use crate::repo::StoredEvent;
 
+/// The user's message as a provider sees it: the first-turn title hint (`TITLE_HINT`) and
+/// the blank line after it are dropped, so scripts match on what the user typed.
+fn user_text(text: &str) -> &str {
+    if text.starts_with(crate::turns::TITLE_HINT) {
+        text.split_once("\n\n").map_or(text, |(_, rest)| rest)
+    } else {
+        text
+    }
+}
+
 /// A fake provider; the message text picks the behavior:
 /// `echo <x>`, `approve`, `approve-fail`, `fail`, `plugin`, `block`, `late`, `steer`.
 /// Model `one` reports `steer`; `two` does not.
@@ -80,7 +90,7 @@ impl Provider for Fake {
                         .map_err(|e| ProviderError::new(e.to_string()))
                 }
             };
-            match input.text.as_str() {
+            match user_text(&input.text) {
                 t if t.starts_with("echo ") => {
                     let text = t["echo ".len()..].to_owned();
                     emit(ProviderEvent::TextDelta { text: text.clone() }).await?;
@@ -1429,4 +1439,78 @@ async fn switch_provider_refused_while_running() {
     assert_eq!(err.code(), ErrorCode::Conflict);
     e.kernel.thread_cancel(&e.thread).await.unwrap();
     e.until(0, "turn.ended").await;
+}
+
+/// ADR 0030 title hint: only the first turn of an untitled thread gets it, and the log
+/// keeps the user's own text.
+#[tokio::test]
+async fn first_turn_of_an_untitled_thread_gets_the_title_hint() {
+    let e = env().await;
+    let rec = RecordingProvider::new("other");
+    e.kernel.register_provider(rec.clone()).unwrap();
+    e.kernel
+        .thread_update(
+            &e.thread,
+            Some("other".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    e.send("hello there").await;
+    let first = e.until(0, "turn.ended").await;
+    e.send("and again").await;
+    let second = e.until(first.last().unwrap().seq, "turn.ended").await;
+
+    let prompts = rec.prompts.lock().unwrap().clone();
+    assert_eq!(prompts.len(), 2);
+    assert!(prompts[0].starts_with(crate::turns::TITLE_HINT));
+    assert!(prompts[0].ends_with("hello there"));
+    assert_eq!(prompts[1], "and again");
+    let logged: Vec<String> = first
+        .iter()
+        .chain(second.iter())
+        .filter_map(|ev| match &ev.event {
+            ThreadEvent::TurnStarted(t) => Some(t.input.text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        logged,
+        vec!["hello there".to_string(), "and again".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn a_titled_thread_gets_no_title_hint() {
+    let e = env().await;
+    let rec = RecordingProvider::new("other");
+    e.kernel.register_provider(rec.clone()).unwrap();
+    e.kernel
+        .thread_update(
+            &e.thread,
+            Some("other".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(
+        e.kernel
+            .thread_suggest_title(&e.thread, "Planning the release")
+            .await
+            .unwrap()
+    );
+
+    e.send("plan it").await;
+    e.until(0, "turn.ended").await;
+
+    assert_eq!(*rec.prompts.lock().unwrap(), vec!["plan it".to_string()]);
 }
