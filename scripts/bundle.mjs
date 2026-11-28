@@ -12,7 +12,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { join } from 'node:path';
 
 const OUT = 'target/bundle';
-const UI_PLUGINS = ['plugins/ui-chat', 'plugins/ui-settings', 'plugins/theme-default'];
+const UI_PLUGINS = ['plugins/ui-chat', 'plugins/ui-settings', 'plugins/ui-usage', 'plugins/theme-default'];
 const FALLBACK_THEME = 'kumikit.theme-default';
 // npm and npx are .cmd files on Windows, which only a shell can start.
 const run = (cmd, args, opts = {}) =>

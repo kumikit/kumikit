@@ -24,6 +24,7 @@ fn first_party_and_test_manifests_validate() {
     for path in [
         "plugins/ui-chat/plugin.toml",
         "plugins/ui-settings/plugin.toml",
+        "plugins/ui-usage/plugin.toml",
         "plugins/theme-default/plugin.toml",
         "test-plugins/panel-smoke/plugins/test.panel-smoke/plugin.toml",
     ] {

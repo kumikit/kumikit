@@ -1,0 +1,20 @@
+id = "kumikit.ui-usage"
+name = "Usage"
+version = "0.1.0"
+description = "Plan limits of the thread's agent in its header, and an Agent usage dialog with each provider's limits, tokens, cost and activity."
+license = "MIT"
+repository = "https://github.com/kumikit/kumikit"
+kind = ["ui"]
+api = "^0.1"
+
+[ui]
+entry = "dist/index.js"
+isolation = "inline"
+
+[contributes]
+slots = [
+  { slot = "thread.header", id = "usage", title = "Usage" },
+]
+commands = [
+  { id = "usage.open", title = "Agent usage", when = "connection.ready" },
+]
