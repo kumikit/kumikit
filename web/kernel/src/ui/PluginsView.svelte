@@ -7,8 +7,10 @@
   import type { InstalledPlugin } from '@kumikit/protocol';
   import { isComposing } from '@kumikit/ui-sdk';
   import type { Kernel } from '../app.svelte';
+  import { isAgent } from '../plugins/agents';
   import type { ClientPlugin } from '../plugins/client.svelte';
-  import { describePermissions, startsPrograms } from '../plugins/permissions';
+  import { describePermissions } from '../plugins/permissions';
+  import CorePluginDialog, { type CorePluginAsk } from './CorePluginDialog.svelte';
   import { trapFocus } from './dialog';
   import LinkedWorkspaces from './LinkedWorkspaces.svelte';
   import RegistryPanel from './RegistryPanel.svelte';
@@ -17,13 +19,16 @@
   const core = $derived(kernel.corePlugins);
   const client = $derived(kernel.clientPlugins);
 
-  /** The plugin whose permissions are being shown for a grant. */
-  let granting = $state.raw<InstalledPlugin | undefined>();
-  let removing = $state.raw<InstalledPlugin | undefined>();
+  /** The grant or removal being confirmed. */
+  let asking = $state.raw<CorePluginAsk | undefined>();
+  const grantFor = (plugin: InstalledPlugin) => (asking = { kind: 'grant', plugin });
   let trusting = $state.raw<ClientPlugin | undefined>();
   let scroller: HTMLElement | undefined = $state();
 
   const target = $derived(core.target);
+  /** Agents are managed in Settings → Agents (06-client, Agents). */
+  const plugins = $derived(core.plugins.filter((p) => !isAgent(p)));
+  const agentCount = $derived(core.plugins.length - plugins.length);
 
   $effect(() => {
     // Refresh when the chosen core comes up and whenever its plugins change.
@@ -42,7 +47,7 @@
       const file = await kernel.platform.pickBytes('.kkp');
       if (!file) return;
       const p = await core.upload(file.bytes);
-      if (p) granting = p;
+      if (p) grantFor(p);
       return;
     }
     const path =
@@ -51,13 +56,7 @@
         : await kernel.platform.pickFolder('Install a plugin folder (with a plugin.toml)');
     if (!path) return;
     const p = await core.install(path);
-    if (p) granting = p;
-  }
-
-  async function grant() {
-    const p = granting;
-    granting = undefined;
-    if (p) await core.enable(p);
+    if (p) grantFor(p);
   }
 
   async function installClient() {
@@ -75,6 +74,7 @@
   }
 
   const publisher = (id: string) => id.split('.')[0];
+  const openAgents = () => (kernel.main = { kind: 'settings', page: 'agents' });
   const stateText: Record<string, string> = { installed: 'Not enabled', enabled: 'Enabled', disabled: 'Disabled' };
 </script>
 
@@ -84,7 +84,7 @@
       {#if kernel.registries.coreAvailable || kernel.registries.clientAvailable}
         <button type="button" class="pill" onclick={() => jumpTo('kk-find-plugins')}>{starter ? 'Starter pack' : 'Discover'}</button>
       {/if}
-      <button type="button" class="pill" onclick={() => jumpTo('kk-core-plugins')}>Core ({core.plugins.length})</button>
+      <button type="button" class="pill" onclick={() => jumpTo('kk-core-plugins')}>Core ({plugins.length})</button>
       <button type="button" class="pill" onclick={() => jumpTo('kk-client-plugins')}>Client ({client.plugins.length})</button>
       {#if !starter && (kernel.registries.coreAvailable || kernel.registries.clientAvailable)}
         <button type="button" class="pill" onclick={() => jumpTo('kk-updates')}>Updates</button>
@@ -105,7 +105,7 @@
     <RegistryPanel
       {kernel}
       {starter}
-      onCoreInstalled={(p) => (granting = p)}
+      onCoreInstalled={grantFor}
       onClientInstalled={(p) => {
         if (p.needsTrust) trusting = p;
       }}
@@ -135,11 +135,15 @@
       {#if core.uploads}
         <p class="kk-muted note">{target.label} is on another machine: a package file is sent to it. To install from a folder there, pack it first with <code>kumikit plugin pack</code>.</p>
       {/if}
-      {#if core.plugins.length === 0}
-        <p class="kk-muted note">{core.loading ? 'Loading…' : 'No core plugins are installed.'}</p>
+      <p class="kk-muted note">
+        {#if agentCount > 0}{agentCount === 1 ? 'One agent is' : `${agentCount} agents are`} installed here too.{/if}
+        Agents are managed in <button type="button" class="link" onclick={openAgents}>Settings → Agents</button>.
+      </p>
+      {#if plugins.length === 0}
+        <p class="kk-muted note">{core.loading ? 'Loading…' : 'No other core plugins are installed.'}</p>
       {/if}
       <ul class="list">
-        {#each core.plugins as p (p.id)}
+        {#each plugins as p (p.id)}
           <li class="card">
             <div class="card-top">
               <div class="title-col">
@@ -162,12 +166,12 @@
             {/if}
             <div class="actions">
               {#if p.state !== 'enabled'}
-                <button type="button" class="kk-button primary" onclick={() => (granting = p)}>Enable…</button>
+                <button type="button" class="kk-button primary" onclick={() => grantFor(p)}>Enable…</button>
               {:else}
                 <button type="button" class="kk-button" onclick={() => core.disable(p.id)}>Disable</button>
               {/if}
               {#if p.source !== 'bundled'}
-                <button type="button" class="kk-button danger" onclick={() => (removing = p)}>Remove…</button>
+                <button type="button" class="kk-button danger" onclick={() => (asking = { kind: 'remove', plugin: p })}>Remove…</button>
               {/if}
             </div>
           </li>
@@ -225,43 +229,14 @@
   </div>
 </div>
 
-{#if granting}
-  {@const p = granting}
-  <div class="scrim" role="presentation"></div>
-  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="kk-grant-title" tabindex="-1" use:trapFocus onkeydown={(e) => onKey(e, () => (granting = undefined))}>
-    <h2 id="kk-grant-title">Enable {p.name} on {target.label}?</h2>
-    <p class="kk-muted">{p.id} {p.version} from <strong>{publisher(p.id)}</strong>{#if p.repository} · {p.repository}{/if}</p>
-    {#if p.signed && p.publisher}
-      <p>Signed with key <code class="key">{p.publisher.key}</code>{#if p.publisher.registry}, the publisher’s key in the registry {p.publisher.registry}.{:else}; not checked against a registry.{/if}</p>
-    {:else}
-      <p class="warning">This package is not signed, so Kumikit cannot check who made it.</p>
-    {/if}
-    {#if startsPrograms(p.requested)}
-      <p class="warning">It starts programs outside the sandbox. They run with your full user access, so they can read and change anything you can.</p>
-    {/if}
-    <p>It asks for these permissions, granted together:</p>
-    <ul class="perms">
-      {#each describePermissions(p.requested) as line (line)}<li>{line}</li>{/each}
-    </ul>
-    <div class="actions">
-      <button type="button" class="kk-button" onclick={() => (granting = undefined)}>Not now</button>
-      <button type="button" class="kk-button primary" data-autofocus onclick={grant}>Grant and enable</button>
-    </div>
-  </div>
-{/if}
-
-{#if removing}
-  {@const p = removing}
-  <div class="scrim" role="presentation"></div>
-  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="kk-remove-title" tabindex="-1" use:trapFocus onkeydown={(e) => onKey(e, () => (removing = undefined))}>
-    <h2 id="kk-remove-title">Remove {p.name}?</h2>
-    <p>Its running turns are cancelled. Keep its data (settings and stored state) for a later install, or delete it too.</p>
-    <div class="actions">
-      <button type="button" class="kk-button" data-autofocus onclick={() => (removing = undefined)}>Cancel</button>
-      <button type="button" class="kk-button" onclick={() => { const id = p.id; removing = undefined; void core.uninstall(id, false); }}>Remove, keep data</button>
-      <button type="button" class="kk-button danger" onclick={() => { const id = p.id; removing = undefined; void core.uninstall(id, true); }}>Remove and delete data</button>
-    </div>
-  </div>
+{#if asking}
+  <CorePluginDialog
+    ask={asking}
+    core={target.label}
+    onclose={() => (asking = undefined)}
+    ongrant={(p) => void core.enable(p)}
+    onremove={(p, deleteData) => void core.uninstall(p.id, deleteData)}
+  />
 {/if}
 
 {#if trusting}
@@ -500,7 +475,13 @@
     border-top: 0;
     padding-top: 4px;
   }
-  .key {
-    overflow-wrap: anywhere;
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--kk-accent, LinkText);
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
   }
 </style>

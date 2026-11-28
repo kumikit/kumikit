@@ -43,6 +43,9 @@ test('the main screens have no axe violations, light and dark', async ({ page, k
     await axe(page, `${theme}, plugins`);
     await command(page, 'Open settings');
     await axe(page, `${theme}, settings`);
+    await command(page, 'Agents: install, remove and configure');
+    await page.getByRole('listitem').filter({ hasText: 'test.recorded' }).getByText('Permissions', { exact: true }).click();
+    await axe(page, `${theme}, agents`);
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await page.getByRole('navigation', { name: 'Open workspaces' }).getByRole('button', { name: 'proj', exact: true }).click();
   }

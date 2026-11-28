@@ -197,7 +197,7 @@ and both sides ignore fields they do not know.
 | `thread.delete` | `thread` | `{}`. Permanently removes a thread and its turns, approvals, and events, ending any idle session, deleting its managed Git worktree directory under `<homeDir>/worktrees/` if no other thread still references it, and emitting `thread.deleted`. Fails with `conflict` while a turn runs or waits. |
 | `events.subscribe` | `topic`, `after` | `head` (the topic's last `seq` at subscribe time) |
 | `events.unsubscribe` | `topic` | `{}` |
-| `plugin.list` | — | `plugins`: every installed plugin (`id`, `name`, `version`, `description?`, `repository?`, `state`, `requested`, `granted?`, `contributes`, `signed`, `publisher?`, `source?`, `failure?`, `error?`) |
+| `plugin.list` | — | `plugins`: every installed plugin (`id`, `name`, `version`, `description?`, `repository?`, `state`, `requested`, `granted?`, `contributes`, `providers?`, `signed`, `publisher?`, `source?`, `failure?`, `error?`). `contributes.providers` lists the providers available now; `providers` (since 0.13) lists what the manifest declares, enabled or not, as `{ id (qualified), name, icon? }`, so a client can show a disabled plugin as an agent ([06](06-client.md#agents)). |
 | `core.activity` | — | `activeTurns`, `readyQueued`, `idle` (`activeTurns === 0 && readyQueued === 0`). Summarises live agent work across all workspaces (including side threads and scheduled turns) so updaters and tools can wait for idle before stopping the core (since 0.10). |
 | `core.shutdown` | `ifIdle?` | `{}`, sent before the core stops. When `ifIdle` is true and any turn is active or an unpaused queued message is ready to start, fails with `conflict` and leaves the core running (since 0.10). Otherwise running turns end as on any stop: the next start ends them as `core_restarted`. |
 | `provider.list` | — | `providers`: `{ id (qualified), name, plugin, icon?, readsLimits? }` for every available provider, read from manifests without activating anything. `icon` (since 0.11) is the manifest icon as a `data:` URL of an SVG or PNG. `readsLimits` (since 0.12) is present and true when a plugin's component exports the plan limits reader for it. |
@@ -216,6 +216,12 @@ and both sides ignore fields they do not know.
 | `usage.summary` | `provider?` (qualified id), `days` (1–400, today included), `tzOffsetMinutes?` (the client's offset from UTC, east positive, −1080 to 1080; default 0) | `totals` (`{ inputTokens, outputTokens, cachedInputTokens, cost?, turns }`), `threads` (threads with a counted turn), `models` (`{ provider, model, …totals }`, most tokens first), `daily` (`{ date, tokens, cost? }`, the client's days, oldest first, days without usage left out). Counts the turns this core ran that reported usage, by the day they started ([03](03-kernel.md#usage)). `inputTokens` includes cached input; `cost` adds up the turns that reported one and is absent when none did. Out-of-range `days` or offset gives `invalid_params`. |
 | `usage.limits` | `provider?` | `providers`: `{ provider, limits?, observed? }` for every available provider in `provider.list` order, or the one asked for (`not_found` if unknown). `limits` is the latest snapshot (`{ plan?, account?, accountUrl?, windows }`, each window `{ id, label, group?, usedPercent (0–100), resetsAt?, model? }`); absent when none was reported or the provider said it has none. `observed` is when it was taken. |
 | `usage.refresh` | `provider` | `{ provider, limits?, observed }`. Asks the provider to read its plan limits now ([05](05-providers.md#usage-and-limits)). Within 60 s of the last refresh of that provider it returns the stored snapshot instead. `unsupported` for a provider without a reader (`ProviderInfo.readsLimits` absent), `plugin_failed` when the reader fails, `not_found` for an unknown provider. |
+
+### Additions in 0.13
+
+- `InstalledPlugin` gains `providers?` (`DeclaredProvider`: `{ id, name, icon? }`), the
+  providers its manifest declares whether or not the plugin is enabled. Clients use it to
+  list agents in Settings → Agents ([06](06-client.md#agents)).
 
 ### Additions in 0.12
 

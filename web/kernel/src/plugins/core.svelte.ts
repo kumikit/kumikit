@@ -28,6 +28,8 @@ export class CorePlugins {
   choose(id: string): void {
     this.chosen = id;
     this.plugins = [];
+    // Agent search results belong to the core they came from.
+    this.kernel.registries.agents = undefined;
     void this.refresh();
   }
 

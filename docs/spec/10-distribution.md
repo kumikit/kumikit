@@ -189,7 +189,8 @@ kumikit plugin list | remove <id> [--yes] [--keep-data]
 ```
 
 The argument of `add` is a file when it names an existing file or ends in `.kkp`, and an
-id otherwise. The desktop plugin manager does the same through the protocol
+id otherwise. The desktop plugin manager, and Settings → Agents for agents
+([06](06-client.md#agents)), do the same through the protocol
 (`plugin.install` with `registry`, `path` or `package`) for core plugins, and through the
 shell's client plugin store for UI plugins ([06](06-client.md#shell-rust-kumikit-shell)).
 

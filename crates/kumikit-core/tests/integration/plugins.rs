@@ -23,7 +23,7 @@ async fn installing_and_disabling_is_announced_to_every_client() {
         let mut admin = Client::hello(&dirs.address).await;
 
         let hello = admin
-            .call("core.hello", json!({"protocol":"0.12", "client": {"name": "t", "version": "0"}}))
+            .call("core.hello", json!({"protocol":"0.13", "client": {"name": "t", "version": "0"}}))
             .await;
         assert_eq!(hello["plugins"], json!([]));
         assert!(hello["capabilities"].as_array().unwrap().contains(&json!("plugins")));
@@ -34,6 +34,9 @@ async fn installing_and_disabling_is_announced_to_every_client() {
         assert_eq!(installed["plugin"]["state"], "installed");
         assert_eq!(installed["plugin"]["signed"], false);
         assert_eq!(installed["plugin"]["requested"]["spawn"], json!(["fake-acp-agent"]));
+        // Declared providers are listed before the plugin is enabled (since 0.13).
+        assert_eq!(installed["plugin"]["contributes"]["providers"], json!([]));
+        assert_eq!(installed["plugin"]["providers"], json!([{"id": PROBE, "name": "Probe"}]));
 
         // Permissions are granted as a whole.
         let wrong = admin
@@ -63,6 +66,9 @@ async fn installing_and_disabling_is_announced_to_every_client() {
             .await;
         let note = watcher.notification("core.pluginsChanged").await;
         assert_eq!(note["plugins"], json!([]));
+        let list = admin.call("plugin.list", json!({})).await;
+        assert_eq!(list["plugins"][0]["state"], "disabled");
+        assert_eq!(list["plugins"][0]["providers"][0]["id"], PROBE);
 
         admin
             .call("plugin.uninstall", json!({"plugin": "test.probe", "deleteData": true}))
@@ -89,7 +95,7 @@ async fn enabled_plugins_survive_a_restart_and_appear_in_hello() {
         let hello = c
             .call(
                 "core.hello",
-                json!({"protocol":"0.12", "client": {"name": "t", "version": "0"}}),
+                json!({"protocol":"0.13", "client": {"name": "t", "version": "0"}}),
             )
             .await;
         assert_eq!(

@@ -7,7 +7,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 
-import { command, expect, open, test, type Kumikit, modelButton } from './fixtures';
+import { command, openAgents, expect, open, test, type Kumikit, modelButton } from './fixtures';
 
 test.use({ remote: true });
 
@@ -37,9 +37,8 @@ async function addRemote(page: Page, kk: Kumikit) {
 /** Installs a provider replaying `transcript`: from a folder on the local core, by upload
  * on the remote one. */
 async function installProvider(page: Page, kk: Kumikit, core: 'This computer' | 'Dev box', transcript: string) {
-  await command(page, 'Manage plugins');
-  const region = page.getByRole('region', { name: /On this core/ });
-  await region.getByLabel('Core').selectOption({ label: core });
+  const region = await openAgents(page);
+  await page.getByRole('combobox', { name: /^Core/ }).selectOption({ label: core });
   if (core === 'This computer') {
     await kk.pick(kk.provider(transcript, { mode: 'default' }));
     await region.getByRole('button', { name: 'Install from folder…' }).click();
@@ -53,7 +52,8 @@ async function installProvider(page: Page, kk: Kumikit, core: 'This computer' | 
   await grant.getByRole('button', { name: 'Grant and enable' }).click();
   await expect(region.getByRole('listitem').filter({ hasText: 'test.recorded' }).last()).toContainText('Enabled');
   // The recorded provider runs on provider-acp, which the core seeds after it is ready.
-  await expect(region.getByRole('listitem').filter({ hasText: 'kumikit.provider-acp' })).toContainText('Enabled');
+  await command(page, 'Manage plugins');
+  await expect(page.getByRole('region', { name: /On this core/ }).getByRole('listitem').filter({ hasText: 'kumikit.provider-acp' })).toContainText('Enabled');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 }
 

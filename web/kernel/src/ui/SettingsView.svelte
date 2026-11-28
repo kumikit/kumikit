@@ -2,6 +2,8 @@
      settings (`settings.schema`), arranged in a clean two-column settings layout. -->
 <script lang="ts">
   import type { Kernel } from '../app.svelte';
+  import { isAgentInfo } from '../plugins/agents';
+  import AgentsSettings from './AgentsSettings.svelte';
   import CoreSettings from './CoreSettings.svelte';
   import GeneralSettings from './GeneralSettings.svelte';
   import SlotHost from './SlotHost.svelte';
@@ -13,16 +15,20 @@
     [...kernel.slots.in('settings.page')].sort((a, b) => (a.contribution.order ?? 100) - (b.contribution.order ?? 100)),
   );
   const showGeneral = $derived(!kernel.platform.safeMode);
-  /** Core plugins with settings on the active tab's core; page ids are `core:<plugin id>`. */
+  /** Core plugins with settings on the active tab's core; page ids are `core:<plugin id>`.
+   * Agents' settings are on the Agents page instead. */
   const conn = $derived(kernel.connection);
   const corePages = $derived(
-    conn.hello?.capabilities.includes('settings') ? conn.plugins.filter((p) => p.contributes.settings) : [],
+    conn.hello?.capabilities.includes('settings') ? conn.plugins.filter((p) => p.contributes.settings && !isAgentInfo(p)) : [],
   );
+  /** The Agents page manages the core's plugins, so it needs the `plugins` capability. */
+  const showAgents = $derived(conn.hello?.capabilities.includes('plugins') ?? false);
+  const agentsCurrent = $derived(showAgents && page === 'agents');
   const generalCurrent = $derived(showGeneral && (page === undefined || page === 'general'));
   const updatesCurrent = $derived(showGeneral && page === 'updates');
   const worktreesCurrent = $derived(showGeneral && page === 'worktrees');
   const coreCurrent = $derived(
-    generalCurrent || updatesCurrent || worktreesCurrent
+    generalCurrent || updatesCurrent || worktreesCurrent || agentsCurrent
       ? undefined
       : page?.startsWith('core:')
         ? corePages.find((p) => `core:${p.id}` === page)
@@ -31,7 +37,7 @@
           : corePages[0],
   );
   const current = $derived(
-    generalCurrent || updatesCurrent || worktreesCurrent || coreCurrent
+    generalCurrent || updatesCurrent || worktreesCurrent || agentsCurrent || coreCurrent
       ? undefined
       : (pages.find((p) => p.contribution.id === page) ?? pages[0]),
   );
@@ -82,8 +88,18 @@
         </button>
       {/each}
     {/if}
-    {#if corePages.length}
+    {#if showAgents || corePages.length}
       <span class="group-label">On {conn.label}</span>
+      {#if showAgents}
+        <button
+          type="button"
+          class:current={agentsCurrent}
+          aria-current={agentsCurrent ? 'page' : undefined}
+          onclick={() => (kernel.main = { kind: 'settings', page: 'agents' })}
+        >
+          Agents
+        </button>
+      {/if}
       {#each corePages as p (p.id)}
         <button
           type="button"
@@ -104,6 +120,8 @@
         <UpdatesSettings {kernel} />
       {:else if worktreesCurrent}
         <WorktreesSettings {kernel} />
+      {:else if agentsCurrent}
+        <AgentsSettings {kernel} />
       {:else if coreCurrent}
         {#key coreCurrent.id}
           <h2 class="core-heading">{coreCurrent.id}</h2>

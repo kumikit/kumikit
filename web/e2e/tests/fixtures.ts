@@ -324,6 +324,12 @@ export async function command(page: Page, title: string): Promise<void> {
   await input.press('Enter');
 }
 
+/** Opens Settings → Agents; returns its Installed section (install buttons and the list). */
+export async function openAgents(page: Page): Promise<Locator> {
+  await command(page, 'Agents: install, remove and configure');
+  return page.getByRole('region', { name: 'Installed', exact: true });
+}
+
 /** The composer's model button (opens the model picker). */
 export function modelButton(scope: Page | Locator): Locator {
   return scope.getByRole('button', { name: /^Model:/ });

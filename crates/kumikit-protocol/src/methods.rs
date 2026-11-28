@@ -570,6 +570,11 @@ pub struct InstalledPlugin {
     pub granted: Option<Permissions>,
     /// What it contributes and is available now.
     pub contributes: Contributions,
+    /// The providers its manifest declares, whether or not they are available now (since
+    /// 0.13). A plugin that declares one is an agent to clients.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<DeclaredProvider>>", optional)]
+    pub providers: Vec<DeclaredProvider>,
     /// Whether the package was signed and its signature verified.
     pub signed: bool,
     /// Who signed it, and the registry it came from.
@@ -584,6 +589,20 @@ pub struct InstalledPlugin {
     /// Why the installed package cannot be loaded, if it cannot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+/// A provider a plugin's manifest declares (since 0.13).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct DeclaredProvider {
+    /// Qualified id: `<plugin id>/<local id>`.
+    pub id: String,
+    /// Display name, from the manifest.
+    pub name: String,
+    /// The icon from the manifest, as a `data:` URL of an SVG or PNG image.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 /// Result of `plugin.list`.

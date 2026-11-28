@@ -25,6 +25,7 @@ export type * from "./CoreConfigSetParams";
 export type * from "./CoreInfo";
 export type * from "./DailyUsage";
 export type * from "./Decision";
+export type * from "./DeclaredProvider";
 export type * from "./Device";
 export type * from "./DeviceListResult";
 export type * from "./DeviceRef";

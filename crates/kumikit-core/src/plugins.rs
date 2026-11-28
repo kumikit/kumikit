@@ -10,8 +10,8 @@ use kumikit_plugin_host::manager::{HostError, PluginView};
 use kumikit_plugin_host::manifest::{MANIFEST_FILE, Manifest};
 use kumikit_plugin_host::package;
 use kumikit_protocol::methods::{
-    Contributions, FilesAccess, InstalledPlugin, Limits, Permissions, PluginFailure, PluginInfo,
-    PluginSource as ProtocolSource, PluginState, PublisherInfo,
+    Contributions, DeclaredProvider, FilesAccess, InstalledPlugin, Limits, Permissions,
+    PluginFailure, PluginInfo, PluginSource as ProtocolSource, PluginState, PublisherInfo,
 };
 use kumikit_protocol::{ErrorCode, RpcError};
 
@@ -108,7 +108,17 @@ fn contributions(host: &PluginHost, id: &str, manifest: Option<&Manifest>) -> Co
 }
 
 /// One installed plugin for `plugin.list` and friends.
-pub fn installed(host: &PluginHost, view: &PluginView) -> InstalledPlugin {
+pub async fn installed(host: &PluginHost, view: &PluginView) -> InstalledPlugin {
+    let providers = host
+        .declared_providers(view)
+        .await
+        .into_iter()
+        .map(|p| DeclaredProvider {
+            id: p.id,
+            name: p.name,
+            icon: p.icon,
+        })
+        .collect();
     let manifest = view.manifest.as_deref();
     let id = view.record.id.clone();
     let failure = host.failure(&id).map(|f| PluginFailure {
@@ -132,6 +142,7 @@ pub fn installed(host: &PluginHost, view: &PluginView) -> InstalledPlugin {
             .as_ref()
             .map(|g| permissions(g, manifest)),
         contributes: contributions(host, &id, manifest),
+        providers,
         signed: view.record.publisher_key.is_some(),
         publisher: view.record.publisher_key.clone().map(|key| PublisherInfo {
             key,
@@ -152,12 +163,13 @@ pub fn installed(host: &PluginHost, view: &PluginView) -> InstalledPlugin {
 }
 
 /// Every installed plugin, by id.
-pub fn list(host: &PluginHost) -> Vec<InstalledPlugin> {
-    host.manager()
-        .list()
-        .iter()
-        .map(|v| installed(host, v))
-        .collect()
+pub async fn list(host: &PluginHost) -> Vec<InstalledPlugin> {
+    let views = host.manager().list();
+    let mut out = Vec::with_capacity(views.len());
+    for v in &views {
+        out.push(installed(host, v).await);
+    }
+    out
 }
 
 /// Enabled plugins and their available contributions, for `core.hello` and
@@ -219,7 +231,7 @@ pub async fn install(host: &PluginHost, path: &str) -> Result<InstalledPlugin, R
             .await
             .map_err(host_err)?
     };
-    Ok(installed(host, &view))
+    Ok(installed(host, &view).await)
 }
 
 /// Installs a `.kkp` sent as bytes (base64) by a client on another machine. It is
@@ -246,7 +258,7 @@ pub async fn install_package(host: &PluginHost, base64: &str) -> Result<Installe
         .install(&dir.path().join("plugin.kkp"), PluginSource::File)
         .await
         .map_err(host_err)?;
-    Ok(installed(host, &view))
+    Ok(installed(host, &view).await)
 }
 
 /// Packs a plugin directory into `plugin.kkp` in a new temporary directory.
@@ -277,11 +289,11 @@ pub async fn enable(
     let view = host.manager().get(id).map_err(host_err)?;
     let grants = grants(grant, view.manifest.as_deref())?;
     let view = host.enable(id, &grants).await.map_err(host_err)?;
-    Ok(installed(host, &view))
+    Ok(installed(host, &view).await)
 }
 
 /// Disables a plugin.
 pub async fn disable(host: &PluginHost, id: &str) -> Result<InstalledPlugin, RpcError> {
     let view = host.disable(id).await.map_err(host_err)?;
-    Ok(installed(host, &view))
+    Ok(installed(host, &view).await)
 }

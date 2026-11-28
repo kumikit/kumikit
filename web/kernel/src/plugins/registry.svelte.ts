@@ -11,6 +11,7 @@ import type { AvailableUpdate, InstalledPlugin, RegistryInfo, RegistryResult } f
 import type { Kernel } from '../app.svelte';
 import type { ClientRegistryResult, ClientUpdate } from '../platform/index';
 import type { ClientPlugin } from './client.svelte';
+import { isAgentResult } from './agents';
 import { type Lock, type LockEntry, parseLock, registryOf, withClientFlags } from './lockfile';
 
 /** What importing a lockfile will do with one entry. */
@@ -37,6 +38,9 @@ export class Registries {
   core = $state.raw<RegistryResult[] | undefined>();
   client = $state.raw<ClientRegistryResult[] | undefined>();
   searching = $state(false);
+  /** Agents found by the last agent search (Settings → Agents), or undefined before it. */
+  agents = $state.raw<RegistryResult[] | undefined>();
+  searchingAgents = $state(false);
   /** Updates found by the last check, or undefined before the user checked. */
   coreUpdates = $state.raw<AvailableUpdate[] | undefined>();
   clientUpdates = $state.raw<ClientUpdate[] | undefined>();
@@ -72,6 +76,17 @@ export class Registries {
     this.searching = false;
     this.core = core?.results ?? (this.coreAvailable ? [] : undefined);
     this.client = client ?? (this.clientAvailable ? [] : undefined);
+  }
+
+  /** Searches the chosen core's registries for agents only (Settings → Agents). */
+  async searchAgents(query: string, refresh = false): Promise<void> {
+    const k = this.kernel;
+    const c = k.corePlugins.target;
+    if (!this.coreAvailable) return;
+    this.searchingAgents = true;
+    const r = await k.attempt('Cannot search the registries', () => c.call('registry.search', { query, refresh }));
+    this.searchingAgents = false;
+    this.agents = (r?.results ?? []).filter(isAgentResult);
   }
 
   /** Installs a core plugin on the chosen core, from the registry it was found in.

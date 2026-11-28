@@ -11,7 +11,7 @@ import { createInterface } from 'node:readline';
 
 import { test as base, expect, type Page } from '@playwright/test';
 
-import { command, ROOT, type Registry, startRegistry } from './fixtures';
+import { command, openAgents, ROOT, type Registry, startRegistry } from './fixtures';
 
 const TARGET = process.env.CARGO_TARGET_DIR ?? join(ROOT, 'target');
 const exe = (name: string) => (process.platform === 'win32' ? `${name}.exe` : name);
@@ -84,17 +84,18 @@ test('the browser client installs from the core’s registry and runs a bundled 
   await expect(out).toBeVisible({ timeout: 15_000 });
   expect(JSON.parse((await out.textContent())!)).toMatchObject({ pluginList: 'ok', send: 'permission_denied', network: 'blocked', parent: 'blocked' });
 
-  // A core plugin from the registry: the core fetches it.
-  await command(page, 'Manage plugins');
-  await page.getByLabel('Search the registries').fill('probe');
+  // An agent from the registry: the core fetches it.
+  const installed = await openAgents(page);
+  await page.getByLabel('Search agents').fill('probe');
   await page.getByRole('button', { name: 'Search', exact: true }).click();
-  const results = page.getByRole('list', { name: 'Registry results' });
+  const results = page.getByRole('list', { name: 'Available agents' });
   await expect(results.getByRole('listitem').filter({ hasText: 'acme.probe' })).toHaveCount(1);
-  await results.getByRole('button', { name: /Install on/ }).click();
+  await results.getByRole('button', { name: 'Install…' }).click();
   const grant = page.getByRole('dialog', { name: /Enable Acme Probe/ });
   await expect(grant).toContainText('the publisher’s key in the registry');
   await grant.getByRole('button', { name: 'Grant and enable' }).click();
-  await expect(page.getByRole('region', { name: 'On this core' }).getByRole('listitem').filter({ hasText: 'acme.probe' })).toContainText('Enabled');
+  await expect(installed.getByRole('listitem').filter({ hasText: 'acme.probe' })).toContainText('Enabled');
+  await command(page, 'Manage plugins');
   // The browser cannot install UI plugins, so it offers none from the registry.
   await expect(page.getByRole('region', { name: 'On this client' }).getByRole('button', { name: 'Install from file…' })).toHaveCount(0);
 });

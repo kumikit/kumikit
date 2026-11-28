@@ -605,6 +605,51 @@ fn reply(events: &[StoredEvent]) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_disabled_plugin_still_declares_its_providers() {
+    let e = env().await;
+    let wasm = std::fs::read(kumikit_test_plugins::PROBE_WASM).unwrap();
+    let svg = b"<svg xmlns='http://www.w3.org/2000/svg'/>";
+    let file = kkp(
+        e.dir.path(),
+        "probe",
+        &PROBE.replace(
+            "{ id = \"probe\", name = \"Probe\" }",
+            "{ id = \"probe\", name = \"Probe\", icon = \"icon.svg\" }",
+        ),
+        &[("plugin.wasm", &wasm), ("icon.svg", svg)],
+    );
+    // Installed but never enabled: nothing is available, but the manifest's providers are.
+    let view = e
+        .host
+        .install(&file, kumikit_kernel::plugins::PluginSource::File)
+        .await
+        .unwrap();
+    assert!(e.kernel.provider_list().is_empty());
+    let declared = e.host.declared_providers(&view).await;
+    assert_eq!(declared.len(), 1);
+    assert_eq!(declared[0].id, "test.probe/probe");
+    assert_eq!(declared[0].name, "Probe");
+    let icon = declared[0].icon.as_deref().unwrap();
+    assert!(icon.starts_with("data:image/svg+xml;base64,"), "{icon}");
+
+    // A plugin without providers declares none.
+    let echo = kkp(
+        e.dir.path(),
+        "plain",
+        &PROBE
+            .replace("test.probe", "test.plain")
+            .replace("providers = [{ id = \"probe\", name = \"Probe\" }]", ""),
+        &[("plugin.wasm", &wasm)],
+    );
+    let plain = e
+        .host
+        .install(&echo, kumikit_kernel::plugins::PluginSource::File)
+        .await
+        .unwrap();
+    assert!(e.host.declared_providers(&plain).await.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn icons_and_model_settings_reach_clients_and_sessions() {
     let e = env().await;
     let wasm = std::fs::read(kumikit_test_plugins::PROBE_WASM).unwrap();

@@ -4,6 +4,11 @@ A provider plugin adapts one agent (usually an agent CLI) to the kernel's domain
 The kernel never names a provider: the model picker, approvals and transcript are built
 entirely from what providers report.
 
+Users install, enable, configure and remove the plugins that declare providers in the
+client's **Settings → Agents** page, not in the general plugin manager
+([06](06-client.md#agents)); a provider's settings (`settings.schema`) are shown there, on
+its plugin's card.
+
 ## Provider ids
 
 A provider id is qualified by the plugin whose manifest declares it:

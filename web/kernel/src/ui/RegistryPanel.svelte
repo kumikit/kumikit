@@ -7,6 +7,7 @@
   import type { AvailableUpdate, InstalledPlugin, RegistryResult } from '@kumikit/protocol';
   import { isComposing } from '@kumikit/ui-sdk';
   import type { Kernel } from '../app.svelte';
+  import { isAgentResult, updatesFor } from '../plugins/agents';
   import type { ClientPlugin } from '../plugins/client.svelte';
   import { describePermissions, describeUiNeeds, shortKey } from '../plugins/permissions';
   import type { ImportItem } from '../plugins/registry.svelte';
@@ -36,7 +37,11 @@
   let newClientRegistry = $state('');
   let showRegistries = $state(false);
 
-  const coreResults = $derived((reg.core ?? []).filter((r) => !starter || r.starter));
+  // Agents are found and installed in Settings → Agents; the starter pack keeps them,
+  // since setting one up is the point of first run (06-client, Agents).
+  const coreResults = $derived((reg.core ?? []).filter((r) => (starter ? r.starter : !isAgentResult(r))));
+  const coreUpdates = $derived(updatesFor(reg.coreUpdates ?? [], kernel.corePlugins.plugins, false));
+  const agentUpdates = $derived(updatesFor(reg.coreUpdates ?? [], kernel.corePlugins.plugins, true));
   const clientResults = $derived((reg.client ?? []).filter((r) => !starter || r.starter));
   const searched = $derived(reg.core !== undefined || reg.client !== undefined);
 
@@ -126,7 +131,7 @@
     'not-from-registry': 'installed from a file on the other machine; install it from that file',
     'unknown-registry': 'its registry is not configured here; add it first',
   };
-  const kindText = (kind: string[]) => (kind.includes('ui') ? 'UI plugin' : 'Core plugin');
+  const kindText = (kind: string[]) => (kind.includes('ui') ? 'UI plugin' : kind.includes('provider') ? 'Agent' : 'Core plugin');
 </script>
 
 {#if reg.coreAvailable || reg.clientAvailable}
@@ -210,12 +215,18 @@
         <button type="button" class="kk-button" disabled={reg.checking} onclick={() => reg.checkUpdates()}>Check for updates</button>
       </div>
       {#if reg.coreUpdates !== undefined || reg.clientUpdates !== undefined}
-        {#if (reg.coreUpdates ?? []).length === 0 && (reg.clientUpdates ?? []).length === 0}
-          <p class="kk-muted note" role="status">Everything is up to date.</p>
+        {#if coreUpdates.length === 0 && (reg.clientUpdates ?? []).length === 0}
+          <p class="kk-muted note" role="status">{agentUpdates.length > 0 ? 'Every plugin is up to date.' : 'Everything is up to date.'}</p>
         {/if}
-        {#if (reg.coreUpdates ?? []).length > 0 || (reg.clientUpdates ?? []).length > 0}
+        {#if agentUpdates.length > 0}
+          <p class="kk-muted note">
+            {agentUpdates.length === 1 ? 'An agent has an update' : `${agentUpdates.length} agents have updates`}:
+            <button type="button" class="link" onclick={() => (kernel.main = { kind: 'settings', page: 'agents' })}>Settings → Agents</button>.
+          </p>
+        {/if}
+        {#if coreUpdates.length > 0 || (reg.clientUpdates ?? []).length > 0}
           <ul class="list" aria-label="Available updates">
-            {#each reg.coreUpdates ?? [] as u (u.plugin)}
+            {#each coreUpdates as u (u.plugin)}
               <li class="card">
                 <div class="title-col"><strong>{u.plugin}</strong><span class="sub-id">{u.from} → {u.to} · on {target.label}</span></div>
                 {#if u.widens}<p class="warning">This version asks for more permissions.</p>{/if}
@@ -358,6 +369,15 @@
 {/if}
 
 <style>
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--kk-accent, LinkText);
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+  }
   .group {
     display: flex;
     flex-direction: column;

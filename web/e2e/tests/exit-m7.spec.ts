@@ -7,15 +7,14 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { command, expect, mod, open, test, chooseAgent } from './fixtures';
+import { command, openAgents, expect, mod, open, test, chooseAgent } from './fixtures';
 
 test('M7 threads: find, slash menu, @ mentions, /later, /btw side thread, and edit fork', async ({ page, kk }) => {
   writeFileSync(join(kk.project, 'notes.md'), '# Notes\n');
   await open(page, kk);
 
   // Install a declarative ACP provider replaying a recorded text transcript.
-  await command(page, 'Manage plugins');
-  const core = page.getByRole('region', { name: /On this core/ });
+  const core = await openAgents(page);
   await kk.pick(kk.provider('claude-text'));
   await core.getByRole('button', { name: 'Install from folder…' }).click();
   const grant = page.getByRole('dialog', { name: /Enable Recorded/ });

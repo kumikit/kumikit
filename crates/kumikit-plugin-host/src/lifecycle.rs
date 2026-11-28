@@ -220,6 +220,17 @@ pub struct ToolOutcome {
     pub is_error: bool,
 }
 
+/// A provider a plugin's manifest declares, for clients.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclaredProvider {
+    /// Qualified id: `<plugin id>/<local id>`.
+    pub id: String,
+    /// Display name from the manifest.
+    pub name: String,
+    /// The manifest icon as a `data:` URL.
+    pub icon: Option<String>,
+}
+
 /// The qualified id of a provider.
 pub fn qualified(plugin: &str, local: &str) -> String {
     format!("{plugin}/{local}")
@@ -363,6 +374,34 @@ impl PluginHost {
             .manager
             .install_checked(package, source, expected)
             .await
+    }
+
+    /// The providers a plugin's manifest declares, enabled or not, with their icons as
+    /// `data:` URLs: what a client needs to show the plugin as an agent.
+    pub async fn declared_providers(&self, view: &PluginView) -> Vec<DeclaredProvider> {
+        let Some(manifest) = view.manifest.as_deref() else {
+            return Vec::new();
+        };
+        let mut out = Vec::with_capacity(manifest.contributes.providers.len());
+        for entry in &manifest.contributes.providers {
+            let icon = match &entry.icon {
+                Some(path) => {
+                    let package = self
+                        .inner
+                        .manager
+                        .dirs()
+                        .package(&view.record.id, &view.record.version);
+                    icon_data_url(package, path).await
+                }
+                None => None,
+            };
+            out.push(DeclaredProvider {
+                id: qualified(&view.record.id, &entry.id),
+                name: entry.name.clone(),
+                icon,
+            });
+        }
+        out
     }
 
     /// Whether a turn runs on one of the plugin's providers, or on one its backend serves.

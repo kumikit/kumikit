@@ -200,7 +200,7 @@ impl Backend {
                 .await
                 .map_err(rpc_err)?
                 .plugins),
-            Backend::Local { host, .. } => Ok(crate::plugins::list(host)),
+            Backend::Local { host, .. } => Ok(crate::plugins::list(host).await),
         }
     }
 

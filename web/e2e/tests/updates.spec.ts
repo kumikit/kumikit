@@ -4,19 +4,19 @@
  */
 import type { Page } from '@playwright/test';
 
-import { command, expect, open, test, type Kumikit, modelButton } from './fixtures';
+import { command, openAgents, expect, open, test, type Kumikit, modelButton } from './fixtures';
 
 test.use({ updates: true });
 
 async function installRecordedProvider(page: Page, kk: Kumikit, transcript: string) {
-  await command(page, 'Manage plugins');
-  const region = page.getByRole('region', { name: /On this core/ });
+  const region = await openAgents(page);
   await kk.pick(kk.provider(transcript, { mode: 'default' }));
   await region.getByRole('button', { name: 'Install from folder…' }).click();
   const grant = page.getByRole('dialog', { name: /Enable Recorded/ });
   await grant.getByRole('button', { name: 'Grant and enable' }).click();
   await expect(region.getByRole('listitem').filter({ hasText: 'test.recorded' }).last()).toContainText('Enabled');
-  await expect(region.getByRole('listitem').filter({ hasText: 'kumikit.provider-acp' })).toContainText('Enabled');
+  await command(page, 'Manage plugins');
+  await expect(page.getByRole('region', { name: /On this core/ }).getByRole('listitem').filter({ hasText: 'kumikit.provider-acp' })).toContainText('Enabled');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 }
 

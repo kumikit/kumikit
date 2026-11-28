@@ -1090,6 +1090,9 @@ export class Kernel {
     c.register({ id: 'settings.open', title: 'Open settings', keybinding: 'Mod+,' }, () => {
       this.main = { kind: 'settings' };
     });
+    c.register({ id: 'agents.open', title: 'Agents: install, remove and configure' }, () => {
+      this.main = { kind: 'settings', page: 'agents' };
+    });
     c.register({ id: 'plugins.open', title: 'Manage plugins' }, () => {
       this.main = { kind: 'plugins' };
     });
