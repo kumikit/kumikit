@@ -147,7 +147,7 @@ Svelte 5 with runes, TypeScript strict, Vite
 | Command registry | Commands from the UI kernel, UI plugins and core plugins; one palette |
 | Declarative renderer | Renders core plugins' declarative UI: settings forms, status items, views |
 | Theme engine | Applies the active theme's tokens as CSS custom properties ([08](08-themes.md)) |
-| Plugin manager | Overlay sheet covering most of the window (closes via its close button, Escape, or clicking outside) to discover, install, update and configure plugins on the client and on each core |
+| Plugin manager | Overlay sheet covering most of the window (closes via its close button, Escape, or clicking outside) to discover, install, update and configure plugins on the client and on each core; agents are managed in Settings → Agents instead ([below](#agents)) |
 | Sidebar | One group per connection (label and status), with its workspaces and their threads (tree or active-threads view, worktree threads marked under their parent workspace), quick per-workspace thread creation, thread menu by right-click or the row's `⋯` button (Rename, Archive, Delete), a collapsible filterable **Archived** section at the bottom (collapsed by default, right-click Unarchive or Delete), kept current by the `workspace:<id>` topic, plus docked `sidebar.section` plugin panels |
 | Inspector dock | Resizable right-hand sidebar hosting `inspector.tab` plugin contributions for the active tab's core and workspace, with closable open tabs and a `+` icon menu that opens a plugin as a new tab or focuses its existing tab |
 | Cores view | Overlay sheet covering most of the window (closes via its close button, Escape, or clicking outside) that lists connections, adds a core by address and pairing code (showing the fingerprint before the code is sent) or by SSH destination, and removes one |
@@ -157,7 +157,7 @@ a plugin that broke the UI. **Safe mode** (`kumikit-desktop --safe`) loads no UI
 still load.
 
 - **Browse:** a search over the registries, core plugins from the chosen core's
-  `registry.search` and UI plugins and themes from the shell's. A result shows its name,
+  `registry.search` (agents left out) and UI plugins from the shell's. A result shows its name,
   publisher, key id, registry, repository, description and permissions; installing it asks
   where (a core, or this app for UI plugins and themes).
 - **Core plugins:** installed on a chosen core (the active tab's by default): from a
@@ -174,7 +174,8 @@ still load.
   trust; panels show the methods and network hosts they may use. A disabled UI plugin's
   contributions disappear at once; its module stays loaded until the app restarts.
 - **Updates:** "Check for updates" (per core, and for this app) lists what the registries
-  offer; nothing is applied until the user chooses an update. An update that widens
+  offer, apart from agents' updates, which it points to on the Agents page; nothing is
+  applied until the user chooses an update. An update that widens
   permissions shows the new ones and is applied only after they are granted.
 - **Lockfiles:** "Export lock file" shows the core's or the app's lockfile with Copy;
   "Import lock file" reads one through a file input, shows what would be installed and
@@ -183,12 +184,40 @@ still load.
   chosen core and for this app; add by URL, remove.
 - **Starter pack:** on first run, the empty home view shows a welcome card (not a dialog:
   nothing is blocked) with "Browse the starter pack" and "Not now"; the palette offers it
-  later ([10](10-distribution.md#starter-pack)). Showing the card reads only the registry
+  later ([10](10-distribution.md#starter-pack)). It lists agents too, since setting one up
+  is the point of first run. Showing the card reads only the registry
   list, to name the hosts browsing would contact.
 - **Bundled plugins.** The app's resources hold the bundled UI plugins and a data file,
   `bundled.json`, which lists them and names the fallback theme. The UI kernel names no
   plugin in code. If the fallback theme is missing, the base styles fall back to system
   colors.
+
+### Agents
+
+An **agent** is a core plugin whose manifest declares a provider
+(`InstalledPlugin.providers`, enabled or not), or a registry result of kind `provider`. A
+plugin that only serves a provider backend (such as the bundled ACP backend) is not an
+agent. Agents are managed in **Settings → Agents**, the first page of the Settings group of
+the active tab's core; the plugin manager's core list, registry search and update list
+leave them out and link to it. Like the plugin manager, the page is part of the UI kernel
+and works in safe mode. It needs the `plugins` capability. For a chosen core (the active
+tab's by default, with a core selector when several are connected), it shows:
+
+- **Installed:** a card per agent with its provider icons and names, version, state,
+  failures, an update when the last check found one, the permissions (collapsed), and
+  **Enable…** (the same grant dialog as the plugin manager), **Disable**, **Update** and
+  **Remove…** (not for bundled agents). An enabled agent with settings shows its settings
+  form in the card, in a collapsed **Settings** section; they are core plugin settings
+  (`settings.get` / `settings.set`), stored on the core, and the agent gets no separate
+  page in the Settings group. **Check for updates**, **Install from file…** and, on the
+  local core, **Install from folder…** sit above the list.
+- **Available:** the agents the core's registries offer that are not installed, with
+  name, publisher, key, description, permissions and **Install…**, which installs from the
+  registry and opens the grant dialog. The registries are asked only when the user
+  browses or searches.
+
+The palette's "Agents" command opens the page, and so does the new-thread composer when
+the core has no agent.
 
 ### Client settings
 

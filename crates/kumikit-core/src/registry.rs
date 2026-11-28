@@ -271,7 +271,7 @@ impl CoreRegistry {
             )
             .await
             .map_err(crate::plugins::host_err)?;
-        Ok(crate::plugins::installed(host, &view))
+        Ok(crate::plugins::installed(host, &view).await)
     }
 
     /// `plugin.updates`: for each plugin installed from a registry, the highest version
@@ -380,7 +380,7 @@ impl CoreRegistry {
             )
             .await
             .map_err(crate::plugins::host_err)?;
-        Ok(crate::plugins::installed(host, &updated))
+        Ok(crate::plugins::installed(host, &updated).await)
     }
 }
 

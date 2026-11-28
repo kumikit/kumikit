@@ -18,8 +18,9 @@ const GUESTS: &[(&str, &str)] = &[
     ("kumikit-test-limits", "kumikit_test_limits"),
     ("kumikit-test-client", "kumikit_test_client"),
     ("kumikit-test-tool", "kumikit_test_tool"),
-    // A first-party plugin, built here so end-to-end tests can install it.
+    // First-party plugins, built here so end-to-end tests can install them.
     ("kumikit-provider-acp", "kumikit_provider_acp"),
+    ("kumikit-threads", "kumikit_threads"),
 ];
 
 /// Host programs: (package, binary name).

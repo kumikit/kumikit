@@ -30,6 +30,13 @@
             "commands": [],
             "settings": false
           },
+          "providers": [
+            {
+              "id": "community.provider-gemini/gemini",
+              "name": "Gemini CLI",
+              "icon": "data:image/svg+xml;base64,PHN2Zy8+"
+            }
+          ],
           "signed": false,
           "granted": {
             "spawn": [

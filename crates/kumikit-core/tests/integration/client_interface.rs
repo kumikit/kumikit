@@ -332,6 +332,30 @@ async fn a_client_plugin_creates_threads_with_settings_and_bounded_modes() {
         .unwrap();
         let snap = run(&mut c, "get", json!({ "thread": child["id"] })).await.unwrap();
         assert_eq!(mode(&snap), "plan");
+        // ADR 0036: a thread started for an origin is a side thread of it, so it is hidden
+        // from the sidebar's list and only shows with includeSide.
+        assert_eq!(snap["thread"]["parent"], origin);
+        assert_eq!(snap["thread"]["side"], true);
+        let plain = c.call("thread.list", json!({ "workspace": w })).await["threads"].clone();
+        assert!(!plain.to_string().contains(child["id"].as_str().unwrap()));
+        let with_side = c
+            .call("thread.list", json!({ "workspace": w, "includeSide": true }))
+            .await["threads"]
+            .clone();
+        assert!(with_side.to_string().contains(child["id"].as_str().unwrap()));
+        // Without an origin, a thread has no parent and stays in the sidebar.
+        let plain_thread = run(
+            &mut c,
+            "create-with",
+            json!({ "workspace": w, "provider": "test.probe/probe" }),
+        )
+        .await
+        .unwrap();
+        let snap = run(&mut c, "get", json!({ "thread": plain_thread["id"] }))
+            .await
+            .unwrap();
+        assert_eq!(snap["thread"]["parent"], Value::Null);
+        assert_eq!(snap["thread"]["side"], Value::Null);
         assert_eq!(
             run(
                 &mut c,
@@ -352,6 +376,26 @@ async fn a_client_plugin_creates_threads_with_settings_and_bounded_modes() {
             .await,
             Err("permission_denied".into())
         );
+
+        // ADR 0036: with no mode asked for, a side thread of an accept_edits origin gets
+        // standard. The kernel would inherit accept_edits if the host left the mode out.
+        let loose = c
+            .call(
+                "thread.create",
+                json!({ "workspace": w, "provider": "test.probe/probe", "model": "echo", "permissionMode": "accept_edits" }),
+            )
+            .await["thread"]["id"]
+            .clone();
+        let child = run(
+            &mut c,
+            "create-with",
+            json!({ "workspace": w, "provider": "test.probe/probe", "origin": loose }),
+        )
+        .await
+        .unwrap();
+        let snap = run(&mut c, "get", json!({ "thread": child["id"] })).await.unwrap();
+        // The kernel stores standard as no mode, so the snapshot shows null.
+        assert_eq!(mode(&snap), Value::Null);
     })
     .await;
 }

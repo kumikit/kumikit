@@ -200,7 +200,7 @@ impl Backend {
                 .await
                 .map_err(rpc_err)?
                 .plugins),
-            Backend::Local { host, .. } => Ok(crate::plugins::list(host)),
+            Backend::Local { host, .. } => Ok(crate::plugins::list(host).await),
         }
     }
 
@@ -535,7 +535,7 @@ pub fn pack(
     Ok(())
 }
 
-/// Whether the manifest in `dir` says `kind = ["ui"]` or `["theme"]`.
+/// Whether the manifest in `dir` says `kind = ["ui"]`.
 fn is_client_package(dir: &Path) -> bool {
     #[derive(serde::Deserialize)]
     struct Kind {
@@ -544,7 +544,7 @@ fn is_client_package(dir: &Path) -> bool {
     std::fs::read_to_string(dir.join("plugin.toml"))
         .ok()
         .and_then(|t| toml::from_str::<Kind>(&t).ok())
-        .is_some_and(|k| !k.kind.is_empty() && k.kind.iter().all(|x| x == "ui" || x == "theme"))
+        .is_some_and(|k| k.kind.len() == 1 && k.kind[0] == "ui")
 }
 
 /// Connects to the running core and completes the handshake; fails if none runs.

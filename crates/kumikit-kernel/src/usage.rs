@@ -360,7 +360,8 @@ pub(crate) fn summarize(records: &[Record], offset_minutes: i32) -> KernelResult
         })
         .collect();
     models.sort_by(|a, b| {
-        let tokens = |r: &ModelUsageRow| r.totals.input_tokens + r.totals.output_tokens;
+        let tokens =
+            |r: &ModelUsageRow| r.totals.input_tokens.saturating_add(r.totals.output_tokens);
         tokens(b)
             .cmp(&tokens(a))
             .then_with(|| a.provider.cmp(&b.provider))
@@ -503,12 +504,13 @@ impl Kernel {
                     observed: None,
                 }));
         }
-        lock(&self.inner.usage.refreshed).insert(provider.to_owned(), self.now());
         let limits = p
             .read_limits()
             .await
             .map_err(|e| KernelError::PluginFailed(e.message))?;
-        self.report_limits(provider, limits).await
+        let snapshot = self.report_limits(provider, limits).await?;
+        lock(&self.inner.usage.refreshed).insert(provider.to_owned(), self.now());
+        Ok(snapshot)
     }
 
     fn require_provider(

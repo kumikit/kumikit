@@ -43,3 +43,9 @@ pub const PROVIDER_ACP_WASM: &str = env!("KUMIKIT_TEST_WASM_KUMIKIT_PROVIDER_ACP
 /// The `kumikit.provider-acp` plugin's directory (manifest and schema).
 pub const PROVIDER_ACP_DIR: &str =
     concat!(env!("CARGO_MANIFEST_DIR"), "/../../plugins/provider-acp");
+
+/// The `kumikit.threads` plugin's component (`plugins/threads`).
+pub const THREADS_WASM: &str = env!("KUMIKIT_TEST_WASM_KUMIKIT_THREADS");
+
+/// The `kumikit.threads` plugin's directory (manifest and tool schemas).
+pub const THREADS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../plugins/threads");

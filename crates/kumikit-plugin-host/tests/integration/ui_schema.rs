@@ -25,13 +25,32 @@ fn first_party_and_test_manifests_validate() {
         "plugins/ui-chat/plugin.toml",
         "plugins/ui-settings/plugin.toml",
         "plugins/ui-usage/plugin.toml",
-        "plugins/theme-default/plugin.toml",
         "test-plugins/panel-smoke/plugins/test.panel-smoke/plugin.toml",
     ] {
         let m = manifest(path);
         let errors: Vec<String> = v.iter_errors(&m).map(|e| e.to_string()).collect();
         assert!(errors.is_empty(), "{path}: {errors:?}");
     }
+}
+
+#[test]
+fn bundled_themes_validate_against_theme_schema() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let schema_text = std::fs::read_to_string(root.join("sdk/schema/theme.schema.json")).unwrap();
+    let v = jsonschema::validator_for(&serde_json::from_str(&schema_text).unwrap()).unwrap();
+    let mut count = 0;
+    for entry in std::fs::read_dir(root.join("themes")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|e| e != "json") {
+            continue;
+        }
+        let doc: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let errors: Vec<String> = v.iter_errors(&doc).map(|e| e.to_string()).collect();
+        assert!(errors.is_empty(), "{}: {errors:?}", path.display());
+        count += 1;
+    }
+    assert!(count >= 20, "expected bundled themes, found {count}");
 }
 
 #[test]

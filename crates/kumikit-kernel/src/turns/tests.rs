@@ -34,6 +34,9 @@ struct Fake {
     resumes: Mutex<Vec<Option<String>>>,
     late_sink: Mutex<Option<EventSink>>,
     limit_reads: AtomicUsize,
+    fail_limit_reads: AtomicUsize,
+    limit_read_enter: Mutex<Option<Arc<Notify>>>,
+    limit_read_release: Mutex<Option<Arc<Notify>>>,
 }
 
 impl Fake {
@@ -178,6 +181,15 @@ impl Provider for Fake {
                         .map_err(|e| ProviderError::new(e.to_string()))?;
                     Ok(())
                 }
+                "usage-then-block" => {
+                    emit(ProviderEvent::Usage {
+                        input_tokens: 40,
+                        output_tokens: 7,
+                        cost: Some(0.15),
+                    })
+                    .await?;
+                    std::future::pending().await
+                }
                 other => Err(ProviderError::new(format!("unknown script {other}"))),
             }
         })
@@ -207,8 +219,25 @@ impl Provider for Fake {
     fn read_limits(
         &self,
     ) -> BoxFuture<'_, ProviderResult<Option<kumikit_protocol::model::UsageLimits>>> {
-        let n = self.limit_reads.fetch_add(1, Ordering::SeqCst);
-        Box::pin(async move { Ok(Some(test_limits(10.0 + n as f64))) })
+        let enter = self.limit_read_enter.lock().unwrap().clone();
+        let release = self.limit_read_release.lock().unwrap().clone();
+        Box::pin(async move {
+            let n = self.limit_reads.fetch_add(1, Ordering::SeqCst);
+            if let Some(enter) = enter {
+                enter.notify_waiters();
+            }
+            if let Some(release) = release {
+                release.notified().await;
+            }
+            if self
+                .fail_limit_reads
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |v| v.checked_sub(1))
+                .is_ok()
+            {
+                return Err(ProviderError::new("reader failed"));
+            }
+            Ok(Some(test_limits(10.0 + n as f64)))
+        })
     }
 }
 
@@ -1575,6 +1604,48 @@ async fn a_titled_thread_gets_no_title_hint() {
     assert_eq!(*rec.prompts.lock().unwrap(), vec!["plan it".to_string()]);
 }
 
+/// A title given at creation (a client's `thread.create`, or `start_thread`) is kept: an
+/// agent's suggestion doesn't replace it, and the title hint is not sent for it.
+#[tokio::test]
+async fn a_title_given_at_creation_is_kept_and_gets_no_hint() {
+    let e = env().await;
+    let rec = RecordingProvider::new("other");
+    e.kernel.register_provider(rec.clone()).unwrap();
+    let ws = e
+        .kernel
+        .thread_get(&e.thread)
+        .await
+        .unwrap()
+        .thread
+        .workspace;
+    let t = e
+        .kernel
+        .thread_create(
+            &ws,
+            Some("other".into()),
+            None,
+            Some("Release review".into()),
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        !e.kernel
+            .thread_suggest_title(&t.id, "Planning")
+            .await
+            .unwrap()
+    );
+    let snap = e.kernel.thread_get(&t.id).await.unwrap();
+    assert_eq!(snap.thread.title.as_deref(), Some("Release review"));
+    assert!(
+        !e.kernel
+            .wants_title_hint(&t.id, &TurnId("turn-1".into()))
+            .await
+            .unwrap()
+    );
+}
+
 // ---- usage statistics and plan limits (ADR 0035) ----
 
 fn summary_params(days: u32) -> kumikit_protocol::methods::UsageSummaryParams {
@@ -1726,4 +1797,139 @@ async fn a_provider_without_a_reader_cannot_refresh() {
         .map(|p| (p.id.as_str(), p.reads_limits))
         .collect();
     assert_eq!(flags, vec![("fake", Some(true)), ("plain", None)]);
+}
+
+#[derive(Debug, Default)]
+struct ManualClock {
+    secs: std::sync::atomic::AtomicI64,
+}
+
+impl ManualClock {
+    fn advance(&self, by: i64) {
+        self.secs.fetch_add(by, Ordering::SeqCst);
+    }
+}
+
+impl crate::clock::Clock for ManualClock {
+    fn now(&self) -> kumikit_protocol::model::Timestamp {
+        let secs = self.secs.load(Ordering::SeqCst);
+        let base = time::macros::datetime!(2026-11-15 10:00:00 UTC);
+        crate::clock::format_time(base.saturating_add(time::Duration::seconds(secs)))
+    }
+}
+
+async fn env_with_clock(clock: Arc<ManualClock>) -> Env {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = KernelConfig {
+        clock,
+        ids: Arc::new(SequentialIds::new("ID")),
+        ..KernelConfig::new(dir.path().join("core.sqlite"))
+    };
+    let kernel = Kernel::open(cfg).await.unwrap();
+    let fake = Arc::new(Fake::default());
+    kernel.register_provider(fake.clone()).unwrap();
+    let ws = kernel
+        .workspace_open(dir.path().to_str().unwrap())
+        .await
+        .unwrap();
+    let thread = kernel
+        .thread_create(&ws.id, None, None, None, None)
+        .await
+        .unwrap()
+        .id;
+    Env {
+        dir,
+        kernel,
+        fake,
+        thread,
+    }
+}
+
+#[tokio::test]
+async fn a_refresh_runs_again_after_the_cooldown_expires() {
+    let clock = Arc::new(ManualClock::default());
+    let e = env_with_clock(clock.clone()).await;
+
+    let first = e.kernel.usage_refresh("fake").await.unwrap();
+    assert_eq!(first.limits.unwrap().windows[0].used_percent, 10.0);
+    assert_eq!(e.fake.limit_reads.load(Ordering::SeqCst), 1);
+
+    clock.advance(59);
+    let cached = e.kernel.usage_refresh("fake").await.unwrap();
+    assert_eq!(cached.limits.unwrap().windows[0].used_percent, 10.0);
+    assert_eq!(e.fake.limit_reads.load(Ordering::SeqCst), 1);
+
+    clock.advance(1);
+    let refreshed = e.kernel.usage_refresh("fake").await.unwrap();
+    assert_eq!(refreshed.limits.unwrap().windows[0].used_percent, 11.0);
+    assert_eq!(e.fake.limit_reads.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn a_failed_refresh_does_not_start_the_cooldown() {
+    let clock = Arc::new(ManualClock::default());
+    let e = env_with_clock(clock).await;
+    e.fake.fail_limit_reads.store(2, Ordering::SeqCst);
+
+    let err1 = e.kernel.usage_refresh("fake").await.unwrap_err();
+    assert_eq!(err1.code(), ErrorCode::PluginFailed);
+    // An immediate retry still runs the reader and surfaces the error instead of
+    // returning an empty/stale snapshot as success.
+    let err2 = e.kernel.usage_refresh("fake").await.unwrap_err();
+    assert_eq!(err2.code(), ErrorCode::PluginFailed);
+    assert_eq!(e.fake.limit_reads.load(Ordering::SeqCst), 2);
+
+    // Once the reader recovers, an immediate retry succeeds and starts the cooldown.
+    let ok = e.kernel.usage_refresh("fake").await.unwrap();
+    assert_eq!(ok.limits.unwrap().windows[0].used_percent, 12.0);
+    assert_eq!(e.fake.limit_reads.load(Ordering::SeqCst), 3);
+
+    let cached = e.kernel.usage_refresh("fake").await.unwrap();
+    assert_eq!(cached.limits.unwrap().windows[0].used_percent, 12.0);
+    assert_eq!(e.fake.limit_reads.load(Ordering::SeqCst), 3);
+}
+
+#[tokio::test]
+async fn concurrent_refreshes_run_the_reader_once() {
+    let clock = Arc::new(ManualClock::default());
+    let e = env_with_clock(clock).await;
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    *e.fake.limit_read_enter.lock().unwrap() = Some(entered.clone());
+    *e.fake.limit_read_release.lock().unwrap() = Some(release.clone());
+
+    let k1 = e.kernel.clone();
+    let k2 = e.kernel.clone();
+    let entered_wait = entered.notified();
+    tokio::pin!(entered_wait);
+    entered_wait.as_mut().enable();
+
+    let first = tokio::spawn(async move { k1.usage_refresh("fake").await });
+    entered_wait.await;
+    let second = tokio::spawn(async move { k2.usage_refresh("fake").await });
+    // Let the second task reach the per-provider refresh gate before releasing the first.
+    tokio::task::yield_now().await;
+    release.notify_waiters();
+
+    let (r1, r2) = tokio::join!(first, second);
+    let s1 = r1.unwrap().unwrap();
+    let s2 = r2.unwrap().unwrap();
+    assert_eq!(s1.limits.unwrap().windows[0].used_percent, 10.0);
+    assert_eq!(s2.limits.unwrap().windows[0].used_percent, 10.0);
+    assert_eq!(e.fake.limit_reads.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn cancelled_turn_keeps_partial_usage() {
+    let e = env().await;
+    e.send("usage-then-block").await;
+    let evs = e.until(0, "usage").await;
+    e.kernel.thread_cancel(&e.thread).await.unwrap();
+    let ended = e.until(evs.last().unwrap().seq, "turn.ended").await;
+    assert_eq!(turn_ended(&ended).outcome, TurnOutcome::Cancelled);
+
+    let s = e.kernel.usage_summary(summary_params(1)).await.unwrap();
+    assert_eq!(s.totals.turns, 1);
+    assert_eq!((s.totals.input_tokens, s.totals.output_tokens), (40, 7));
+    assert_eq!(s.totals.cost, Some(0.15));
 }

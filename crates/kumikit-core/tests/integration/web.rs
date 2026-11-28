@@ -93,10 +93,15 @@ async fn web_core(dirs: &Dirs) -> (Core, RemoteInfo) {
     .unwrap();
     std::fs::write(ui.join("assets/app.js"), "export {};").unwrap();
     std::fs::write(dirs.root().join("secret.txt"), "outside").unwrap();
-    std::fs::create_dir_all(ui.join("ui-plugins/test.theme")).unwrap();
+    std::fs::create_dir_all(ui.join("ui-plugins/test.widget")).unwrap();
     std::fs::write(
-        ui.join("ui-plugins/test.theme/plugin.toml"),
-        "id = \"test.theme\"\nname = \"T\"\nversion = \"1.0.0\"\nkind = [\"theme\"]\napi = \"^0.1\"\n",
+        ui.join("ui-plugins/test.widget/plugin.toml"),
+        "id = \"test.widget\"\nname = \"W\"\nversion = \"1.0.0\"\nkind = [\"ui\"]\napi = \"^0.1\"\n[ui]\nentry = \"index.js\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        ui.join("ui-plugins/test.widget/index.js"),
+        "export default {};",
     )
     .unwrap();
     let panel = ui.join("ui-plugins/test.panel");
@@ -210,15 +215,15 @@ async fn the_ui_is_served_with_a_strict_csp_and_nothing_outside_it() {
         assert_eq!(http(&info, "PUT", "/", &[], "").await.status, 405);
         let list = http(&info, "GET", "/ui-plugins/index.json", &[], "").await;
         let v: Value = serde_json::from_str(&list.body).unwrap();
-        let theme = v
+        let widget = v
             .as_array()
             .unwrap()
             .iter()
-            .find(|p| p["id"] == "test.theme")
+            .find(|p| p["id"] == "test.widget")
             .unwrap();
-        assert_eq!(theme["source"], "bundled");
-        assert_eq!(theme["manifest"]["kind"][0], "theme");
-        let toml = http(&info, "GET", "/ui-plugins/test.theme/plugin.toml", &[], "").await;
+        assert_eq!(widget["source"], "bundled");
+        assert_eq!(widget["manifest"]["kind"][0], "ui");
+        let toml = http(&info, "GET", "/ui-plugins/test.widget/plugin.toml", &[], "").await;
         assert_eq!(toml.status, 200);
         core.stop().await;
     })
@@ -313,7 +318,7 @@ async fn the_socket_takes_the_cookie_only_from_this_cores_page() {
         // Authenticated by the cookie: the first message is core.hello.
         let mut ws = browser_ws(&info, &origin(&info), Some(&cookie)).await.unwrap();
         ws.send(Message::text(
-            json!({"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.12","client":{"name":"t","version":"0"}}}).to_string(),
+            json!({"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.13","client":{"name":"t","version":"0"}}}).to_string(),
         ))
         .await
         .unwrap();
@@ -322,7 +327,7 @@ async fn the_socket_takes_the_cookie_only_from_this_cores_page() {
                 break serde_json::from_str::<Value>(t.as_str()).unwrap();
             }
         };
-        assert_eq!(hello["result"]["protocol"], "0.12", "{hello}");
+        assert_eq!(hello["result"]["protocol"], "0.13", "{hello}");
 
         // Signing out revokes the device: its socket closes and the cookie stops working.
         let o = origin(&info);

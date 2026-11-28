@@ -100,7 +100,7 @@
       {#if !kernel.settings.value.welcomeDone && (kernel.registries.clientAvailable || kernel.registries.coreAvailable)}
         <section class="welcome" aria-labelledby="kk-welcome-title">
           <h2 id="kk-welcome-title">Welcome to Kumikit</h2>
-          <p>Kumikit starts small. Agent providers, tools and themes are plugins you choose. The starter pack lists common ones from the plugin registry.</p>
+          <p>Kumikit starts small. Agent providers and tools are plugins you choose. The starter pack lists common ones from the plugin registry.</p>
           <p class="kk-muted">Browsing it contacts {registryHosts.length > 0 ? registryHosts.join(', ') : 'the plugin registry'}. Nothing is installed unless you choose it.</p>
           <p class="welcome-actions">
             <button type="button" class="kk-button" onclick={() => kernel.dismissWelcome()}>Not now</button>

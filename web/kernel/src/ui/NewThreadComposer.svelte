@@ -390,7 +390,7 @@
       <div class="footer">
         {#if providers.length === 0}
           <span class="no-provider">No agent provider is installed on this core.</span>
-          <button type="button" class="kk-button" onclick={() => (kernel.main = { kind: 'plugins' })}>Manage plugins</button>
+          <button type="button" class="kk-button" onclick={() => (kernel.main = { kind: 'settings', page: 'agents' })}>Set up an agent</button>
         {:else}
           <div class="footer-left">
             <button

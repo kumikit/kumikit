@@ -123,7 +123,7 @@ after(async () => {
     const c = net.connect(socket);
     c.once('error', () => done());
     c.once('connect', () => {
-      c.write('{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.12","client":{"name":"e2e","version":"0"}}}\n');
+      c.write('{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.13","client":{"name":"e2e","version":"0"}}}\n');
       c.write('{"jsonrpc":"2.0","id":2,"method":"core.shutdown","params":{}}\n');
     });
     c.once('close', () => done());
@@ -192,9 +192,10 @@ async function flow(b) {
   step('installing acme.agent');
   await clickIn(b, 'acme.agent', 'Install on');
   await b.click(await b.wait('[role="dialog"] button', 'Grant and enable'));
+  // An agent is not listed among the core plugins; the starter pack shows it installed.
   await b.until(
-    async () => (await b.text(await b.wait('section[aria-labelledby="kk-core-plugins"] li', 'acme.agent'))).includes('Enabled'),
-    'acme.agent enabled',
+    async () => (await b.text(await b.wait('section[aria-labelledby="kk-find-plugins"] li', 'acme.agent'))).includes('Installed'),
+    'acme.agent installed',
   );
 
   step('installing acme.panel');
@@ -202,6 +203,13 @@ async function flow(b) {
   await b.until(
     async () => (await b.text(await b.wait('section[aria-labelledby="kk-client-plugins"] li', 'acme.panel'))).includes('Enabled'),
     'acme.panel enabled',
+  );
+
+  step('the agent is enabled in Settings → Agents');
+  await palette(b, 'Agents: install, remove and configure');
+  await b.until(
+    async () => (await b.text(await b.wait('section[aria-labelledby="kk-agents-installed"] li', 'acme.agent'))).includes('Enabled'),
+    'acme.agent enabled',
   );
 
   step('running a gateway MCP turn');

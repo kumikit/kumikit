@@ -253,8 +253,8 @@ jobs:
         run: |
           cargo build -p kumikit-core -p kumikit-web-relay -p kumikit-test-registry-fixture -p kumikit-test-plugins -p kumikit-test-client-store
           cargo build -p kumikit-shell --features test-hooks
-      - name: Theme check (first-party default theme)
-        run: ./target/debug/kumikit theme check --strict plugins/theme-default
+      - name: Theme check (bundled themes)
+        run: ./target/debug/kumikit theme check --strict themes
       - name: Pack Linux test binaries
         run: |
           tar -I 'zstd -T0 -1' -cf target/linux-test-bins.tar.zst \

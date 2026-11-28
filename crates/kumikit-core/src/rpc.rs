@@ -801,7 +801,7 @@ impl Conn {
             m::PluginList::NAME => {
                 parse::<m::PluginList>(params)?;
                 reply::<m::PluginList>(PluginListResult {
-                    plugins: crate::plugins::list(&self.host),
+                    plugins: crate::plugins::list(&self.host).await,
                 })
             }
             m::PluginInstall::NAME => {

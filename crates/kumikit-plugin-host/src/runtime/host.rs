@@ -166,6 +166,9 @@ pub struct HostState {
     pub(crate) settings_schema: Option<PathBuf>,
     /// Workspace of the calling thread during a gateway `tool.call`, if any.
     pub(crate) call_workspace: Option<kumikit_protocol::model::WorkspaceId>,
+    /// The calling thread during a gateway `tool.call`, if any. A thread a tool creates
+    /// is bound to it (ADR 0034, ADR 0036).
+    pub(crate) call_thread: Option<kumikit_protocol::model::ThreadId>,
     /// Model settings reported during the running `list-models`; `None` outside it.
     pub(crate) model_options: Option<ModelOptions>,
 }

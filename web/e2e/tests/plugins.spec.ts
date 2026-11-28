@@ -1,37 +1,60 @@
-/** Client plugins: installing a theme, trusting third-party code, a plugin that fails,
- * and safe mode. */
+/** Client plugins and resource themes: importing a `.json` theme file in Appearance,
+ * selecting bundled themes, trusting third-party UI code, failing plugins, and safe mode. */
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { command, expect, open, test } from './fixtures';
 import { writeKkp } from './kkp';
 
-const THEME = `id = "community.ocean"
-name = "Ocean"
-version = "1.0.0"
-kind = ["theme"]
-api = "^0.1"
-[theme]
-variants = [{ id = "night", name = "Night", appearance = "dark", tokens = "night.json" }]
-`;
-
-test('a theme package installs and can be chosen at once; bad token values are reported', async ({ page, kk }) => {
+test('bundled themes preview in Appearance and a custom .json theme imports, applies, and removes', async ({ page, kk }) => {
   await open(page, kk);
-  await kk.pick(
-    writeKkp(join(kk.work, 'ocean.kkp'), {
-      'plugin.toml': THEME,
-      'night.json': JSON.stringify({ accent: '#00b4d8', 'surface.panel': '#03045e', 'text.primary': 'white; color: red' }),
+  const themePath = join(kk.work, 'ocean-night.json');
+  writeFileSync(
+    themePath,
+    JSON.stringify({
+      name: 'Ocean Night',
+      appearance: 'dark',
+      tokens: {
+        accent: '#00b4d8',
+        'surface.panel': '#03045e',
+        'text.primary': 'white; color: red',
+      },
     }),
   );
-  await command(page, 'Manage plugins');
-  const client = page.getByRole('region', { name: 'On this client' });
-  await client.getByRole('button', { name: 'Install from file…' }).click();
-  await expect(client.getByRole('listitem').filter({ hasText: 'community.ocean' })).toContainText('Enabled');
-  await expect(page.getByText(/text.primary: not a valid color/)).toBeVisible();
-  await command(page, 'Theme: Ocean Night');
+
+  await command(page, 'Open settings');
+  await page.getByRole('navigation', { name: 'Settings pages' }).getByRole('button', { name: 'Appearance' }).click();
+  const appearance = page.locator('.kk-appearance');
+  await expect(appearance).toBeVisible();
+  // Popular bundled themes render with SVG preview thumbnails.
+  await expect(appearance.locator('svg.thumb')).not.toHaveCount(0);
+  await expect(appearance).toContainText('Tokyo Night');
+  await expect(appearance).toContainText('Dracula');
+  await expect(appearance).toContainText('Monokai');
+
+  // Import a custom .json theme file from disk.
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser'),
+    appearance.getByRole('button', { name: 'Add theme…' }).click(),
+  ]);
+  await chooser.setFiles(themePath);
+
+  await expect(page.getByText(/text\.primary: not a valid color/)).toBeVisible();
+  await expect(appearance).toContainText('Your themes (1)');
+  await expect(appearance).toContainText('Ocean Night');
+
   const token = (name: string) => page.evaluate((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name);
   await expect.poll(() => token('--kk-accent')).toBe('#00b4d8');
-  // What the theme leaves out comes from the default theme's dark variant.
+  // What the theme leaves out comes from the default dark fallback theme.
   await expect.poll(() => token('--kk-text-primary')).toBe('#e6e8ee');
+
+  // Switch to a bundled popular theme from the palette.
+  await command(page, 'Theme: Dracula');
+  await expect.poll(() => token('--kk-surface-panel')).toBe('#282a36');
+
+  // Remove the custom theme.
+  await appearance.getByRole('button', { name: 'Remove Ocean Night' }).click();
+  await expect(appearance).not.toContainText('Ocean Night');
 });
 
 test('third-party UI code runs only after trust, and a failing plugin is reported', async ({ page, kk }) => {

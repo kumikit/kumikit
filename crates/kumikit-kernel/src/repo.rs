@@ -470,7 +470,11 @@ pub fn thread_suggest_title(
     updated: &Timestamp,
 ) -> KernelResult<(bool, ThreadRow)> {
     let row = thread_require(conn, id)?;
-    if row.thread.title_source == Some(TitleSource::User) {
+    // A rename by the user is kept, and so is a title given at creation: it has no source
+    // yet, but it is a title (ADR 0030, spec 03 Threads).
+    let kept = row.thread.title_source == Some(TitleSource::User)
+        || (row.thread.title_source.is_none() && row.thread.title.is_some());
+    if kept {
         return Ok((false, row));
     }
     conn.execute(

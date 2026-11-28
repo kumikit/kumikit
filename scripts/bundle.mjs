@@ -1,19 +1,20 @@
 // Assembles the desktop app's resources in target/bundle (docs/plans M2, step 10):
-//   ui/            the UI kernel (desktop build) and bundled.json
+//   ui/            the UI kernel (desktop build), bundled.json, and themes/
 //   ui-browser/    the browser client, for `kumikit serve --listen … --web target/bundle/ui-browser`:
-//                  the browser build, bundled.json and the bundled UI plugins in ui-plugins/
+//                  the browser build, bundled.json, themes/, and the bundled UI plugins in ui-plugins/
 //   ui-browser-test/ the browser-test build, for Playwright
-//   ui-plugins/<id>/ the bundled UI plugins and themes, unpacked (read-only)
+//   ui-plugins/<id>/ the bundled UI plugins, unpacked (read-only)
 //   core-plugins/  provider-acp and threads as .kkp packages, seeded with --bundled-plugins
 //   test-ui-plugins/<id>/ UI plugins for the tests only, unpacked (never shipped)
 // Usage: node scripts/bundle.mjs   (from the repository root)
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const OUT = 'target/bundle';
-const UI_PLUGINS = ['plugins/ui-chat', 'plugins/ui-settings', 'plugins/ui-usage', 'plugins/theme-default'];
-const FALLBACK_THEME = 'kumikit.theme-default';
+const UI_PLUGINS = ['plugins/ui-chat', 'plugins/ui-settings', 'plugins/ui-usage'];
+const FALLBACK_LIGHT = 'kumikit-light';
+const FALLBACK_DARK = 'kumikit-dark';
 // npm and npx are .cmd files on Windows, which only a shell can start.
 const run = (cmd, args, opts = {}) =>
   execFileSync(cmd, args, { stdio: 'inherit', shell: process.platform === 'win32' && ['npm', 'npx'].includes(cmd), ...opts });
@@ -22,15 +23,30 @@ const tomlString = (text, key) => new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, 'm').e
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 
+// Load bundled themes (themes/*.json, ADR 0037), defaults first then alphabetical.
+const themeFiles = readdirSync('themes')
+  .filter((f) => f.endsWith('.json') && f !== 'index.json')
+  .sort((a, b) => {
+    const rank = (f) => (f === `${FALLBACK_LIGHT}.json` ? 0 : f === `${FALLBACK_DARK}.json` ? 1 : 2);
+    return rank(a) - rank(b) || a.localeCompare(b);
+  });
+const themesIndex = themeFiles.map((file) => {
+  const doc = JSON.parse(readFileSync(join('themes', file), 'utf8'));
+  return { id: doc.id, name: doc.name, appearance: doc.appearance, tokens: doc.tokens };
+});
+const themesIndexJson = JSON.stringify(themesIndex) + '\n';
+
 // The UI kernel, all three builds.
 run('npm', ['run', 'build', '-w', '@kumikit/kernel']);
-const bundled = JSON.stringify({ fallbackTheme: FALLBACK_THEME }, null, 2) + '\n';
+const bundled = JSON.stringify({ fallbackLight: FALLBACK_LIGHT, fallbackDark: FALLBACK_DARK }, null, 2) + '\n';
 for (const [from, to] of [['web/kernel/dist/desktop', 'ui'], ['web/kernel/dist/browser', 'ui-browser'], ['web/kernel/dist/browser-test', 'ui-browser-test']]) {
   cpSync(from, join(OUT, to), { recursive: true });
   writeFileSync(join(OUT, to, 'bundled.json'), bundled);
+  mkdirSync(join(OUT, to, 'themes'), { recursive: true });
+  writeFileSync(join(OUT, to, 'themes', 'index.json'), themesIndexJson);
 }
 
-// UI plugins and themes: the manifest and the files it names.
+// UI plugins: the manifest and the files it names.
 for (const dir of UI_PLUGINS) {
   const manifest = readFileSync(join(dir, 'plugin.toml'), 'utf8');
   const id = tomlString(manifest, 'id');
@@ -41,8 +57,6 @@ for (const dir of UI_PLUGINS) {
   mkdirSync(target, { recursive: true });
   cpSync(join(dir, 'plugin.toml'), join(target, 'plugin.toml'));
   if (existsSync(join(dir, 'dist'))) cpSync(join(dir, 'dist'), join(target, 'dist'), { recursive: true });
-  for (const m of manifest.matchAll(/tokens\s*=\s*"([^"]+)"/g)) cpSync(join(dir, m[1]), join(target, m[1]));
-  for (const m of manifest.matchAll(/"(fonts\/[^"]+\.woff2)"/g)) cpSync(join(dir, m[1]), join(target, m[1]));
 }
 
 // Test-only UI plugins (never shipped): built here, staged in test-ui-plugins/ for the

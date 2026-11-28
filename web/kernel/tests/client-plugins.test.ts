@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Kernel } from '../src/app.svelte';
 import type { ClientPluginEntry, Platform } from '../src/platform/index';
@@ -7,19 +7,22 @@ import { FakeCore, settle } from './fake-core';
 
 type Files = Record<string, string>;
 
-const theme = (id: string, variants: [string, 'light' | 'dark'][]): ClientPluginEntry['manifest'] => ({
-  id,
-  name: id === 'kumikit.base' ? 'Base' : 'Night',
-  version: '1.0.0',
-  kind: ['theme'],
-  theme: { variants: variants.map(([v, appearance]) => ({ id: v, appearance, tokens: `${v}.json` })) },
-});
 const ui = (id: string): ClientPluginEntry['manifest'] => ({ id, name: id, version: '1.0.0', kind: ['ui'], ui: { entry: 'index.js' } });
 
-function setup(entries: ClientPluginEntry[], files: Files, opts: { safe?: boolean; bundled?: object } = {}) {
+const BUNDLED_THEMES = [
+  { id: 'kumikit-light', name: 'Kumikit Light', appearance: 'light', tokens: { accent: '#00f', 'surface.panel': '#fff' } },
+  { id: 'kumikit-dark', name: 'Kumikit Dark', appearance: 'dark', tokens: { accent: '#88f', 'surface.panel': '#000' } },
+];
+
+function setup(entries: ClientPluginEntry[], files: Files, opts: { safe?: boolean; bundled?: object; themes?: unknown[] } = {}) {
   const url = (id: string, path: string) => `kk-test://${id}/${path}`;
   vi.stubGlobal('fetch', async (u: string) => {
-    if (u === './bundled.json') return new Response(JSON.stringify(opts.bundled ?? { fallbackTheme: 'kumikit.base' }));
+    if (u === './bundled.json') {
+      return new Response(JSON.stringify(opts.bundled ?? { fallbackLight: 'kumikit-light', fallbackDark: 'kumikit-dark' }));
+    }
+    if (u === './themes/index.json') {
+      return new Response(JSON.stringify(opts.themes ?? BUNDLED_THEMES));
+    }
     const body = files[u];
     return body === undefined ? new Response('missing', { status: 404 }) : new Response(body);
   });
@@ -49,24 +52,32 @@ const PLUGIN = `export default {
   },
 };`;
 
+beforeEach(() => localStorage.clear());
 afterEach(() => vi.unstubAllGlobals());
 
-describe('client plugins', () => {
-  it('load themes with the fallback from bundled.json and report bad tokens', async () => {
-    const k = setup(
-      [entry('kumikit.base', theme('kumikit.base', [['light', 'light'], ['dark', 'dark']])), entry('community.night', theme('community.night', [['night', 'dark']]))],
-      {
-        'kk-test://kumikit.base/light.json': '{"accent":"#00f","surface.panel":"#fff"}',
-        'kk-test://kumikit.base/dark.json': '{"accent":"#88f","surface.panel":"#000"}',
-        'kk-test://community.night/night.json': '{"accent":"#f0f","text.primary":"red; x"}',
-      },
-    );
+describe('client plugins and themes', () => {
+  it('loads bundled themes, imports and removes custom themes, and reports bad tokens', async () => {
+    const k = setup([], {});
     await k.clientPlugins.load();
-    expect(k.theme.shown).toBe('kumikit.base:dark');
-    k.selectTheme('community.night:night');
+    expect(k.theme.shown).toBe('kumikit-dark');
+    expect(k.theme.tokens).toEqual({ accent: '#88f', 'surface.panel': '#000' });
+
+    const added = k.importThemeText(
+      'night.json',
+      JSON.stringify({
+        name: 'Night',
+        appearance: 'dark',
+        tokens: { accent: '#f0f', 'text.primary': 'red; x' },
+      }),
+    );
+    expect(added?.key).toBe('custom:night');
     expect(k.theme.tokens).toEqual({ accent: '#f0f', 'surface.panel': '#000' });
     expect(k.toasts.some((t) => t.message.includes('text.primary: not a valid color'))).toBe(true);
-    expect(k.commands.commands.map((c) => c.id)).toContain('theme.select:community.night:night');
+    expect(k.commands.commands.map((c) => c.id)).toContain('theme.select:custom:night');
+
+    k.removeCustomTheme('custom:night');
+    expect(k.theme.shown).toBe('kumikit-dark');
+    expect(k.settings.value.customThemes).toEqual([]);
   });
 
   it('activate UI plugins, and remove what they added when disabled', async () => {
@@ -100,8 +111,8 @@ describe('client plugins', () => {
 
   it('load no UI plugin in safe mode, but still load themes', async () => {
     const k = setup(
-      [entry('kumikit.base', theme('kumikit.base', [['dark', 'dark']])), entry('community.hello', ui('community.hello'))],
-      { 'kk-test://kumikit.base/dark.json': '{"accent":"#88f"}', 'kk-test://community.hello/index.js': PLUGIN },
+      [entry('community.hello', ui('community.hello'))],
+      { 'kk-test://community.hello/index.js': PLUGIN },
       { safe: true },
     );
     await k.clientPlugins.load();

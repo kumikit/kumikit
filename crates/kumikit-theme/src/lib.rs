@@ -263,70 +263,128 @@ pub fn check_tokens(variant: &str, tokens: &serde_json::Value, report: &mut Repo
     }
 }
 
-#[derive(Deserialize)]
-struct ThemeManifest {
-    #[serde(default)]
-    theme: Option<ThemeSection>,
+fn valid_theme_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.split('-').all(|seg| {
+            !seg.is_empty()
+                && seg
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        })
 }
 
-#[derive(Deserialize)]
-struct ThemeSection {
-    #[serde(default)]
-    variants: Vec<Variant>,
-    #[serde(default)]
-    fonts: Vec<String>,
-}
-
-#[derive(Deserialize)]
-struct Variant {
-    id: String,
-    tokens: String,
-}
-
-/// Whether the file is a WOFF2 web font, by its first bytes (the app's plugin store
-/// accepts only `.woff2` fonts).
-pub fn is_web_font(bytes: &[u8]) -> bool {
-    bytes.starts_with(b"wOF2")
-}
-
-/// Checks a theme unpacked in `dir` (its manifest's structure is checked separately):
-/// each variant's tokens and contrast, and each font.
-pub fn check_theme(dir: &Path) -> Report {
+/// Checks one theme JSON file (`docs/spec/08-themes.md`, ADR 0037): metadata (`name`,
+/// `appearance`, optional `id`) plus every token's type and WCAG AA contrast pairs.
+pub fn check_theme_file(path: &Path) -> Report {
     let mut report = Report::default();
-    let manifest = std::fs::read_to_string(dir.join("plugin.toml"))
-        .map_err(|e| e.to_string())
-        .and_then(|t| toml::from_str::<ThemeManifest>(&t).map_err(|e| e.to_string()));
-    let section = match manifest {
-        Ok(ThemeManifest { theme: Some(t) }) => t,
-        Ok(_) => {
-            report
-                .errors
-                .push("the manifest has no [theme] section".into());
-            return report;
-        }
+    let label = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("theme.json");
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
         Err(e) => {
-            report.errors.push(format!("plugin.toml: {e}"));
+            report.errors.push(format!("{label}: {e}"));
             return report;
         }
     };
-    for v in &section.variants {
-        let tokens = std::fs::read_to_string(dir.join(&v.tokens))
-            .map_err(|e| e.to_string())
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).map_err(|e| e.to_string()));
-        match tokens {
-            Ok(t) => check_tokens(&v.id, &t, &mut report),
-            Err(e) => report.errors.push(format!("{}: {e}", v.tokens)),
+    let doc: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(e) => {
+            report.errors.push(format!("{label}: {e}"));
+            return report;
+        }
+    };
+    let Some(obj) = doc.as_object() else {
+        report
+            .errors
+            .push(format!("{label}: the theme file must be a JSON object"));
+        return report;
+    };
+    for key in obj.keys() {
+        if !matches!(
+            key.as_str(),
+            "$schema" | "id" | "name" | "appearance" | "tokens"
+        ) {
+            report
+                .errors
+                .push(format!("{label}: unknown top-level field `{key}`"));
         }
     }
-    for font in &section.fonts {
-        match std::fs::read(dir.join(font)) {
-            Ok(bytes) if is_web_font(&bytes) => {}
-            Ok(_) => report
+    if let Some(id_val) = obj.get("id") {
+        match id_val.as_str() {
+            Some(id) if valid_theme_id(id) => {}
+            _ => report.errors.push(format!(
+                "{label}: id must use lowercase letters, digits and dashes"
+            )),
+        }
+    }
+    match obj.get("name").and_then(|v| v.as_str()) {
+        Some(n) if !n.trim().is_empty() => {}
+        _ => report
+            .errors
+            .push(format!("{label}: name must be a non-empty string")),
+    }
+    match obj.get("appearance").and_then(|v| v.as_str()) {
+        Some("light" | "dark") => {}
+        _ => report
+            .errors
+            .push(format!("{label}: appearance must be light or dark")),
+    }
+    let Some(tokens) = obj.get("tokens") else {
+        report
+            .errors
+            .push(format!("{label}: missing `tokens` object"));
+        return report;
+    };
+    let variant = obj
+        .get("id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(label);
+    check_tokens(variant, tokens, &mut report);
+    report
+}
+
+/// Checks every `.json` theme resource file in `dir` (skipping `index.json` if present).
+pub fn check_theme_dir(dir: &Path) -> Report {
+    let mut report = Report::default();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            report.errors.push(format!("{}: {e}", dir.display()));
+            return report;
+        }
+    };
+    let mut files: Vec<std::path::PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.is_file()
+                && p.extension().is_some_and(|e| e == "json")
+                && p.file_name().and_then(|n| n.to_str()) != Some("index.json")
+        })
+        .collect();
+    files.sort();
+    if files.is_empty() {
+        report
+            .errors
+            .push(format!("{}: no .json theme files found", dir.display()));
+        return report;
+    }
+    let mut ids = std::collections::BTreeSet::new();
+    for file in files {
+        let r = check_theme_file(&file);
+        report.errors.extend(r.errors);
+        report.warnings.extend(r.warnings);
+        if let Ok(text) = std::fs::read_to_string(&file)
+            && let Ok(v) = serde_json::from_str::<serde_json::Value>(&text)
+            && let Some(id) = v.get("id").and_then(|x| x.as_str())
+            && !ids.insert(id.to_owned())
+        {
+            report
                 .errors
-                .push(format!("{font} is not a WOFF2 web font")),
-            Err(_) => report
-                .errors
-                .push(format!("{font} is missing from the package")),
+                .push(format!("theme id `{id}` is defined twice"));
         }
     }
     report
@@ -388,39 +446,36 @@ mod tests {
         );
     }
 
-    fn theme(files: &[(&str, &[u8])]) -> tempfile::TempDir {
-        let d = tempfile::tempdir().unwrap();
-        for (p, bytes) in files {
-            let f = d.path().join(p);
-            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
-            std::fs::write(f, bytes).unwrap();
-        }
-        d
-    }
-
-    const MANIFEST: &[u8] = b"id = \"acme.night\"\nname = \"Night\"\nversion = \"1.0.0\"\nkind = [\"theme\"]\napi = \"^0.1\"\n[theme]\nvariants = [{ id = \"dark\", appearance = \"dark\", tokens = \"dark.json\" }]\nfonts = [\"fonts/a.woff2\"]\n";
-
     #[test]
-    fn a_good_theme_passes_and_a_bad_one_is_explained() {
-        let good = theme(&[
-            ("plugin.toml", MANIFEST),
-            (
-                "dark.json",
-                br##"{"surface.panel": "#1a1b26", "text.primary": "#c0caf5"}"##,
-            ),
-            ("fonts/a.woff2", b"wOF2...."),
-        ]);
-        assert_eq!(check_theme(good.path()), Report::default());
+    fn a_good_theme_file_passes_and_a_bad_one_is_explained() {
+        let d = tempfile::tempdir().unwrap();
+        let good = d.path().join("night.json");
+        std::fs::write(
+            &good,
+            r##"{"id":"night","name":"Night","appearance":"dark","tokens":{"surface.panel":"#1a1b26","text.primary":"#c0caf5"}}"##,
+        )
+        .unwrap();
+        assert_eq!(check_theme_file(&good), Report::default());
 
-        let bad = theme(&[
-            ("plugin.toml", MANIFEST),
-            (
-                "dark.json",
-                br##"{"surface.panel": "#1a1b26", "text.primary": "#24283b", "accent": "red;x", "nope": "#fff"}"##,
-            ),
-            ("fonts/a.woff2", b"<html>"),
-        ]);
-        let r = check_theme(bad.path());
+        let bad = d.path().join("bad.json");
+        std::fs::write(
+            &bad,
+            r##"{"id":"Bad_Id","name":"","appearance":"neon","extra":1,"tokens":{"surface.panel":"#1a1b26","text.primary":"#24283b","accent":"red;x","nope":"#fff"}}"##,
+        )
+        .unwrap();
+        let r = check_theme_file(&bad);
+        assert!(
+            r.errors
+                .iter()
+                .any(|e| e.contains("unknown top-level field")),
+            "{r:?}"
+        );
+        assert!(r.errors.iter().any(|e| e.contains("id must use")), "{r:?}");
+        assert!(r.errors.iter().any(|e| e.contains("name must be")), "{r:?}");
+        assert!(
+            r.errors.iter().any(|e| e.contains("appearance must be")),
+            "{r:?}"
+        );
         assert!(
             r.errors
                 .iter()
@@ -432,23 +487,9 @@ mod tests {
             "{r:?}"
         );
         assert!(
-            r.errors.iter().any(|e| e.contains("not a WOFF2 web font")),
-            "{r:?}"
-        );
-        assert!(
             r.warnings
                 .iter()
                 .any(|w| w.contains("text.primary on surface.panel")),
-            "{r:?}"
-        );
-
-        let missing = theme(&[("plugin.toml", MANIFEST)]);
-        let r = check_theme(missing.path());
-        assert!(r.errors.iter().any(|e| e.contains("dark.json")), "{r:?}");
-        assert!(
-            r.errors
-                .iter()
-                .any(|e| e.contains("missing from the package")),
             "{r:?}"
         );
     }

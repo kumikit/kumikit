@@ -40,6 +40,17 @@ test('a thread is renamed from its row menu, and Escape cancels', async ({ page,
   await expect(dialog).toHaveCount(0);
   await expect(sidebar.locator('li.row', { hasText: 'Rename me please' })).toHaveCount(1);
 
+  // Enter on the Cancel button cancels and does not save.
+  await row.getByRole('button', { name: 'Thread actions' }).click();
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
+  await field.fill('Cancelled by Enter');
+  const cancelBtn = dialog.getByRole('button', { name: 'Cancel' });
+  await cancelBtn.focus();
+  await cancelBtn.press('Enter');
+  await expect(dialog).toHaveCount(0);
+  await expect(sidebar.locator('li.row', { hasText: 'Rename me please' })).toHaveCount(1);
+  await expect(sidebar.locator('li.row', { hasText: 'Cancelled by Enter' })).toHaveCount(0);
+
   // Empty titles are refused inline.
   await row.getByRole('button', { name: 'Thread actions' }).click();
   await page.getByRole('menuitem', { name: 'Rename' }).click();

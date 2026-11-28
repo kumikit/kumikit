@@ -50,10 +50,18 @@
     if (e.key === 'Escape') {
       e.stopPropagation();
       close();
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      void save();
     }
+  }
+
+  function onInputKey(e: KeyboardEvent) {
+    if (isComposing(e) && e.key === 'Enter') {
+      e.preventDefault();
+    }
+  }
+
+  function onSubmit(e: SubmitEvent) {
+    e.preventDefault();
+    void save();
   }
 </script>
 
@@ -69,26 +77,29 @@
   use:trapFocus
 >
   <h2 id="kk-rename-title">Rename thread</h2>
-  <label class="field">
-    <span class="kk-sr-only">Thread title</span>
-    <input
-      class="kk-input"
-      type="text"
-      data-autofocus
-      bind:value
-      disabled={busy}
-      aria-invalid={problem !== undefined}
-      aria-describedby="kk-rename-problem"
-      onfocus={(e) => (e.currentTarget as HTMLInputElement).select()}
-    />
-  </label>
-  <p id="kk-rename-problem" class="problem" aria-live="polite">{problem ?? ''}</p>
-  <div class="actions">
-    <button type="button" class="kk-button" disabled={busy} onclick={close}>Cancel</button>
-    <button type="button" class="kk-button primary" disabled={!canSave} onclick={() => void save()}>
-      {busy ? 'Saving…' : 'Rename'}
-    </button>
-  </div>
+  <form class="form" onsubmit={onSubmit}>
+    <label class="field">
+      <span class="kk-sr-only">Thread title</span>
+      <input
+        class="kk-input"
+        type="text"
+        data-autofocus
+        bind:value
+        disabled={busy}
+        aria-invalid={problem !== undefined}
+        aria-describedby="kk-rename-problem"
+        onkeydown={onInputKey}
+        onfocus={(e) => (e.currentTarget as HTMLInputElement).select()}
+      />
+    </label>
+    <p id="kk-rename-problem" class="problem" aria-live="polite">{problem ?? ''}</p>
+    <div class="actions">
+      <button type="button" class="kk-button" disabled={busy} onclick={close}>Cancel</button>
+      <button type="submit" class="kk-button primary" disabled={!canSave}>
+        {busy ? 'Saving…' : 'Rename'}
+      </button>
+    </div>
+  </form>
 </div>
 
 <style>
@@ -118,6 +129,9 @@
     margin: 0;
     font-size: var(--kk-font-size-large, large);
     color: var(--kk-text-primary, CanvasText);
+  }
+  .form {
+    display: contents;
   }
   .field {
     display: block;

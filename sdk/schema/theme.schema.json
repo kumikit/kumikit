@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kumikit.dev/schema/theme-0.1.json",
+  "title": "Kumikit theme resource file (UI SDK 0.1)",
+  "description": "Single-file JSON theme definition (docs/spec/08-themes.md, ADR 0037). Missing tokens fall back to the bundled default theme for the same appearance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "appearance",
+    "tokens"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "appearance": {
+      "enum": [
+        "light",
+        "dark"
+      ]
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  }
+}

@@ -382,3 +382,11 @@ async fn set_options_outside_list_models_is_refused() {
         ErrorCode::InvalidArgument
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn emit_limits_and_turn_usage_outside_a_turn_are_refused() {
+    let e = env().await;
+    let p = e.probe(Grants::default()).await;
+    assert_eq!(code(run(&p, "limits 50").await), ErrorCode::Conflict);
+    assert_eq!(code(run(&p, "usage-models").await), ErrorCode::Conflict);
+}

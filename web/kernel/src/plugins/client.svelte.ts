@@ -1,7 +1,7 @@
 /**
- * UI plugins and themes on this client (06-client, Plugin manager): which are enabled,
- * loading themes into the theme engine and activating inline modules with a plugin
- * context. Nothing here names a plugin; `bundled.json` names the fallback theme.
+ * UI plugins on this client (06-client, Plugin manager): which are enabled, activating
+ * inline modules with a plugin context, and mounting sandboxed iframe panels.
+ * Themes are plain resource files loaded separately by the theme engine (ADR 0037).
  */
 import type { Plugin, SettingsSchema } from '@kumikit/ui-sdk';
 import { mount, unmount } from 'svelte';
@@ -9,22 +9,18 @@ import { mount, unmount } from 'svelte';
 import type { Kernel } from '../app.svelte';
 import Form from '../declarative/Form.svelte';
 import type { ClientPluginEntry, ClientRef } from '../platform/index';
-import type { ThemeVariant } from '../theme/engine.svelte';
-import { contrastWarnings } from '../theme/contrast';
-import { checkTokens } from '../theme/validate';
 import { createContext } from './context';
 import { PANEL_SLOTS, mountPanel } from './panel';
 
-/** What the UI kernel reads from a UI plugin or theme manifest. */
+/** What the UI kernel reads from a UI plugin manifest. */
 export interface ClientManifest {
   id: string;
   name: string;
   version: string;
   description?: string;
   repository?: string;
-  kind: ['ui'] | ['theme'];
+  kind: ['ui'];
   ui?: { entry: string; isolation?: string; network?: string[] };
-  theme?: { variants: { id: string; name?: string; appearance: 'light' | 'dark'; tokens: string }[] };
   contributes?: { settings?: string; slots?: { slot?: unknown; id?: unknown; title?: unknown }[] };
   /** Core plugins this UI plugin needs, `<id>@<range>` (07-ui-plugins). */
   requires?: { core?: string[] };
@@ -33,7 +29,7 @@ export interface ClientManifest {
 export interface ClientPlugin {
   entry: ClientPluginEntry;
   manifest: ClientManifest;
-  kind: 'ui' | 'theme';
+  kind: 'ui';
   enabled: boolean;
   /** Third-party inline code waiting for the user's trust. */
   needsTrust: boolean;
@@ -43,7 +39,8 @@ export interface ClientPlugin {
 
 /** Data shipped with the app next to the UI kernel. */
 export interface Bundled {
-  fallbackTheme?: string;
+  fallbackLight?: string;
+  fallbackDark?: string;
 }
 
 export class ClientPlugins {
@@ -59,74 +56,45 @@ export class ClientPlugins {
     return Array.isArray(core) ? core.filter((x): x is string => typeof x === 'string') : undefined;
   }
 
-  /** Reads the list, loads the themes and activates the enabled UI plugins. */
+  /** Reads `bundled.json`, loads bundled + custom themes, and activates enabled UI plugins. */
   async load(): Promise<void> {
     const k = this.kernel;
     try {
       const r = await fetch('./bundled.json');
       if (r.ok) this.bundled = (await r.json()) as Bundled;
     } catch {
-      // No bundled.json (development): no fallback theme; system colors apply.
+      // No bundled.json (development): default fallback ids apply.
     }
-    k.theme.fallbackTheme = this.bundled.fallbackTheme;
+    if (this.bundled.fallbackLight) k.theme.fallbackLight = this.bundled.fallbackLight;
+    if (this.bundled.fallbackDark) k.theme.fallbackDark = this.bundled.fallbackDark;
+    await k.loadThemes();
     let entries: ClientPluginEntry[] = [];
     try {
       entries = await k.platform.clientPlugins.list();
     } catch (e) {
       k.notify(`Cannot list UI plugins: ${String(e)}`, 'danger');
     }
-    this.plugins = entries.map((entry) => this.#describe(entry));
-    await this.#loadThemes();
+    this.plugins = entries
+      .filter((entry) => {
+        const m = entry.manifest as Partial<ClientManifest>;
+        return Array.isArray(m.kind) && m.kind[0] === 'ui';
+      })
+      .map((entry) => this.#describe(entry));
     if (k.platform.safeMode) return;
-    for (const p of this.plugins) if (p.kind === 'ui' && p.enabled) await this.#activate(p);
+    for (const p of this.plugins) if (p.enabled) await this.#activate(p);
   }
 
   #describe(entry: ClientPluginEntry): ClientPlugin {
     const manifest = entry.manifest as ClientManifest;
-    const kind = manifest.kind[0];
     const s = this.kernel.settings.value;
     // Only inline code asks for trust; a sandboxed panel cannot reach the app (ADR 0019).
     const inline = (manifest.ui?.isolation ?? 'inline') === 'inline';
-    const needsTrust = kind === 'ui' && inline && entry.source === 'installed' && !s.trustedPlugins.includes(entry.id);
-    return { entry, manifest, kind, enabled: !s.disabledPlugins.includes(entry.id) && !needsTrust, needsTrust };
+    const needsTrust = inline && entry.source === 'installed' && !s.trustedPlugins.includes(entry.id);
+    return { entry, manifest, kind: 'ui', enabled: !s.disabledPlugins.includes(entry.id) && !needsTrust, needsTrust };
   }
 
   #update(id: string, change: Partial<ClientPlugin>): void {
     this.plugins = this.plugins.map((p) => (p.entry.id === id ? { ...p, ...change } : p));
-  }
-
-  /** Contrast warnings per theme id, from the last time its tokens were loaded. */
-  #contrast = new Map<string, string[]>();
-
-  async #loadThemes(): Promise<void> {
-    const k = this.kernel;
-    const variants: ThemeVariant[] = [];
-    this.#contrast.clear();
-    for (const p of this.plugins.filter((p) => p.kind === 'theme' && p.enabled)) {
-      for (const v of p.manifest.theme?.variants ?? []) {
-        try {
-          const r = await fetch(k.platform.pluginUrl(p.entry.id, v.tokens));
-          const checked = checkTokens(await r.json());
-          if (checked.errors.length > 0) {
-            k.notify(`Theme ${p.manifest.name}: ${checked.errors.length} token(s) ignored (${checked.errors.slice(0, 3).join('; ')})`, 'warning');
-          }
-          const low = contrastWarnings(checked.tokens).map((w) => `${v.id}: ${w}`);
-          if (low.length > 0) this.#contrast.set(p.entry.id, [...(this.#contrast.get(p.entry.id) ?? []), ...low]);
-          variants.push({
-            theme: p.entry.id,
-            id: v.id,
-            name: `${p.manifest.name} ${v.name ?? v.id.charAt(0).toUpperCase() + v.id.slice(1)}`,
-            appearance: v.appearance,
-            tokens: checked.tokens,
-          });
-        } catch (e) {
-          this.#update(p.entry.id, { error: `cannot read ${v.tokens}: ${String(e)}` });
-        }
-      }
-    }
-    k.theme.setVariants(variants);
-    k.refreshThemeCommands();
-    k.applyTheme();
   }
 
   async #activate(p: ClientPlugin): Promise<void> {
@@ -228,8 +196,7 @@ export class ClientPlugins {
     const p = this.plugins.find((x) => x.entry.id === id);
     if (!p) return;
     this.#update(id, { enabled });
-    if (p.kind === 'theme') await this.#loadThemes();
-    else if (enabled && !k.platform.safeMode) await this.#activate({ ...p, enabled });
+    if (enabled && !k.platform.safeMode) await this.#activate({ ...p, enabled });
     else await this.#deactivate(id);
   }
 
@@ -249,15 +216,14 @@ export class ClientPlugins {
     this.#update(id, { enabled: false });
   }
 
-  /** Installs a package picked by the user. Themes are enabled at once; third-party
-   * inline code waits for trust. */
+  /** Installs a package picked by the user; third-party inline code waits for trust. */
   async install(path: string): Promise<ClientPlugin | undefined> {
     const k = this.kernel;
     const entry = await k.attempt('Cannot install', () => k.platform.clientPlugins.install(path));
     return entry ? this.added(entry) : undefined;
   }
 
-  /** Installs a UI plugin or theme from the app's registries. */
+  /** Installs a UI plugin from the app's registries. */
   async installFrom(plugin: ClientRef): Promise<ClientPlugin | undefined> {
     const k = this.kernel;
     const registry = k.platform.registry;
@@ -272,7 +238,7 @@ export class ClientPlugins {
   async updated(entry: ClientPluginEntry): Promise<ClientPlugin> {
     const k = this.kernel;
     const p = this.#describe(entry);
-    if (p.kind === 'ui' && (p.manifest.ui?.isolation ?? 'inline') === 'inline') {
+    if ((p.manifest.ui?.isolation ?? 'inline') === 'inline') {
       const was = this.plugins.find((x) => x.entry.id === entry.id);
       const wasInline = was && (was.manifest.ui?.isolation ?? 'inline') === 'inline';
       if (!wasInline) {
@@ -282,24 +248,17 @@ export class ClientPlugins {
     }
     const now = this.#describe(entry);
     this.plugins = this.plugins.map((x) => (x.entry.id === entry.id ? now : x));
-    if (now.kind === 'theme') await this.#loadThemes();
     return now;
   }
 
-  /** Adds an installed plugin to the list and loads it if it is a theme. */
+  /** Adds an installed UI plugin to the list and activates it if trusted or sandboxed. */
   async added(entry: ClientPluginEntry): Promise<ClientPlugin> {
     const k = this.kernel;
     const p = this.#describe(entry);
     this.plugins = [...this.plugins.filter((x) => x.entry.id !== entry.id), p];
-    if (p.kind === 'theme') await this.#loadThemes();
     // A sandboxed panel needs no trust, so it starts at once (inline code waits for trust).
-    else if (p.enabled && !k.platform.safeMode) await this.#activate(p);
+    if (p.enabled && !k.platform.safeMode) await this.#activate(p);
     k.notify(`Installed ${p.manifest.name}`, 'success');
-    // 08-themes: installing a theme with low contrast is allowed, with a warning.
-    const low = this.#contrast.get(entry.id) ?? [];
-    if (low.length > 0) {
-      k.notify(`${p.manifest.name} has low contrast in places (${low.length}): ${low.slice(0, 2).join('; ')}`, 'warning');
-    }
     return p;
   }
 
@@ -308,8 +267,6 @@ export class ClientPlugins {
     await this.#deactivate(id);
     const ok = await k.attempt('Cannot remove', () => k.platform.clientPlugins.remove(id).then(() => true));
     if (!ok) return;
-    const was = this.plugins.find((p) => p.entry.id === id);
     this.plugins = this.plugins.filter((p) => p.entry.id !== id);
-    if (was?.kind === 'theme') await this.#loadThemes();
   }
 }

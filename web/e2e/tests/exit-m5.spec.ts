@@ -8,7 +8,7 @@
 import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { ROOT, command, expect, open, test, chooseAgent } from './fixtures';
+import { ROOT, command, openAgents, expect, open, test, chooseAgent } from './fixtures';
 
 test.use({ registry: true });
 
@@ -68,12 +68,15 @@ test('registry tool plugin, gateway MCP turn and sandboxed panel work together',
   const agentDialog = page.getByRole('dialog', { name: /Enable Acme Agent/ });
   await expect(agentDialog).toContainText('tools');
   await agentDialog.getByRole('button', { name: 'Grant and enable' }).click();
-  await expect(page.getByRole('region', { name: 'On this core' }).getByRole('listitem').filter({ hasText: 'acme.agent' })).toContainText('Enabled');
+  // Agents installed from the starter pack are listed in Settings → Agents, not here.
+  await expect(page.getByRole('region', { name: 'On this core' })).not.toContainText('acme.agent');
 
   // Install sandboxed UI panel (no trust prompt).
   const panelItem = starter.getByRole('listitem').filter({ hasText: 'acme.panel' });
   await panelItem.getByRole('button', { name: 'Install in this app' }).click();
   await expect(page.getByRole('region', { name: 'On this client' }).getByRole('listitem').filter({ hasText: 'acme.panel' })).toContainText('Enabled');
+  const agents = await openAgents(page);
+  await expect(agents.getByRole('listitem').filter({ hasText: 'acme.agent' })).toContainText('Enabled');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 
   // Open workspace and run an agent turn that calls `acme_tool__echo` through the gateway.

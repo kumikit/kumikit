@@ -47,14 +47,10 @@ kill "$serve_pid"; serve_pid=
 echo "== UI plugin (Svelte)"
 cp -R templates/ui-plugin-svelte "$work/ui"
 (cd "$work/ui" && KUMIKIT_UI_SDK="$root/web/sdk" npx vite build --logLevel warn)
-"$kumikit" theme check "$work/ui/package"
 "$kumikit" plugin pack "$work/ui/package" -o "$work/panel.kkp" --key "$key"
 "$store" "$work/client/ui-plugins" "$work/panel.kkp" | tee "$work/ui.txt"
 grep -q "installed yourname.panel 0.1.0 signed" "$work/ui.txt"
 
-echo "== theme"
-"$kumikit" theme check templates/theme --strict
-"$kumikit" plugin pack templates/theme -o "$work/theme.kkp" --key "$key"
-"$store" "$work/client/ui-plugins" "$work/theme.kkp" | tee "$work/theme.txt"
-grep -q "installed yourname.dusk 0.1.0 signed" "$work/theme.txt"
+echo "== bundled themes"
+"$kumikit" theme check themes --strict
 echo "templates ok"

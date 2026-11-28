@@ -80,7 +80,7 @@ after(async () => {
     const c = net.connect(socket);
     c.once('error', () => done());
     c.once('connect', () => {
-      c.write('{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.12","client":{"name":"e2e","version":"0"}}}\n');
+      c.write('{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.13","client":{"name":"e2e","version":"0"}}}\n');
       c.write('{"jsonrpc":"2.0","id":2,"method":"core.shutdown","params":{}}\n');
     });
     c.once('close', () => done());
@@ -107,6 +107,8 @@ async function palette(b, title) {
 /** A button by its text inside `scope` (a CSS selector). */
 const button = (b, scope, label) => b.wait(`${scope} button`, label);
 const CORE = 'section[aria-labelledby="kk-core-plugins"]';
+/** Settings → Agents, where agents are installed (06-client, Agents). */
+const AGENTS = 'section[aria-labelledby="kk-agents-installed"]';
 const APPROVAL = 'section[aria-label="Approval"]';
 
 test('the exit criteria on the desktop app', { timeout: 300_000 }, async () => {
@@ -139,12 +141,13 @@ async function exitFlow(b) {
   // Install the declarative provider; provider-acp was seeded from the bundle.
   await palette(b, 'Manage plugins');
   await b.wait(`${CORE} li`, 'kumikit.provider-acp');
+  await palette(b, 'Agents: install, remove and configure');
   pick(join(work, 'provider'));
-  await b.click(await button(b, CORE, 'Install from folder…'));
+  await b.click(await button(b, AGENTS, 'Install from folder…'));
   const dialog = await b.wait('[role="dialog"]', 'Grant and enable');
   assert.match(await b.text(dialog), /can start the `fake-acp-agent` program, which runs with your full user access/);
   await b.click(await button(b, '[role="dialog"]', 'Grant and enable'));
-  await b.until(async () => (await b.text(await b.wait(`${CORE} li`, 'test.recorded'))).includes('Enabled'), 'the provider to be enabled');
+  await b.until(async () => (await b.text(await b.wait(`${AGENTS} li`, 'test.recorded'))).includes('Enabled'), 'the provider to be enabled');
 
   step('starting a thread');
   // A thread in a project, and a message that leads to an approval.

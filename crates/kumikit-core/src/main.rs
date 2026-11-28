@@ -142,9 +142,9 @@ enum DevicesAction {
 
 #[derive(Debug, Subcommand)]
 enum ThemeAction {
-    /// Token values, WCAG AA contrast and fonts, as the app checks them at install.
+    /// Token values and WCAG AA contrast, as the app checks them on import.
     Check {
-        /// A theme directory (with plugin.toml) or a .kkp.
+        /// A theme .json file or a directory of theme .json files.
         theme: PathBuf,
         /// Treat contrast warnings as errors.
         #[arg(long)]

@@ -3,7 +3,7 @@
  * approve a tool call, switch themes; reopening the page resumes the running turn.
  * The agent replays a recorded Claude Code transcript.
  */
-import { command, expect, open, test, chooseAgent } from './fixtures';
+import { command, openAgents, expect, open, test, chooseAgent } from './fixtures';
 
 test('install a provider, approve a tool call across a reopen, switch themes', async ({ page, kk }) => {
   await open(page, kk);
@@ -13,14 +13,16 @@ test('install a provider, approve a tool call across a reopen, switch themes', a
   const core = page.getByRole('region', { name: /On this core/ });
   await expect(core.getByRole('listitem').filter({ hasText: 'kumikit.provider-acp' })).toContainText('Enabled');
 
-  // Install a declarative provider from its folder; its permission is shown in words.
+  // Install a declarative provider from its folder in Settings → Agents; its permission
+  // is shown in words.
+  const agents = await openAgents(page);
   await kk.pick(kk.provider('claude-tool-allow', { mode: 'default' }));
-  await core.getByRole('button', { name: 'Install from folder…' }).click();
+  await agents.getByRole('button', { name: 'Install from folder…' }).click();
   const grant = page.getByRole('dialog', { name: /Enable Recorded/ });
   await expect(grant).toContainText('can start the `fake-acp-agent` program, which runs with your full user access, outside the sandbox');
   await expect(grant).toContainText('not signed');
   await grant.getByRole('button', { name: 'Grant and enable' }).click();
-  await expect(core.getByRole('listitem').filter({ hasText: 'test.recorded1' })).toContainText('Enabled');
+  await expect(agents.getByRole('listitem').filter({ hasText: 'test.recorded1' })).toContainText('Enabled');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 
   // Open a project and start a thread with it.

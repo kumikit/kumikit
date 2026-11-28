@@ -14,9 +14,7 @@
 </script>
 
 <details class="thinking" ontoggle={(e) => (open = (e.currentTarget as HTMLDetailsElement).open)}>
-  <summary>
-    <span class="title">Thinking...</span>
-  </summary>
+  <summary><span class="title">Thinking...</span><svg class="chevron" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" /></svg></summary>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <!-- A scrollable text region must be reachable by keyboard (WCAG 2.1.1), so it takes focus. -->
   <div class="thinking-body" bind:this={body} tabindex="0" role="region" aria-label="Thinking text">
@@ -34,6 +32,9 @@
     font-size: var(--kk-font-size-small, small);
   }
   summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     cursor: pointer;
     color: var(--kk-text-muted, GrayText);
     list-style: none;
@@ -47,6 +48,19 @@
   }
   .title {
     font-weight: var(--kk-font-weight-strong, bold);
+  }
+  .chevron {
+    flex: none;
+    color: var(--kk-text-muted, GrayText);
+    transition: transform var(--kk-motion-duration-short, 0ms) var(--kk-motion-ease-out, ease-out);
+  }
+  .thinking[open] > summary .chevron {
+    transform: rotate(90deg);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chevron {
+      transition: none;
+    }
   }
   .thinking-body {
     max-height: 240px;

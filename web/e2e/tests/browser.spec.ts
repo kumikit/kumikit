@@ -13,7 +13,7 @@ import { createInterface } from 'node:readline';
 import AxeBuilder from '@axe-core/playwright';
 import { test as base, expect, type Page } from '@playwright/test';
 
-import { command, ROOT, chooseAgent } from './fixtures';
+import { command, openAgents, ROOT, chooseAgent } from './fixtures';
 import { writeKkp } from './kkp';
 
 const TARGET = process.env.CARGO_TARGET_DIR ?? join(ROOT, 'target');
@@ -112,9 +112,10 @@ test('pair a browser, then the M2 flow through the core it came from', async ({ 
 
   // A provider is installed by upload: the browser cannot reach the core's files.
   await command(page, 'Manage plugins');
-  const region = page.getByRole('region', { name: /On this core/ });
-  await expect(region.getByRole('button', { name: 'Install from folder…' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: /On this core/ }).getByRole('button', { name: 'Install from folder…' })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'On this client' }).getByRole('button', { name: 'Install from file…' })).toHaveCount(0);
+  const region = await openAgents(page);
+  await expect(region.getByRole('button', { name: 'Install from folder…' })).toHaveCount(0);
   const transcript = join(ROOT, 'plugins/provider-acp/tests/transcripts/claude-tool-allow.jsonl').replaceAll('\\', '\\\\');
   const kkp = writeKkp(join(core.work, 'p.kkp'), {
     'plugin.toml': [
@@ -136,7 +137,8 @@ test('pair a browser, then the M2 flow through the core it came from', async ({ 
   await page.getByRole('dialog', { name: /Enable Recorded Claude Code/ }).getByRole('button', { name: 'Grant and enable' }).click();
   await expect(region.getByRole('listitem').filter({ hasText: 'test.recorded' })).toContainText('Enabled');
   // The recorded provider runs on provider-acp, which the core seeds after it is ready.
-  await expect(region.getByRole('listitem').filter({ hasText: 'kumikit.provider-acp' })).toContainText('Enabled');
+  await command(page, 'Manage plugins');
+  await expect(page.getByRole('region', { name: /On this core/ }).getByRole('listitem').filter({ hasText: 'kumikit.provider-acp' })).toContainText('Enabled');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 
   // A folder on the core's machine is typed.

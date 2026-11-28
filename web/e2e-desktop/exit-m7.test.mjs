@@ -82,7 +82,7 @@ after(async () => {
     const c = net.connect(socket);
     c.once('error', () => done());
     c.once('connect', () => {
-      c.write('{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.12","client":{"name":"e2e","version":"0"}}}\n');
+      c.write('{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"protocol":"0.13","client":{"name":"e2e","version":"0"}}}\n');
       c.write('{"jsonrpc":"2.0","id":2,"method":"core.shutdown","params":{}}\n');
     });
     c.once('close', () => done());
@@ -102,7 +102,8 @@ async function palette(b, title) {
   await b.keys('Enter');
 }
 
-const CORE = 'section[aria-labelledby="kk-core-plugins"]';
+/** Settings → Agents, where agents are installed (06-client, Agents). */
+const AGENTS = 'section[aria-labelledby="kk-agents-installed"]';
 let current;
 
 test('M7 threads flow on the desktop app: /later, /btw side thread, and edit fork', { timeout: 300_000 }, async () => {
@@ -123,12 +124,12 @@ test('M7 threads flow on the desktop app: /later, /btw side thread, and edit for
 async function flow(b) {
   await b.wait('footer', 'Connected');
   step('installing recorded ACP provider');
-  await palette(b, 'Manage plugins');
+  await palette(b, 'Agents: install, remove and configure');
   pick(join(work, 'provider'));
-  await b.click(await b.wait(`${CORE} button`, 'Install from folder'));
+  await b.click(await b.wait(`${AGENTS} button`, 'Install from folder'));
   await b.click(await b.wait('[role="dialog"] button', 'Grant and enable'));
   await b.until(
-    async () => (await b.text(await b.wait(`${CORE} li`, 'test.recorded7'))).includes('Enabled'),
+    async () => (await b.text(await b.wait(`${AGENTS} li`, 'test.recorded7'))).includes('Enabled'),
     'test.recorded7 enabled',
   );
 

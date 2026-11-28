@@ -4,11 +4,11 @@
   "properties": {
     "provider": {
       "type": "string",
-      "description": "Qualified provider ID from list_models. Optional when the core has one provider."
+      "description": "Qualified provider ID from list_models. Optional: when left out, this thread's provider and model are used."
     },
     "model": {
       "type": "string",
-      "description": "Model ID from list_models. Defaults to the provider's first model."
+      "description": "Model ID from list_models. Defaults to the provider's first model, or to this thread's model when no provider is given."
     },
     "options": {
       "type": "object",
