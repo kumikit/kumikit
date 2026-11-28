@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "provider": {
+      "type": "string",
+      "description": "Qualified provider ID from list_models. Optional when the core has one provider."
+    },
+    "model": {
+      "type": "string",
+      "description": "Model ID from list_models. Defaults to the provider's first model."
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Model settings by setting ID, as list_models shows them, for example { \"effort\": \"medium\" }."
+    },
+    "title": {
+      "type": "string",
+      "description": "Optional thread title."
+    },
+    "text": {
+      "type": "string",
+      "description": "Optional first message to send to the new thread."
+    },
+    "permissionMode": {
+      "type": "string",
+      "enum": ["plan", "standard", "accept_edits"],
+      "description": "Permission mode for the new thread; plan is read-only. Defaults to standard, or this thread's mode if stricter. It may not be looser than this thread's mode."
+    }
+  }
+}
