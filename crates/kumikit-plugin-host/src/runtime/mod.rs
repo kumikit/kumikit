@@ -161,6 +161,11 @@ impl Runtime {
                     HasSelf<HostState>,
                 >(&mut base, |s| s)
                 .map_err(|e| e.to_string())?;
+                bindings::threads_client_v2::kumikit::threads::client::add_to_linker::<
+                    HostState,
+                    HasSelf<HostState>,
+                >(&mut base, |s| s)
+                .map_err(|e| e.to_string())?;
                 let mut provider = wasi_linker(engine.engine()).map_err(|e| e.to_string())?;
                 bindings::provider::Plugin::add_to_linker::<HostState, HasSelf<HostState>>(
                     &mut provider,
@@ -202,6 +207,11 @@ impl Runtime {
                 >(&mut tool, |s| s)
                 .map_err(|e| e.to_string())?;
                 bindings::threads_client::kumikit::threads::client::add_to_linker::<
+                    HostState,
+                    HasSelf<HostState>,
+                >(&mut tool, |s| s)
+                .map_err(|e| e.to_string())?;
+                bindings::threads_client_v2::kumikit::threads::client::add_to_linker::<
                     HostState,
                     HasSelf<HostState>,
                 >(&mut tool, |s| s)

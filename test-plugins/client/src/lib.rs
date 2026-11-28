@@ -4,6 +4,8 @@
 //!
 //! - `workspaces`, `providers`
 //! - `threads { workspace }`, `get { thread }`, `create { workspace, provider?, model? }`
+//! - `models { provider }` (the models JSON), `create-with { workspace, provider?, model?,
+//!   options?, permissionMode?, origin? }` (`kumikit:threads@0.2.0`)
 //! - `send { thread, text }`, `cancel { thread }`, `respond { approval, decision }`
 //! - `follow { topic, after, count }`: subscribes and waits (on the pollable) until
 //!   `count` events arrived, then returns their kinds.
@@ -56,6 +58,28 @@ fn run(id: &str, args: &Value) -> Result<Value, Error> {
             opt(args, "model").as_deref(),
             None,
         )?),
+        "models" => serde_json::from_str(&threads::list_models(arg(args, "provider")?)?)
+            .map_err(|e| Error::new(ErrorCode::Internal, e.to_string()))?,
+        "create-with" => {
+            let options = args
+                .get("options")
+                .and_then(Value::as_object)
+                .map(|o| {
+                    o.iter()
+                        .map(|(k, v)| (k.clone(), v.as_str().unwrap_or_default().to_owned()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            thread_json(&threads::create_thread(&threads::CreateRequest {
+                workspace: arg(args, "workspace")?.to_owned(),
+                provider: opt(args, "provider"),
+                model: opt(args, "model"),
+                title: opt(args, "title"),
+                options,
+                permission_mode: opt(args, "permissionMode"),
+                origin: opt(args, "origin"),
+            })?)
+        }
         "send" => json!(client::send(arg(args, "thread")?, arg(args, "text")?)?),
         "steer" => {
             let r = turn::steer(arg(args, "thread")?, arg(args, "text")?)?;

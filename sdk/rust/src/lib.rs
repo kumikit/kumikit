@@ -57,27 +57,32 @@ pub mod turn {
     pub use crate::turn_bindings::kumikit::turn::client::{SteerResult, SteerStatus, steer};
 }
 
-/// Generated bindings for `kumikit:threads/client-threads@0.1.0` (ADR 0027, ADR 0030).
+/// Generated bindings for `kumikit:threads/client-threads@0.2.0` (ADR 0027, ADR 0030,
+/// ADR 0034).
 #[allow(missing_docs, clippy::all, unsafe_code)]
 pub mod threads_bindings {
     wit_bindgen::generate!({
         path: [
             "../../wit/kumikit-host@0.2.0",
-            "../../wit/kumikit-threads@0.1.0",
+            "../../wit/kumikit-threads@0.2.0",
         ],
         world: "kumikit:threads/client-threads",
         with: {
             "kumikit:host/types@0.2.0": crate::bindings::kumikit::host::types,
+            "kumikit:host/client@0.2.0": crate::bindings::kumikit::host::client,
         },
         generate_all,
     });
 }
 
 /// Additional thread client operations (`docs/spec/03-kernel.md#client-interface`,
-/// ADR 0027, ADR 0030). Each checks its operation in `permissions.client`.
+/// ADR 0027, ADR 0030, ADR 0034). Each checks its operation in `permissions.client`.
+/// Built against `kumikit:threads@0.2.0`, so a plugin using it needs a core that links
+/// that version (M9 and later).
 pub mod threads {
     pub use crate::threads_bindings::kumikit::threads::client::{
-        defer, list_queue, read_events, remove_queued, suggest_title,
+        CreateRequest, create_thread, defer, list_models, list_queue, read_events, remove_queued,
+        suggest_title,
     };
 }
 

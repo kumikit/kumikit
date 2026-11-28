@@ -127,6 +127,25 @@ pub mod threads_client {
     });
 }
 
+/// `kumikit:threads/client-threads@0.2.0`: 0.1.0 plus `list-models` and `create-thread`
+/// with model settings and a bounded permission mode (ADR 0034), linked for base and
+/// tool plugins alongside 0.1.0.
+#[allow(missing_docs, clippy::all)]
+pub mod threads_client_v2 {
+    wasmtime::component::bindgen!({
+        path: [
+            "../../wit/kumikit-host@0.2.0",
+            "../../wit/kumikit-threads@0.2.0",
+        ],
+        world: "kumikit:threads/client-threads",
+        imports: { default: async },
+        with: {
+            "kumikit:host/types": super::base::kumikit::host::types,
+            "kumikit:host/client": super::base::kumikit::host::client,
+        },
+    });
+}
+
 /// `kumikit:session/provider-events@0.1.0`: additive provider session events
 /// (`commands.available` and `limit.reached`, M7 steps 7-8), linked for every provider.
 #[allow(missing_docs, clippy::all)]
