@@ -96,6 +96,20 @@ describe('connection', () => {
     expect(c.threads.w1?.map((x) => x.status)).toEqual(['running']);
   });
 
+  it('keeps a thread an agent started out of the sidebar list (ADR 0036)', async () => {
+    const core = new FakeCore();
+    const t = { id: 't1', workspace: 'w1', provider: 'a/b', model: 'm', status: 'running', created: '1', updated: '1' };
+    core.handle('thread.list', () => ({ threads: [t] }));
+    const { c } = await connected(core);
+    c.watchWorkspace('w1');
+    await settle();
+    // `start_thread` from t1's turn: a side thread whose parent is t1.
+    const started = { ...t, id: 't2', status: 'idle', side: true, parent: 't1', created: '2', updated: '2' };
+    core.notify('events.event', { topic: 'workspace:w1', seq: 1, time: '2', kind: 'thread.created', data: { thread: started } });
+    expect(c.threads.w1?.map((x) => x.id)).toEqual(['t1']);
+    expect(c.sideThreads.t2?.parent).toBe('t1');
+  });
+
   it('stops retrying on a protocol mismatch and remembers the core version', async () => {
     const core = new FakeCore();
     core.handle('core.hello', () => ({ error: { code: 'protocol_mismatch', message: 'core speaks protocol 0.4' } }));

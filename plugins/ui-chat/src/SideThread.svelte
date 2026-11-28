@@ -39,6 +39,9 @@
     const prev = sideThreads.find((t) => t.id === next.id);
     if (prev && prev.updated > next.updated) return;
     sideThreads = sortSides([next, ...sideThreads.filter((t) => t.id !== next.id)]);
+    // A thread that arrives while none is shown (one an agent just started) is shown at
+    // once, as a loaded one is; one the user is writing is not interrupted.
+    if (!selectedId && !composingNew) selectedId = next.id;
   }
 
   function removeSide(id: string) {
