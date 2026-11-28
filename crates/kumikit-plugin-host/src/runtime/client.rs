@@ -7,9 +7,10 @@ use std::collections::VecDeque;
 
 use kumikit_kernel::{Kernel, ThreadSubscription};
 use kumikit_protocol::event::QueueTrigger;
+use kumikit_protocol::methods::ModelInfo;
 use kumikit_protocol::methods::SteerStatus;
 use kumikit_protocol::model::{
-    ApprovalId, Decision, QueueEntryId, ThreadId, UserInput, WorkspaceId,
+    ApprovalId, Decision, PermissionMode, QueueEntryId, ThreadId, UserInput, WorkspaceId,
 };
 use kumikit_protocol::{Topic, WorkspaceEvent};
 use tokio::sync::broadcast;
@@ -19,6 +20,7 @@ use wasmtime_wasi::p2::DynPollable;
 use super::bindings::base::kumikit::host::client::{self, Event};
 use super::bindings::base::kumikit::host::types::{Error, ErrorCode};
 use super::bindings::threads_client::kumikit::threads::client as wit_threads_client;
+use super::bindings::threads_client_v2::kumikit::threads::client as wit_threads_client_v2;
 use super::bindings::turn_client::kumikit::turn::client as wit_turn_client;
 use super::host::{HostState, err, kernel_err};
 
@@ -359,6 +361,13 @@ impl client::Host for HostState {
                     format!("topic {name} is reserved"),
                 ));
             }
+            // Usage data is for clients; no plugin permission covers it.
+            Topic::Usage => {
+                return Err(err(
+                    ErrorCode::InvalidArgument,
+                    "the usage topic is not available to plugins",
+                ));
+            }
         };
         let res = SubscriptionRes {
             topic,
@@ -501,6 +510,151 @@ impl wit_threads_client::Host for HostState {
     }
 }
 
+/// How strict a permission mode is, lower being stricter (ADR 0034).
+fn strictness(mode: PermissionMode) -> u8 {
+    match mode {
+        PermissionMode::Plan => 0,
+        PermissionMode::Standard => 1,
+        PermissionMode::AcceptEdits => 2,
+        PermissionMode::FullAccess => 3,
+    }
+}
+
+/// The permission mode a plugin-created thread gets (ADR 0034): never `full_access`,
+/// never looser than `origin`'s mode; with none requested, `standard` or the origin's
+/// mode if that is stricter. `Err` carries the reason for `permission-denied`.
+fn bounded_mode(
+    requested: Option<PermissionMode>,
+    origin: Option<PermissionMode>,
+) -> Result<PermissionMode, String> {
+    if requested == Some(PermissionMode::FullAccess) {
+        return Err("a plugin cannot create a full_access thread".into());
+    }
+    match (requested, origin) {
+        (Some(r), Some(o)) if strictness(r) > strictness(o) => Err(format!(
+            "permission mode {} is looser than the origin thread's {}",
+            r.as_str(),
+            o.as_str()
+        )),
+        (Some(r), _) => Ok(r),
+        (None, Some(o)) if strictness(o) < strictness(PermissionMode::Standard) => Ok(o),
+        (None, _) => Ok(PermissionMode::Standard),
+    }
+}
+
+impl wit_threads_client_v2::Host for HostState {
+    async fn defer(
+        &mut self,
+        thread: String,
+        text: String,
+        trigger_json: String,
+    ) -> Result<String, Error> {
+        wit_threads_client::Host::defer(self, thread, text, trigger_json).await
+    }
+
+    async fn list_queue(&mut self, thread: String) -> Result<String, Error> {
+        wit_threads_client::Host::list_queue(self, thread).await
+    }
+
+    async fn remove_queued(&mut self, thread: String, entry: String) -> Result<(), Error> {
+        wit_threads_client::Host::remove_queued(self, thread, entry).await
+    }
+
+    async fn read_events(
+        &mut self,
+        thread: String,
+        after: u64,
+        limit: u32,
+    ) -> Result<String, Error> {
+        wit_threads_client::Host::read_events(self, thread, after, limit).await
+    }
+
+    async fn suggest_title(&mut self, thread: String, title: String) -> Result<bool, Error> {
+        wit_threads_client::Host::suggest_title(self, thread, title).await
+    }
+
+    async fn list_models(&mut self, provider: String) -> Result<String, Error> {
+        let a = self.access();
+        a.need("threads.create")?;
+        let models: Vec<ModelInfo> = a
+            .kernel
+            .provider_models(&provider)
+            .await
+            .map_err(kernel_err)?
+            .into_iter()
+            .map(|m| ModelInfo {
+                id: m.id,
+                label: m.label,
+                capabilities: m.capabilities,
+                options: m.options,
+            })
+            .collect();
+        serde_json::to_string(&models).map_err(|e| err(ErrorCode::Internal, e.to_string()))
+    }
+
+    async fn create_thread(
+        &mut self,
+        request: wit_threads_client_v2::CreateRequest,
+    ) -> Result<client::Thread, Error> {
+        let a = self.access();
+        a.need("threads.create")?;
+        let ws = WorkspaceId(request.workspace);
+        a.need_workspace("threads.create", &ws).await?;
+        let requested = request
+            .permission_mode
+            .as_deref()
+            .map(|m| {
+                PermissionMode::parse(m).ok_or_else(|| {
+                    err(
+                        ErrorCode::InvalidArgument,
+                        format!("unknown permission mode {m}"),
+                    )
+                })
+            })
+            .transpose()?;
+        let origin = match request.origin {
+            Some(id) => {
+                let id = ThreadId(id);
+                let origin_ws = a.need_thread("threads.create", &id).await?;
+                if origin_ws != ws {
+                    return Err(a.deny(
+                        "client.threads.create",
+                        format!("origin thread {id} is not in workspace {ws}"),
+                    ));
+                }
+                let snap = a.kernel.thread_get(&id).await.map_err(kernel_err)?;
+                Some(snap.thread.permission_mode.unwrap_or_default())
+            }
+            None => None,
+        };
+        let mode = bounded_mode(requested, origin)
+            .map_err(|reason| a.deny("client.threads.create", reason))?;
+        let options = (!request.options.is_empty()).then(|| {
+            request
+                .options
+                .into_iter()
+                .collect::<std::collections::BTreeMap<_, _>>()
+        });
+        let t = a
+            .kernel
+            .thread_create_opts(
+                &ws,
+                request.provider,
+                request.model,
+                request.title,
+                (mode != PermissionMode::Standard).then_some(mode),
+                options,
+                None,
+                None,
+                false,
+            )
+            .await
+            .map_err(kernel_err)?;
+        tracing::info!(plugin = %a.actor.as_str(), thread = %t.id, mode = mode.as_str(), "plugin created a thread");
+        Ok(thread_record(t))
+    }
+}
+
 impl client::HostSubscription for HostState {
     async fn subscribe(
         &mut self,
@@ -546,5 +700,37 @@ impl client::HostSubscription for HostState {
     async fn drop(&mut self, this: Resource<SubscriptionRes>) -> wasmtime::Result<()> {
         self.table.delete(this)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use PermissionMode::{AcceptEdits, FullAccess, Plan, Standard};
+
+    #[test]
+    fn full_access_is_never_granted() {
+        assert!(bounded_mode(Some(FullAccess), None).is_err());
+        assert!(bounded_mode(Some(FullAccess), Some(FullAccess)).is_err());
+    }
+
+    #[test]
+    fn a_mode_looser_than_the_origin_is_refused() {
+        assert!(bounded_mode(Some(Standard), Some(Plan)).is_err());
+        assert!(bounded_mode(Some(AcceptEdits), Some(Standard)).is_err());
+        assert_eq!(bounded_mode(Some(Plan), Some(Standard)), Ok(Plan));
+        assert_eq!(
+            bounded_mode(Some(AcceptEdits), Some(FullAccess)),
+            Ok(AcceptEdits)
+        );
+    }
+
+    #[test]
+    fn the_default_is_standard_or_a_stricter_origin() {
+        assert_eq!(bounded_mode(None, None), Ok(Standard));
+        assert_eq!(bounded_mode(None, Some(Plan)), Ok(Plan));
+        assert_eq!(bounded_mode(None, Some(AcceptEdits)), Ok(Standard));
+        assert_eq!(bounded_mode(None, Some(FullAccess)), Ok(Standard));
+        assert_eq!(bounded_mode(Some(AcceptEdits), None), Ok(AcceptEdits));
     }
 }

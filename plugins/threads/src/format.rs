@@ -244,6 +244,70 @@ pub fn format_queue(entries: &[Value]) -> String {
     out
 }
 
+/// Reads `start_thread`'s `options`: an object of model settings by id, each a string
+/// (`{ "effort": "medium" }`). Absent means none.
+pub fn parse_model_options(input: &Value) -> Result<Vec<(String, String)>, String> {
+    match input.get("options") {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Object(map)) => map
+            .iter()
+            .map(|(k, v)| match v.as_str() {
+                Some(s) if !s.trim().is_empty() => Ok((k.clone(), s.trim().to_owned())),
+                _ => Err(format!("options.{k} must be a non-empty string")),
+            })
+            .collect(),
+        Some(_) => Err("options must be an object of setting id to value".into()),
+    }
+}
+
+/// Reads `start_thread`'s `permissionMode`: `plan`, `standard` or `accept_edits`.
+pub fn parse_permission_mode(input: &Value) -> Result<Option<String>, String> {
+    match input.get("permissionMode") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(m)) if ["plan", "standard", "accept_edits"].contains(&m.as_str()) => {
+            Ok(Some(m.clone()))
+        }
+        Some(_) => Err("permissionMode must be plan, standard or accept_edits".into()),
+    }
+}
+
+/// One provider's models as text lines: id, label, and each setting with its values and
+/// default (`effort: low, medium, high (default medium)`). The first model is the default.
+pub fn format_models(provider: &str, name: &str, models: &[Value]) -> String {
+    let mut out = format!("{name} (provider {provider})\n");
+    if models.is_empty() {
+        out.push_str("  (no models)\n");
+    }
+    for (i, m) in models.iter().enumerate() {
+        let id = m.get("id").and_then(Value::as_str).unwrap_or("?");
+        let label = m.get("label").and_then(Value::as_str).unwrap_or(id);
+        let default = if i == 0 { ", default" } else { "" };
+        out.push_str(&format!("  - {id} ({label}{default})\n"));
+        for o in m
+            .get("options")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let oid = o.get("id").and_then(Value::as_str).unwrap_or("?");
+            let values: Vec<&str> = o
+                .get("values")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|v| v.get("value").and_then(Value::as_str))
+                .collect();
+            let dflt = o
+                .get("default")
+                .and_then(Value::as_str)
+                .map(|d| format!(" (default {d})"))
+                .unwrap_or_default();
+            out.push_str(&format!("      {oid}: {}{dflt}\n", values.join(", ")));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -316,5 +380,46 @@ mod tests {
         assert!(truncated);
         assert_eq!(last_seq, Some(2));
         assert!(text.contains("truncated at 32 KiB"));
+    }
+
+    #[test]
+    fn model_options_are_strings_by_id() {
+        assert_eq!(parse_model_options(&json!({})), Ok(vec![]));
+        assert_eq!(
+            parse_model_options(&json!({ "options": { "effort": " medium " } })),
+            Ok(vec![("effort".into(), "medium".into())])
+        );
+        assert!(parse_model_options(&json!({ "options": { "effort": 3 } })).is_err());
+        assert!(parse_model_options(&json!({ "options": { "effort": "" } })).is_err());
+        assert!(parse_model_options(&json!({ "options": ["effort"] })).is_err());
+    }
+
+    #[test]
+    fn permission_mode_excludes_full_access() {
+        assert_eq!(parse_permission_mode(&json!({})), Ok(None));
+        assert_eq!(
+            parse_permission_mode(&json!({ "permissionMode": "plan" })),
+            Ok(Some("plan".into()))
+        );
+        assert!(parse_permission_mode(&json!({ "permissionMode": "full_access" })).is_err());
+        assert!(parse_permission_mode(&json!({ "permissionMode": "yolo" })).is_err());
+    }
+
+    #[test]
+    fn models_list_their_settings_and_default() {
+        let models = vec![
+            json!({ "id": "neon", "label": "Neon", "options": [{
+                "id": "effort", "label": "Effort",
+                "values": [{ "value": "low", "label": "Low" }, { "value": "medium", "label": "Medium" }],
+                "default": "low"
+            }] }),
+            json!({ "id": "lite", "label": "Lite" }),
+        ];
+        let text = format_models("acme/gem", "Gem", &models);
+        assert_eq!(
+            text,
+            "Gem (provider acme/gem)\n  - neon (Neon, default)\n      effort: low, medium (default low)\n  - lite (Lite)\n"
+        );
+        assert!(format_models("a/b", "B", &[]).contains("(no models)"));
     }
 }

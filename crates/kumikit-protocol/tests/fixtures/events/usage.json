@@ -29,5 +29,38 @@
         "cost": 0.0012
       }
     }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "events.event",
+    "params": {
+      "topic": "thread:01JCTH00000000000000000001",
+      "seq": 11,
+      "time": "2026-11-15T10:00:02.000Z",
+      "kind": "usage",
+      "data": {
+        "turn": "01JCTU00000000000000000002",
+        "inputTokens": 1400,
+        "outputTokens": 300,
+        "cost": 0.0201,
+        "cachedInputTokens": 1200,
+        "models": [
+          {
+            "model": "gemini-pro",
+            "inputTokens": 1300,
+            "outputTokens": 280,
+            "cachedInputTokens": 1150,
+            "cost": 0.0191
+          },
+          {
+            "model": "gemini-flash",
+            "inputTokens": 100,
+            "outputTokens": 20,
+            "cachedInputTokens": 50,
+            "cost": 0.001
+          }
+        ]
+      }
+    }
   }
 ]

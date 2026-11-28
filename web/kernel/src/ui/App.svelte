@@ -6,6 +6,7 @@
   import { LEFT_MAX, LEFT_MIN, RIGHT_MAX, RIGHT_MIN } from '../layout/layout';
   import type { ResizeDirection } from '../platform/index';
   import ConfirmDialog from './ConfirmDialog.svelte';
+  import RenameThread from './RenameThread.svelte';
   import CoreView from './CoreView.svelte';
   import CoresView from './CoresView.svelte';
   import OpenFolder from './OpenFolder.svelte';
@@ -242,6 +243,8 @@
   <Palette {kernel} />
 {:else if kernel.dialog?.kind === 'open-folder'}
   <OpenFolder {kernel} connection={kernel.dialog.connection} />
+{:else if kernel.dialog?.kind === 'rename-thread'}
+  <RenameThread {kernel} address={kernel.dialog.address} title={kernel.dialog.title} />
 {:else if kernel.dialog?.kind === 'confirm'}
   <ConfirmDialog
     {kernel}

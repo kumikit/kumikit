@@ -1,5 +1,6 @@
 //! `kumikit.threads`: first-party agent tools for scheduling wake-ups, inspecting and
-//! messaging threads, managing queues, and suggesting thread titles (ADR 0030).
+//! messaging threads, managing queues, suggesting thread titles (ADR 0030), and starting
+//! threads with a chosen model and settings (ADR 0034).
 //!
 //! Built solely on the public `kumikit-tool` SDK (`kumikit:tool/plugin@0.1.0`).
 
@@ -292,6 +293,105 @@ fn handle_cancel_deferred(call: &ToolCall, input: &Value) -> Result<ToolResult, 
     }
 }
 
+fn handle_list_models(input: &Value) -> Result<ToolResult, Error> {
+    let providers = match client::list_providers() {
+        Ok(p) => p,
+        Err(e) => return Ok(ToolResult::failed(e.message)),
+    };
+    let wanted = opt_str(input, "provider");
+    if let Some(w) = wanted
+        && !providers.iter().any(|p| p.id == w)
+    {
+        return Ok(ToolResult::failed(format!("no provider {w}")));
+    }
+    let mut text = String::new();
+    let mut items = Vec::new();
+    for p in providers
+        .iter()
+        .filter(|p| wanted.is_none_or(|w| p.id == w))
+    {
+        match threads::list_models(&p.id) {
+            Ok(raw) => {
+                let models: Vec<Value> = serde_json::from_str(&raw).unwrap_or_default();
+                text.push_str(&format::format_models(&p.id, &p.name, &models));
+                items.push(json!({ "id": p.id, "name": p.name, "models": models }));
+            }
+            Err(e) => {
+                text.push_str(&format!("{} (provider {}): {}\n", p.name, p.id, e.message));
+                items.push(json!({ "id": p.id, "name": p.name, "error": e.message }));
+            }
+        }
+    }
+    if text.is_empty() {
+        text.push_str("No providers.");
+    }
+    Ok(ToolResult {
+        text,
+        structured: Some(json!({ "providers": items }).to_string()),
+        is_error: false,
+    })
+}
+
+fn handle_start_thread(call: &ToolCall, input: &Value) -> Result<ToolResult, Error> {
+    let options = match format::parse_model_options(input) {
+        Ok(o) => o,
+        Err(msg) => return Ok(ToolResult::failed(msg)),
+    };
+    let permission_mode = match format::parse_permission_mode(input) {
+        Ok(m) => m,
+        Err(msg) => return Ok(ToolResult::failed(msg)),
+    };
+    let workspace = match calling_workspace(call) {
+        Ok(w) => w,
+        Err(e) => return Ok(ToolResult::failed(e.message)),
+    };
+    let created = threads::create_thread(&threads::CreateRequest {
+        workspace,
+        provider: opt_str(input, "provider").map(str::to_owned),
+        model: opt_str(input, "model").map(str::to_owned),
+        title: opt_str(input, "title").map(str::to_owned),
+        options,
+        permission_mode,
+        origin: Some(call.thread.clone()),
+    });
+    let t = match created {
+        Ok(t) => t,
+        Err(e) => return Ok(ToolResult::failed(e.message)),
+    };
+    let mut text = format!("Started thread {} ({} / {}).", t.id, t.provider, t.model);
+    let mut turn_id = None;
+    if let Some(first) = opt_str(input, "text") {
+        match client::send(&t.id, first) {
+            Ok(id) => {
+                text.push_str(&format!(" Sent the first message (turn {id})."));
+                turn_id = Some(id);
+            }
+            Err(e) => {
+                text.push_str(&format!(" The first message failed: {}", e.message));
+                return Ok(ToolResult {
+                    text,
+                    structured: Some(json!({ "thread": t.id }).to_string()),
+                    is_error: true,
+                });
+            }
+        }
+    }
+    text.push_str(" Use wake_me with afterThread to be woken when it finishes, and read_thread to read its answer.");
+    Ok(ToolResult {
+        text,
+        structured: Some(
+            json!({
+                "thread": t.id,
+                "provider": t.provider,
+                "model": t.model,
+                "turn": turn_id,
+            })
+            .to_string(),
+        ),
+        is_error: false,
+    })
+}
+
 impl Plugin for Threads {
     fn activate() -> Result<(), Error> {
         Ok(())
@@ -313,6 +413,8 @@ impl Tool for Threads {
             "queue_message" => handle_queue_message(&input),
             "steer_thread" => handle_steer_thread(&input),
             "cancel_deferred" => handle_cancel_deferred(&call, &input),
+            "list_models" => handle_list_models(&input),
+            "start_thread" => handle_start_thread(&call, &input),
             other => Err(Error::new(
                 ErrorCode::NotFound,
                 format!("unknown tool: {other}"),

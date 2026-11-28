@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use kumikit_kernel::{Kernel, KernelError, ThreadSubscription};
 use kumikit_plugin_host::lifecycle::PluginHost;
-use kumikit_protocol::WorkspaceEvent;
 use kumikit_protocol::event::{EventNotification, ThreadChange};
 use kumikit_protocol::jsonrpc::{Notification, Request, RequestId, Response};
 use kumikit_protocol::methods::{
@@ -17,6 +16,7 @@ use kumikit_protocol::methods::{
 };
 use kumikit_protocol::model::WorkspaceId;
 use kumikit_protocol::{ErrorCode, PROTOCOL_VERSION, ProtocolVersion, RpcError, Topic};
+use kumikit_protocol::{UsageEvent, WorkspaceEvent};
 use serde_json::Value;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -246,6 +246,7 @@ pub async fn serve_messages<R, W>(
 enum Deferred {
     Thread(ThreadSubscription),
     Workspace(WorkspaceId, broadcast::Receiver<WorkspaceEvent>),
+    Usage(broadcast::Receiver<UsageEvent>),
 }
 
 struct Conn {
@@ -495,6 +496,24 @@ impl Conn {
                 reply::<m::ProviderList>(ProviderListResult {
                     providers: k.provider_list(),
                 })
+            }
+            m::UsageLimitsGet::NAME => {
+                let p = parse::<m::UsageLimitsGet>(params)?;
+                let providers = k
+                    .usage_limits(p.provider.as_deref())
+                    .await
+                    .map_err(kernel_err)?;
+                reply::<m::UsageLimitsGet>(m::UsageLimitsResult { providers })
+            }
+            m::UsageRefresh::NAME => {
+                let p = parse::<m::UsageRefresh>(params)?;
+                let limits = k.usage_refresh(&p.provider).await.map_err(kernel_err)?;
+                reply::<m::UsageRefresh>(limits)
+            }
+            m::UsageSummaryGet::NAME => {
+                let p = parse::<m::UsageSummaryGet>(params)?;
+                let summary = k.usage_summary(p).await.map_err(kernel_err)?;
+                reply::<m::UsageSummaryGet>(summary)
             }
             m::ProviderModels::NAME => {
                 let p = parse::<m::ProviderModels>(params)?;
@@ -748,6 +767,15 @@ impl Conn {
                         let rx = k.workspace_changes();
                         k.workspace_require(w).await.map_err(kernel_err)?;
                         (Deferred::Workspace(w.clone(), rx), 0)
+                    }
+                    Topic::Usage => {
+                        if p.after != 0 {
+                            return Err(RpcError::new(
+                                ErrorCode::InvalidParams,
+                                "the usage topic has no log; subscribe with after: 0",
+                            ));
+                        }
+                        (Deferred::Usage(k.usage_changes()), 0)
                     }
                     Topic::Reserved(name) => {
                         return Err(RpcError::new(
@@ -1145,6 +1173,12 @@ impl Conn {
                 topic.clone(),
                 self.tx.clone(),
             )),
+            Deferred::Usage(rx) => tokio::spawn(pump_usage(
+                self.kernel.clone(),
+                rx,
+                topic.clone(),
+                self.tx.clone(),
+            )),
         };
         self.subs.insert(topic, task);
     }
@@ -1226,6 +1260,57 @@ async fn pump_workspace(
                 Ok(v) => v,
                 Err(err) => {
                     tracing::error!(%topic, error = %err, "failed to encode an event");
+                    return;
+                }
+            };
+            if tx
+                .send(encode(&Notification::new(m::EventsEvent::NAME, params)))
+                .await
+                .is_err()
+            {
+                return;
+            }
+        }
+    }
+}
+
+/// Forwards live changes to the core's usage data. Nothing is logged: `seq` counts within
+/// this subscription. A listener that lags re-sends every provider's limits as
+/// `usage.limits`, so the client converges; it refetches statistics on any event.
+async fn pump_usage(
+    kernel: Kernel,
+    mut rx: broadcast::Receiver<UsageEvent>,
+    topic: String,
+    tx: mpsc::Sender<String>,
+) {
+    let mut seq = 0u64;
+    loop {
+        let events = match rx.recv().await {
+            Ok(event) => vec![event],
+            Err(broadcast::error::RecvError::Lagged(missed)) => {
+                tracing::debug!(missed, "usage listener lagged; resending limits");
+                match kernel.usage_limits(None).await {
+                    Ok(all) => all.into_iter().map(UsageEvent::Limits).collect(),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "cannot resend limits");
+                        return;
+                    }
+                }
+            }
+            Err(broadcast::error::RecvError::Closed) => return,
+        };
+        for event in events {
+            seq += 1;
+            let params = EventNotification {
+                topic: topic.clone(),
+                seq,
+                time: kernel.now(),
+                event: event.into(),
+            };
+            let params = match serde_json::to_value(params) {
+                Ok(v) => v,
+                Err(err) => {
+                    tracing::error!(error = %err, "failed to encode an event");
                     return;
                 }
             };

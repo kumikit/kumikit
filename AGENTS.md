@@ -18,7 +18,9 @@ steering, handoff, deferred messages, forks, side threads, composer/transcript p
 usage limits and turn checks) and M8 (signed application updates, idle-gated auto-install,
 `kumikit update` CLI, matching SSH remote core sync, bundled `provider-acp` + `threads` in
 `core-plugins/`, AppImage CLI forwarding, and borderless window chrome — `v0.1.0-m8.1`) are
-done: `kumikit serve`, the kernel, WASM plugins (WIT
+done; M9 (agent orchestration, an open milestone:
+[plan](docs/plans/2026-11-28-m9-agent-orchestration.md)) is in progress. Done so far:
+`kumikit serve`, the kernel, WASM plugins (WIT
 0.2.0 plus `kumikit:tool@0.1.0`, `kumikit:turn@0.1.0`, `kumikit:threads@0.1.0` and
 `kumikit:session@0.1.0`) with permissions, secrets, settings, plugin methods, core
 commands, outgoing HTTP, client interface, schedules and MCP tool gateway, bundled

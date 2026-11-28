@@ -289,6 +289,42 @@ fn the_steering_world_comes_with_the_provider_world() {
 }
 
 #[test]
+fn the_limits_reader_comes_with_a_component_world() {
+    const WORLDS: &str = r#"worlds = ["kumikit:provider/plugin@0.2.0"]"#;
+    let provider = with(
+        PROVIDER,
+        WORLDS,
+        r#"worlds = ["kumikit:provider/plugin@0.2.0", "kumikit:usage/reader@0.1.0"]"#,
+    );
+    assert_eq!(provider, Vec::<String>::new());
+    let m = Manifest::parse(&PROVIDER.replacen(
+        WORLDS,
+        r#"worlds = ["kumikit:provider/plugin@0.2.0", "kumikit:usage/reader@0.1.0"]"#,
+        1,
+    ))
+    .unwrap();
+    assert_eq!(m.world(), Some(WORLD_PROVIDER), "it runs as a provider");
+    assert!(m.reads_limits());
+    assert!(!Manifest::parse(PROVIDER).unwrap().reads_limits());
+
+    // A declarative provider's plugin may add a component only for the reader.
+    let declarative = DECLARATIVE.replacen(
+        "[permissions]",
+        "[runtime]\nwasm = \"reader.wasm\"\nworlds = [\"kumikit:plugin/plugin@0.2.0\", \"kumikit:usage/reader@0.1.0\"]\n[permissions]",
+        1,
+    );
+    assert_eq!(problems(&declarative), Vec::<String>::new());
+    assert!(Manifest::parse(&declarative).unwrap().reads_limits());
+
+    let alone = with(
+        PROVIDER,
+        WORLDS,
+        r#"worlds = ["kumikit:usage/reader@0.1.0"]"#,
+    );
+    assert!(has(&alone, "adds a limits reader"), "{alone:?}");
+}
+
+#[test]
 fn provider_icons_are_small_svg_or_png_files_in_the_package() {
     // A declarative entry keeps its single backend key next to `icon`.
     let m = Manifest::parse(&DECLARATIVE.replacen(

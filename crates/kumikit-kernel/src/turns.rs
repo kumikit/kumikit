@@ -28,6 +28,11 @@ use tokio::sync::oneshot;
 
 use crate::error::{KernelError, KernelResult};
 use crate::handoff::{self, PendingHandoff, SUMMARY_PROMPT};
+
+/// Sent ahead of the user's first message while nobody has titled the thread (ADR 0030,
+/// spec 03). It names no tool: a plugin that offers a title tool gets the hint, and an
+/// agent without one ignores it. The log keeps only the user's text.
+pub(crate) const TITLE_HINT: &str = "[Thread title] This thread has no title yet. Once you know what it is about, if you have a tool that suggests a thread title, call it once with a short title (up to 60 characters) that names the topic. Then answer the user's message as usual.";
 use crate::kernel::{Kernel, Session};
 use crate::provider::{EventSink, Inbox, MODEL_OPTION_PREFIX, Model, Provider, SessionConfig};
 use crate::repo;
@@ -187,6 +192,7 @@ impl Kernel {
                 name: p.name().to_owned(),
                 plugin: p.contributor().to_owned(),
                 icon: p.icon().map(str::to_owned),
+                reads_limits: p.reads_limits().then_some(true),
             })
             .collect();
         list.sort_by(|a, b| a.id.cmp(&b.id));
@@ -1447,6 +1453,26 @@ impl Kernel {
         Ok(Some((q, rx)))
     }
 
+    /// Whether `turn` is the thread's first user turn, the thread is not a side thread,
+    /// and nobody has titled it yet (`titleSource` unset). Only then is [`TITLE_HINT`] sent.
+    async fn wants_title_hint(&self, thread: &ThreadId, turn: &TurnId) -> KernelResult<bool> {
+        let row = self.thread_row(thread).await?;
+        if row.thread.title_source.is_some() || row.thread.side == Some(true) {
+            return Ok(false);
+        }
+        let tid = thread.clone();
+        let events = self
+            .inner
+            .store
+            .read(move |c| repo::read_all_events(c, &tid))
+            .await?;
+        let earlier_user_turn = events.iter().any(|e| {
+            matches!(&e.event, ThreadEvent::TurnStarted(t)
+                if &t.turn != turn && t.purpose != Some(TurnPurpose::HandoffSummary))
+        });
+        Ok(!earlier_user_turn)
+    }
+
     /// Runs one turn whose `turn.started` is already in the log, up to (not including)
     /// its `turn.ended`. Returns the outcome and error, `None` if it was abandoned, `Err`
     /// if the log could not be written.
@@ -1523,6 +1549,9 @@ impl Kernel {
                     }
                 }
             }
+        }
+        if allow_handoff && self.wants_title_hint(thread, turn).await? {
+            input.text = handoff::prepend(TITLE_HINT, &input.text);
         }
         let inbox = self
             .lock_runs()

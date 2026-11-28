@@ -1,0 +1,75 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 45,
+    "method": "usage.summary",
+    "params": {
+      "days": 30,
+      "tzOffsetMinutes": 60
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 45,
+    "result": {
+      "totals": {
+        "inputTokens": 1520,
+        "outputTokens": 330,
+        "cachedInputTokens": 1200,
+        "cost": 0.0213,
+        "turns": 3
+      },
+      "threads": 2,
+      "models": [
+        {
+          "provider": "community.provider-gemini/gemini",
+          "model": "gemini-pro",
+          "inputTokens": 1400,
+          "outputTokens": 300,
+          "cachedInputTokens": 1200,
+          "cost": 0.0201,
+          "turns": 2
+        },
+        {
+          "provider": "test.example/example",
+          "model": "default",
+          "inputTokens": 120,
+          "outputTokens": 30,
+          "cachedInputTokens": 0,
+          "turns": 1
+        }
+      ],
+      "daily": [
+        {
+          "date": "2026-11-14",
+          "tokens": 150
+        },
+        {
+          "date": "2026-11-15",
+          "tokens": 1700,
+          "cost": 0.0213
+        }
+      ]
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 46,
+    "method": "usage.summary",
+    "params": {
+      "provider": "community.provider-gemini/gemini",
+      "days": 0
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 46,
+    "error": {
+      "code": -32602,
+      "message": "days must be between 1 and 400",
+      "data": {
+        "code": "invalid_params"
+      }
+    }
+  }
+]

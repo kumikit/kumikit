@@ -547,6 +547,82 @@ impl UserInput {
     }
 }
 
+/// Tokens one model used in a turn (since 0.12, ADR 0035).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ModelUsage {
+    /// Model id.
+    pub model: String,
+    /// Input tokens, including cached input.
+    pub input_tokens: u64,
+    /// Output tokens.
+    pub output_tokens: u64,
+    /// The part of `inputTokens` read from a cache.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_input_tokens: Option<u64>,
+    /// Cost in US dollars, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<f64>,
+}
+
+/// One limit window of an account's plan, such as "5 hours" or "Weekly" (since 0.12).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct LimitWindow {
+    /// Stable id within the provider.
+    pub id: String,
+    /// Display label, from the provider.
+    pub label: String,
+    /// The group the window is shown under, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    /// Share of the window used, 0–100.
+    pub used_percent: f64,
+    /// When the window resets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<Timestamp>,
+    /// Set when the window covers only some models: a model id, or a family name that
+    /// the provider's model ids contain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+/// A snapshot of an account's plan limits, as a provider reported it (since 0.12).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct UsageLimits {
+    /// The plan's name, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
+    /// The account, such as an email, if the agent reports it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    /// A web page where the user can see the account (`https`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_url: Option<String>,
+    /// The windows, in display order.
+    pub windows: Vec<LimitWindow>,
+}
+
+/// A provider's latest plan limits on this core (since 0.12).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ProviderLimits {
+    /// Qualified provider id.
+    pub provider: String,
+    /// The snapshot; absent when none was ever reported, or the provider said it has no
+    /// plan limits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<UsageLimits>,
+    /// When the snapshot was taken.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed: Option<Timestamp>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

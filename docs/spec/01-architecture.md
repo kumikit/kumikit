@@ -47,7 +47,7 @@ crates/
   kumikit-plugin-host/   # wasmtime component host, WIT bindings, sidecar host (later)
   kumikit-core/          # the `kumikit` binary: transports, auth, CLI
   kumikit-shell/         # Tauri desktop shell: window, bridge, updater, SSH sync, client plugin store
-wit/                     # WIT packages: kumikit:host, kumikit:plugin, kumikit:provider, kumikit:tool, kumikit:turn, kumikit:threads, kumikit:session
+wit/                     # WIT packages: kumikit:host, kumikit:plugin, kumikit:provider, kumikit:tool, kumikit:turn, kumikit:threads, kumikit:session, kumikit:models, kumikit:usage
 web/
   kernel/                # Svelte 5 UI kernel
   sdk/                   # @kumikit/ui-sdk: types and helpers for UI plugin authors
@@ -64,6 +64,7 @@ plugins/                 # preinstalled first-party plugins, built with the publ
   threads/
   ui-chat/
   ui-settings/
+  ui-usage/
   theme-default/
 templates/               # plugin author templates: core plugin (Rust), UI plugin (Svelte), theme
 test-plugins/            # plugins and helper programs used only by tests

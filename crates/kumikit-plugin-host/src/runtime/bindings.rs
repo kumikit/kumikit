@@ -127,6 +127,25 @@ pub mod threads_client {
     });
 }
 
+/// `kumikit:threads/client-threads@0.2.0`: 0.1.0 plus `list-models` and `create-thread`
+/// with model settings and a bounded permission mode (ADR 0034), linked for base and
+/// tool plugins alongside 0.1.0.
+#[allow(missing_docs, clippy::all)]
+pub mod threads_client_v2 {
+    wasmtime::component::bindgen!({
+        path: [
+            "../../wit/kumikit-host@0.2.0",
+            "../../wit/kumikit-threads@0.2.0",
+        ],
+        world: "kumikit:threads/client-threads",
+        imports: { default: async },
+        with: {
+            "kumikit:host/types": super::base::kumikit::host::types,
+            "kumikit:host/client": super::base::kumikit::host::client,
+        },
+    });
+}
+
 /// `kumikit:session/provider-events@0.1.0`: additive provider session events
 /// (`commands.available` and `limit.reached`, M7 steps 7-8), linked for every provider.
 #[allow(missing_docs, clippy::all)]
@@ -157,6 +176,46 @@ pub mod models {
         imports: { default: async },
         with: {
             "kumikit:host/types": super::base::kumikit::host::types,
+        },
+    });
+}
+
+/// `kumikit:usage/reporter@0.1.0`: plan limits and per-model usage a provider reports
+/// during a turn (ADR 0035), linked for every provider.
+#[allow(missing_docs, clippy::all)]
+pub mod usage_report {
+    wasmtime::component::bindgen!({
+        path: [
+            "../../wit/kumikit-host@0.2.0",
+            "../../wit/kumikit-plugin@0.2.0",
+            "../../wit/kumikit-provider@0.2.0",
+            "../../wit/kumikit-usage@0.1.0",
+        ],
+        world: "kumikit:usage/reporter",
+        imports: { default: async },
+        with: {
+            "kumikit:host/types": super::base::kumikit::host::types,
+        },
+    });
+}
+
+/// `kumikit:usage/reader@0.1.0`: the on-demand plan limits reader a plugin exports
+/// (ADR 0035). Its component is the plugin's own, linked a second time for this world.
+#[allow(missing_docs, clippy::all)]
+pub mod usage_reader {
+    wasmtime::component::bindgen!({
+        path: [
+            "../../wit/kumikit-host@0.2.0",
+            "../../wit/kumikit-plugin@0.2.0",
+            "../../wit/kumikit-provider@0.2.0",
+            "../../wit/kumikit-usage@0.1.0",
+        ],
+        world: "kumikit:usage/reader",
+        exports: { default: async },
+        with: {
+            "kumikit:host/types": super::base::kumikit::host::types,
+            "kumikit:provider/types": super::provider::kumikit::provider::types,
+            "kumikit:usage/types": super::usage_report::kumikit::usage::types,
         },
     });
 }

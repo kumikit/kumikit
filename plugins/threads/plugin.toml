@@ -1,8 +1,8 @@
 # Thread coordination and wake-up tools for agents (via Kumikit's MCP tool gateway).
 id = "kumikit.threads"
 name = "Threads"
-version = "0.1.0"
-description = "Agent tools for scheduling wake-ups, reading and messaging threads, managing queues, and suggesting titles."
+version = "0.2.0"
+description = "Agent tools for scheduling wake-ups, reading, messaging and starting threads, managing queues, and suggesting titles."
 license = "MIT"
 repository = "https://github.com/kumikit/kumikit"
 kind = ["tool"]
@@ -16,6 +16,7 @@ worlds = ["kumikit:tool/plugin@0.1.0"]
 client = [
   "workspaces.list",
   "threads.read",
+  "threads.create",
   "threads.send",
   "threads.steer",
   "threads.defer",
@@ -85,4 +86,18 @@ name = "cancel_deferred"
 title = "Cancel a queued or deferred message"
 description = "Remove a queued or deferred message entry from a thread."
 input = "tools/cancel_deferred.schema.json"
+effect = "write"
+
+[[contributes.tools]]
+name = "list_models"
+title = "List providers and models"
+description = "List the providers this core offers, each with its models and their settings (such as effort), to choose one for start_thread."
+input = "tools/list_models.schema.json"
+effect = "read"
+
+[[contributes.tools]]
+name = "start_thread"
+title = "Start a thread"
+description = "Start a new thread in this workspace with a provider, model and model settings, and optionally send it a first message. It cannot be given a looser permission mode than the calling thread, nor full_access."
+input = "tools/start_thread.schema.json"
 effect = "write"

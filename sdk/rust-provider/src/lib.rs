@@ -134,6 +134,92 @@ pub mod models {
     }
 }
 
+/// Generated bindings for `kumikit:usage/reporter@0.1.0`: plan limits and usage by model
+/// a provider reports during a turn (ADR 0035).
+#[allow(missing_docs, clippy::all, unsafe_code)]
+pub mod usage_bindings {
+    wit_bindgen::generate!({
+        path: [
+            "../../wit/kumikit-host@0.2.0",
+            "../../wit/kumikit-plugin@0.2.0",
+            "../../wit/kumikit-provider@0.2.0",
+            "../../wit/kumikit-usage@0.1.0",
+        ],
+        world: "kumikit:usage/reporter",
+        with: {
+            "kumikit:host/types@0.2.0": kumikit_plugin::bindings::kumikit::host::types,
+        },
+        generate_all,
+    });
+}
+
+/// Generated bindings for `kumikit:usage/reader@0.1.0`, the on-demand plan limits reader
+/// (ADR 0035). Export it with [`export_limits_reader!`].
+#[allow(missing_docs, clippy::all, unsafe_code)]
+pub mod usage_reader_bindings {
+    wit_bindgen::generate!({
+        path: [
+            "../../wit/kumikit-host@0.2.0",
+            "../../wit/kumikit-plugin@0.2.0",
+            "../../wit/kumikit-provider@0.2.0",
+            "../../wit/kumikit-usage@0.1.0",
+        ],
+        world: "kumikit:usage/reader",
+        pub_export_macro: true,
+        export_macro_name: "__export_usage_reader_world",
+        default_bindings_module: "kumikit_provider::usage_reader_bindings",
+        with: {
+            "kumikit:host/types@0.2.0": kumikit_plugin::bindings::kumikit::host::types,
+            "kumikit:provider/types@0.2.0": crate::bindings::kumikit::provider::types,
+            "kumikit:usage/types@0.1.0": crate::usage_bindings::kumikit::usage::types,
+        },
+        generate_all,
+    });
+}
+
+/// Plan limits and token usage by model (`docs/spec/05-providers.md#usage-and-limits`,
+/// ADR 0035).
+///
+/// - During [`Provider::send`], [`emit_limits`] reports a snapshot of the account's plan
+///   limits the agent showed, and [`emit_turn_usage`] reports the turn's usage by model
+///   (use it instead of the plain `usage` event).
+/// - To read limits on demand, implement [`LimitsReader`], export it with
+///   [`export_limits_reader!`](crate::export_limits_reader) and list
+///   `kumikit:usage/reader@0.1.0` in the manifest's `runtime.worlds`.
+pub mod usage {
+    pub use crate::usage_bindings::kumikit::usage::report::{emit_limits, emit_turn_usage};
+    pub use crate::usage_bindings::kumikit::usage::types::{LimitWindow, Limits, ModelUsage};
+    pub use crate::usage_reader_bindings::exports::kumikit::usage::probe::Guest as LimitsReader;
+}
+
+#[doc(hidden)]
+pub use usage_reader_bindings::__export_usage_reader_world;
+
+/// Exports a type implementing [`usage::LimitsReader`] as the plugin's
+/// `kumikit:usage/reader` world, next to its main world. Expands to nothing when not
+/// compiling for `wasm32`.
+#[macro_export]
+macro_rules! export_limits_reader {
+    ($ty:ident) => {
+        #[cfg(target_arch = "wasm32")]
+        const _: () = {
+            struct __KumikitLimitsReader;
+            impl $crate::usage::LimitsReader for __KumikitLimitsReader {
+                fn read_limits(
+                    p: $crate::ProviderRef,
+                ) -> Result<Option<$crate::usage::Limits>, $crate::Error> {
+                    <$ty as $crate::usage::LimitsReader>::read_limits(p)
+                }
+            }
+    $crate::__export_usage_reader_world!(__KumikitLimitsReader with_types_in $crate::usage_reader_bindings);
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        const _: () = {
+            let _ = <$ty as $crate::usage::LimitsReader>::read_limits;
+        };
+    };
+}
+
 /// Additional session events (`commands.available` and `limit.reached`).
 pub mod session {
     pub use crate::session_bindings::kumikit::session::events::{

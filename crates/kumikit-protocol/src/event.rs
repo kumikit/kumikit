@@ -7,8 +7,9 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use crate::model::{
-    Approval, ApprovalId, HandoffMode, ProviderModel, QueueEntryId, Resolution, SlashCommand,
-    Thread, ThreadId, Timestamp, TurnId, TurnOutcome, TurnPurpose, UserInput,
+    Approval, ApprovalId, HandoffMode, ModelUsage, ProviderLimits, ProviderModel, QueueEntryId,
+    Resolution, SlashCommand, Thread, ThreadId, Timestamp, TurnId, TurnOutcome, TurnPurpose,
+    UserInput,
 };
 
 /// `turn.started`: the kernel started a turn for a user message.
@@ -185,6 +186,14 @@ pub struct Usage {
     /// Cost in US dollars, if the provider knows it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost: Option<f64>,
+    /// The part of `inputTokens` read from a cache, if the provider knows it (since 0.12).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_input_tokens: Option<u64>,
+    /// The same usage by model, when the provider reports it; the totals above are their
+    /// sums (since 0.12).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<ModelUsage>>", optional)]
+    pub models: Vec<ModelUsage>,
 }
 
 /// `turn.ended`: the kernel ended a turn.
@@ -686,6 +695,42 @@ impl WorkspaceEvent {
     }
 }
 
+/// `usage.recorded`: a turn added token usage (since 0.12).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageRecorded {
+    /// Qualified id of the provider that ran the turn.
+    pub provider: String,
+    /// The thread.
+    pub thread: ThreadId,
+}
+
+/// An event on the `usage` topic (`docs/spec/02-protocol.md#usage-topic`, since 0.12).
+/// The topic keeps no log: only changes after the subscription are delivered.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", content = "data")]
+pub enum UsageEvent {
+    /// `usage.limits`: a provider's plan limits changed.
+    #[serde(rename = "usage.limits")]
+    Limits(ProviderLimits),
+    /// `usage.recorded`: a turn added token usage.
+    #[serde(rename = "usage.recorded")]
+    Recorded(UsageRecorded),
+}
+
+impl UsageEvent {
+    /// Every kind string, in spec table order.
+    pub const KINDS: [&'static str; 2] = ["usage.limits", "usage.recorded"];
+
+    /// This event's kind string.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            UsageEvent::Limits(_) => "usage.limits",
+            UsageEvent::Recorded(_) => "usage.recorded",
+        }
+    }
+}
+
 /// An event on any topic. Kinds never overlap, so the `kind` string says which.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(untagged)]
@@ -694,6 +739,14 @@ pub enum TopicEvent {
     Thread(ThreadEvent),
     /// A change in a workspace's threads.
     Workspace(WorkspaceEvent),
+    /// A change in the core's usage data (since 0.12).
+    Usage(UsageEvent),
+}
+
+impl From<UsageEvent> for TopicEvent {
+    fn from(e: UsageEvent) -> Self {
+        TopicEvent::Usage(e)
+    }
 }
 
 impl From<ThreadEvent> for TopicEvent {
@@ -715,7 +768,7 @@ pub struct EventNotification {
     /// The topic, for example `thread:01J…`.
     pub topic: String,
     /// Sequence number, starting at 1: within the thread for thread topics (a cursor),
-    /// within the subscription for workspace topics (not a cursor).
+    /// within the subscription for workspace and usage topics (not a cursor).
     pub seq: u64,
     /// When the kernel appended it, or when the change happened.
     pub time: Timestamp,
@@ -752,6 +805,8 @@ mod tests {
                 input_tokens: 10,
                 output_tokens: 2,
                 cost: None,
+                cached_input_tokens: None,
+                models: Vec::new(),
             })
             .into(),
         };

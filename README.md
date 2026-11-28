@@ -56,6 +56,12 @@ updates install only after all agents are idle. SSH remote core sync downloads t
 signed archive locally only when you confirm (or opt into SSH auto-sync) and streams it
 over your existing `ssh` connection.
 
+Plan limits in **Agent usage** come from what your agents report during turns. The
+refresh button asks the provider to read them now, which runs the agent's own CLI (for
+example `claude` or `agy`), and that CLI contacts its vendor with your sign-in. Nothing
+refreshes on a timer. Usage statistics are counted from this core's own records and never
+leave it.
+
 A core listens on the network only when you start it with `kumikit serve --listen`; it
 never turns that on by itself. The desktop app connects only to cores you added, over TLS
 or through your own `ssh`, and sends keepalive pings only on those connections, so it

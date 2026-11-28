@@ -29,4 +29,5 @@ mod settings;
 #[cfg(unix)]
 mod signals;
 mod steer;
+mod usage;
 mod web;

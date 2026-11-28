@@ -49,19 +49,20 @@ impl Provider for Echo {
     ) -> BoxFuture<'_, ProviderResult<()>> {
         Box::pin(async move {
             let err = |e: KernelError| kumikit_kernel::provider::ProviderError::new(e.to_string());
-            if input.text == "ask" {
+            let text = user_text(&input.text);
+            if text == "ask" {
                 sink.request_approval("tool", "run it?", None)
                     .await
                     .map_err(err)?;
                 self.answered.notified().await;
             }
-            for word in input.text.split_inclusive(' ') {
+            for word in text.split_inclusive(' ') {
                 sink.emit(ProviderEvent::TextDelta { text: word.into() })
                     .await
                     .map_err(err)?;
             }
             sink.emit(ProviderEvent::TextDone {
-                text: input.text.clone(),
+                text: text.to_owned(),
             })
             .await
             .map_err(err)?;
@@ -89,6 +90,16 @@ impl Provider for Echo {
     }
     fn end_session(&self, _s: String) -> BoxFuture<'_, ()> {
         Box::pin(async {})
+    }
+}
+
+/// The kernel puts a title hint and a blank line before the first message of an untitled
+/// thread (spec 03, Threads); the echo provider reads only the user's message after it.
+fn user_text(text: &str) -> &str {
+    if text.starts_with("[Thread title]") {
+        text.split_once("\n\n").map_or(text, |(_, rest)| rest)
+    } else {
+        text
     }
 }
 
@@ -168,10 +179,10 @@ impl Client {
         let r = self
             .call(
                 "core.hello",
-                json!({"protocol":"0.11","client":{"name":"t","version":"1"}}),
+                json!({"protocol":"0.12","client":{"name":"t","version":"1"}}),
             )
             .await;
-        assert_eq!(r["result"]["protocol"], "0.11", "{r}");
+        assert_eq!(r["result"]["protocol"], "0.12", "{r}");
     }
 
     fn dir(&self) -> String {
@@ -242,12 +253,12 @@ async fn hello_describes_the_core() {
     let r = c
         .call(
             "core.hello",
-            json!({"protocol":"0.11","client":{"name":"t","version":"1"}}),
+            json!({"protocol":"0.12","client":{"name":"t","version":"1"}}),
         )
         .await;
     assert_eq!(
         r["result"],
-        json!({"protocol":"0.11","core":{"version":"0.0.0","name":"test","os":"test"},
+        json!({"protocol":"0.12","core":{"version":"0.0.0","name":"test","os":"test"},
                "plugins":[],"capabilities":["threads","approvals","plugins","providers","workspace_events","secrets","settings","commands","schedules","gateway"]})
     );
 }

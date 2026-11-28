@@ -789,3 +789,68 @@ impl super::bindings::base::kumikit::host::timers::Host for HostState {
             .collect())
     }
 }
+
+impl super::bindings::usage_report::kumikit::usage::types::Host for HostState {}
+
+/// A provider's plan limits snapshot in kernel form (ADR 0035).
+pub(crate) fn limits_from_wit(
+    l: super::bindings::usage_report::kumikit::usage::types::Limits,
+) -> kumikit_protocol::model::UsageLimits {
+    use kumikit_protocol::model::{LimitWindow, Timestamp, UsageLimits};
+    UsageLimits {
+        plan: l.plan,
+        account: l.account,
+        account_url: l.account_url,
+        windows: l
+            .windows
+            .into_iter()
+            .map(|w| LimitWindow {
+                id: w.id,
+                label: w.label,
+                group: w.group,
+                used_percent: f64::from(w.used_percent),
+                resets_at: w.resets_at.map(Timestamp),
+                model: w.model,
+            })
+            .collect(),
+    }
+}
+
+impl super::bindings::usage_report::kumikit::usage::report::Host for HostState {
+    async fn emit_limits(
+        &mut self,
+        limits: super::bindings::usage_report::kumikit::usage::types::Limits,
+    ) -> Result<(), Error> {
+        let sink = self.turn_sink()?;
+        if self.session.take_cancel() {
+            return Err(cancelled());
+        }
+        sink.report_limits(limits_from_wit(limits))
+            .await
+            .map_err(kernel_err)
+    }
+
+    async fn emit_turn_usage(
+        &mut self,
+        models: Vec<super::bindings::usage_report::kumikit::usage::types::ModelUsage>,
+    ) -> Result<(), Error> {
+        let sink = self.turn_sink()?;
+        if self.session.take_cancel() {
+            return Err(cancelled());
+        }
+        let models = models
+            .into_iter()
+            .map(|m| kumikit_protocol::model::ModelUsage {
+                model: m.model,
+                input_tokens: m.input_tokens,
+                output_tokens: m.output_tokens,
+                cached_input_tokens: Some(m.cached_input_tokens),
+                cost: m.cost,
+            })
+            .collect();
+        sink.emit(ProviderEvent::UsageByModel { models })
+            .await
+            .map(|_| ())
+            .map_err(kernel_err)
+    }
+}

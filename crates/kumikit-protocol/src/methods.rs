@@ -8,8 +8,8 @@ use ts_rs::TS;
 
 use crate::event::{EventNotification, QueueEntry, QueueHold, QueueTrigger};
 use crate::model::{
-    Approval, ApprovalId, Decision, PermissionMode, QueueEntryId, Thread, ThreadId, Timestamp,
-    Turn, TurnId, UserInput, Workspace, WorkspaceId,
+    Approval, ApprovalId, Decision, PermissionMode, ProviderLimits, QueueEntryId, Thread, ThreadId,
+    Timestamp, Turn, TurnId, UserInput, Workspace, WorkspaceId,
 };
 
 /// A request method: name, params and result.
@@ -109,6 +109,12 @@ methods! {
         ProviderList = "provider.list" (Empty) -> ProviderListResult;
         /// `provider.models`: a provider's models; activates its plugin.
         ProviderModels = "provider.models" (ProviderModelsParams) -> ProviderModelsResult;
+        /// `usage.limits`: the latest plan limits each provider reported (since 0.12).
+        UsageLimitsGet = "usage.limits" (UsageLimitsParams) -> UsageLimitsResult;
+        /// `usage.refresh`: asks a provider to read its plan limits now (since 0.12).
+        UsageRefresh = "usage.refresh" (UsageRefreshParams) -> ProviderLimits;
+        /// `usage.summary`: token usage and cost of the turns this core ran (since 0.12).
+        UsageSummaryGet = "usage.summary" (UsageSummaryParams) -> UsageSummary;
         /// `workspace.list`: open workspaces.
         WorkspaceList = "workspace.list" (Empty) -> WorkspaceListResult;
         /// `workspace.open`: register a directory, or return the existing workspace for it.
@@ -848,6 +854,112 @@ pub struct ProviderInfo {
     /// (since 0.11).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// Present and true when the provider can read its plan limits on demand, through
+    /// `usage.refresh` (since 0.12).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reads_limits: Option<bool>,
+}
+
+/// Params of `usage.limits`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct UsageLimitsParams {
+    /// Only this provider (qualified id); every available provider when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+}
+
+/// Result of `usage.limits`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageLimitsResult {
+    /// One entry per available provider, in `provider.list` order.
+    pub providers: Vec<ProviderLimits>,
+}
+
+/// Params of `usage.refresh`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageRefreshParams {
+    /// Qualified provider id.
+    pub provider: String,
+}
+
+/// Params of `usage.summary`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct UsageSummaryParams {
+    /// Only turns this provider ran (qualified id); all when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// How many days back, today included: 1–400.
+    pub days: u32,
+    /// The client's offset from UTC in minutes (east positive), so `daily` uses its
+    /// local days; 0 when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tz_offset_minutes: Option<i32>,
+}
+
+/// Token totals of a set of turns.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct UsageTotals {
+    /// Input tokens, including cached input.
+    pub input_tokens: u64,
+    /// Output tokens.
+    pub output_tokens: u64,
+    /// The part of `inputTokens` read from a cache, where providers reported it.
+    pub cached_input_tokens: u64,
+    /// Cost in US dollars of the turns that reported one; absent when none did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<f64>,
+    /// Turns that reported usage.
+    pub turns: u32,
+}
+
+/// Usage of one model of one provider.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelUsageRow {
+    /// Qualified provider id.
+    pub provider: String,
+    /// Model id.
+    pub model: String,
+    /// Its totals.
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub totals: UsageTotals,
+}
+
+/// Usage of one day.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct DailyUsage {
+    /// The day, `YYYY-MM-DD`, in the client's time zone.
+    pub date: String,
+    /// Input plus output tokens.
+    pub tokens: u64,
+    /// Cost in US dollars of the turns that reported one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<f64>,
+}
+
+/// Result of `usage.summary`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageSummary {
+    /// Totals over the period.
+    pub totals: UsageTotals,
+    /// Threads with at least one counted turn.
+    pub threads: u32,
+    /// One row per provider and model, most tokens first.
+    pub models: Vec<ModelUsageRow>,
+    /// Days with usage, oldest first; days without usage are left out.
+    pub daily: Vec<DailyUsage>,
 }
 
 /// Result of `provider.list`.

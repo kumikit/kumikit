@@ -18,6 +18,8 @@ commands = [
   { id = "get", title = "Get a thread" },
   { id = "providers", title = "Providers" },
   { id = "create", title = "Create a thread" },
+  { id = "models", title = "Models" },
+  { id = "create-with", title = "Create a thread with settings" },
   { id = "send", title = "Send" },
   { id = "steer", title = "Steer" },
   { id = "defer", title = "Defer" },

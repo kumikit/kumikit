@@ -9,6 +9,13 @@ pub const HELLO_WASM: &str = env!("KUMIKIT_TEST_WASM_KUMIKIT_TEST_HELLO");
 /// `kumikit:provider/plugin`; the model selects a scenario.
 pub const PROBE_WASM: &str = env!("KUMIKIT_TEST_WASM_KUMIKIT_TEST_PROBE");
 
+/// A declarative provider's plan limits reader (`test-plugins/limits`): a base-world
+/// component that also exports `kumikit:usage/probe` (ADR 0035).
+pub const LIMITS_WASM: &str = env!("KUMIKIT_TEST_WASM_KUMIKIT_TEST_LIMITS");
+
+/// The limits test plugin's manifest.
+pub const LIMITS_MANIFEST: &str = include_str!("../../limits/plugin.toml");
+
 /// A plugin that drives `kumikit:host/client` from its commands (`test-plugins/client`).
 pub const CLIENT_WASM: &str = env!("KUMIKIT_TEST_WASM_KUMIKIT_TEST_CLIENT");
 

@@ -107,6 +107,7 @@ pub(crate) struct Inner {
     pub(crate) schedules: crate::schedule::State,
     pub(crate) defer: crate::defer::State,
     pub(crate) gateway: crate::gateway::State,
+    pub(crate) usage: crate::usage::State,
     pub(crate) default_home_dir: PathBuf,
 }
 
@@ -149,6 +150,7 @@ impl Kernel {
                 schedules: Default::default(),
                 defer: Default::default(),
                 gateway: Default::default(),
+                usage: Default::default(),
                 default_home_dir: config.default_home_dir,
             }),
         };
@@ -939,6 +941,10 @@ impl Kernel {
                 | ThreadEvent::QueueResumed(_)
                 | ThreadEvent::TurnEnded(_)
         );
+        let usage = match &event {
+            ThreadEvent::Usage(u) => Some(u.clone()),
+            _ => None,
+        };
         let seq = self
             .inner
             .store
@@ -948,6 +954,9 @@ impl Kernel {
         if changes_status {
             self.announce_row(thread, WorkspaceEvent::ThreadUpdated)
                 .await;
+        }
+        if let Some(u) = usage {
+            self.usage_recorded(thread, &u).await;
         }
         Ok(seq)
     }

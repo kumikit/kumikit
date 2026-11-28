@@ -11,7 +11,7 @@ import FileChange from './FileChange.svelte';
 import Handoff from './Handoff.svelte';
 import Message from './Message.svelte';
 import PluginEvent from './PluginEvent.svelte';
-import Reasoning from './Reasoning.svelte';
+import ThinkingBox from './ThinkingBox.svelte';
 import SideThread from './SideThread.svelte';
 import Steer from './Steer.svelte';
 import Tool from './Tool.svelte';
@@ -27,7 +27,7 @@ function show<P extends Record<string, unknown>>(component: Component<P>, el: HT
 function renderers(ctx: PluginContext): [string, (el: HTMLElement, p: RendererProps) => () => void][] {
   return [
     ['message', (el, p) => show(Message, el, { ctx, text: (p.item as Of<'message'>).text, done: (p.item as Of<'message'>).done })],
-    ['reasoning', (el, p) => show(Reasoning, el, { text: (p.item as Of<'reasoning'>).text })],
+    ['reasoning', (el, p) => show(ThinkingBox, el, { text: (p.item as Of<'reasoning'>).text })],
     ['tool', (el, p) => show(Tool, el, { item: p.item as Of<'tool'> })],
     ['file.changed', (el, p) => {
       const i = p.item as Of<'file.changed'>;

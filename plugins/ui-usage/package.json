@@ -1,0 +1,13 @@
+{
+  "name": "@kumikit/ui-usage",
+  "version": "0.1.0",
+  "description": "First-party UI plugin: plan limits in the thread header and the Agent usage dialog.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build --logLevel warn",
+    "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
+  },
+  "dependencies": { "@kumikit/ui-sdk": "0.1.6", "@kumikit/protocol": "0.1.0" }
+}

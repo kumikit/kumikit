@@ -2774,6 +2774,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumikit-test-limits"
+version = "0.1.0"
+dependencies = [
+ "kumikit-plugin",
+ "kumikit-provider",
+]
+
+[[package]]
 name = "kumikit-test-net-cut"
 version = "0.1.0"
 dependencies = [

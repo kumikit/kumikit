@@ -242,6 +242,27 @@ and the `release-manifest` branch). Plan:
 `kumikit update` CLI, and SSH matching core install all pass deterministic tests alongside all
 existing workspace checks.
 
+## M9 — Agent orchestration
+
+An open milestone: features that let agents coordinate other agents, added as they come.
+
+- Agents start threads with a chosen provider, model, model settings and permission mode
+  (`start_thread` and `list_models` in `kumikit.threads`, `kumikit:threads@0.2.0`,
+  [ADR 0034](../decisions/0034-agents-start-threads.md)). A plugin never creates a
+  `full_access` thread, nor one looser than the thread it acts for.
+- Usage statistics and plan limits: kernel-derived per-turn usage statistics
+  (`usage_records`), per-provider plan-limit snapshots (`usage.summary`, `usage.limits`,
+  `usage.refresh`, `usage` topic in protocol `0.12`), `kumikit:usage@0.1.0` (`reporter`
+  during turns and on-demand `reader` probes, including for declarative ACP providers),
+  and the bundled `kumikit.ui-usage` thread-header meter and **Agent usage** dialog
+  ([ADR 0035](../decisions/0035-usage-statistics-and-plan-limits.md)).
+
+**Status:** in progress. Plan:
+[M9 — Agent orchestration](../plans/2026-11-28-m9-agent-orchestration.md).
+
+**Exit:** set when the milestone closes; each feature ships with its tests and passes all
+existing checks.
+
 ## Open questions
 
 | Question | Decide by |

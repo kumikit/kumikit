@@ -144,7 +144,10 @@ types). A component imports only the interfaces its code calls.
 | `kumikit:plugin@0.2.0` | Exports every plugin world has: `lifecycle` (`activate`, `deactivate`), `rpc` (`handle`), `commands` (`run`) and `timers` (`fire`). The Rust SDK's `Plugin` trait answers `not-found` for the ones a plugin does not implement. |
 | `kumikit:provider@0.2.0` | The provider world ([05](05-providers.md)) |
 | `kumikit:models@0.1.0` | Additive provider import (`options.set-options`) for per-model settings during `list-models` ([05](05-providers.md#model-settings), [ADR 0033](../decisions/0033-model-settings-and-provider-icons.md)) |
+| `kumikit:usage@0.1.0` | Plan limits and usage by model ([05](05-providers.md#usage-and-limits), [ADR 0035](../decisions/0035-usage-statistics-and-plan-limits.md)): the `report` import (`emit-limits`, `emit-turn-usage`), linked for every provider, and the `probe` export (`read-limits`) of the `reader` world, which a manifest lists next to `kumikit:provider/plugin@0.2.0` or `kumikit:plugin/plugin@0.2.0` |
 | `kumikit:tool@0.1.0` | Tool contribution: `tool.call` ([03](03-kernel.md#tool-gateway)) |
+| `kumikit:threads@0.1.0` | Additive client import for threads: `defer`, `list-queue`, `remove-queued`, `read-events`, `suggest-title` ([ADR 0030](../decisions/0030-thread-agent-tools-plugin.md)) |
+| `kumikit:threads@0.2.0` | 0.1.0 plus `list-models` and `create-thread` with model settings and a bounded permission mode ([03](03-kernel.md#client-interface), [ADR 0034](../decisions/0034-agents-start-threads.md)); the Rust SDK uses it, and the host links both |
 | `kumikit:bot` | The bot world ([09](09-bots.md)), planned for after M5 |
 
 Shape of the host interface (abridged; `wit/` is the source):

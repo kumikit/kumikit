@@ -53,6 +53,8 @@ pub struct HostConfig {
     pub models_ttl: Duration,
     /// Maximum time a delegated `list-models` probe may run before it is cancelled.
     pub models_probe_timeout: Duration,
+    /// Maximum time a `read-limits` call may run before it is cancelled (ADR 0035).
+    pub limits_probe_timeout: Duration,
     /// Monotonic time; tests replace it.
     pub now: Arc<dyn Fn() -> Instant + Send + Sync>,
 }
@@ -68,6 +70,7 @@ impl Default for HostConfig {
             deactivate_limit: Duration::from_secs(2),
             models_ttl: Duration::from_secs(300),
             models_probe_timeout: Duration::from_secs(10),
+            limits_probe_timeout: Duration::from_secs(30),
             now: Arc::new(Instant::now),
         }
     }
@@ -109,6 +112,24 @@ struct ProviderSpec {
     config: Option<String>,
     /// The manifest icon as a `data:` URL (ADR 0033).
     icon: Option<String>,
+    /// The plugin whose component reads its plan limits on demand (ADR 0035): the
+    /// contributor if it exports the reader, otherwise the backend if that does.
+    reader: Option<String>,
+}
+
+/// Which plugin reads a provider's plan limits: the plugin that declares it, if its
+/// component exports the reader; otherwise the plugin whose code serves it.
+fn limits_reader(
+    contributor: (&str, &Manifest),
+    backend: (&str, Option<&Manifest>),
+) -> Option<String> {
+    if contributor.1.reads_limits() {
+        Some(contributor.0.to_owned())
+    } else if backend.1.is_some_and(Manifest::reads_limits) {
+        Some(backend.0.to_owned())
+    } else {
+        None
+    }
 }
 
 /// Reads a provider's icon from its package into a `data:` URL. A missing, unreadable or
@@ -716,6 +737,10 @@ impl PluginHost {
         self.sync_schedules(&enabled).await;
         // key -> (backend plugin, its version, its schema file)
         let mut backends: HashMap<String, (String, String, Option<PathBuf>)> = HashMap::new();
+        let manifests: HashMap<&str, &Manifest> = enabled
+            .iter()
+            .map(|(r, m)| (r.id.as_str(), m.as_ref()))
+            .collect();
         for (record, manifest) in &enabled {
             for b in &manifest.contributes.provider_backends {
                 let schema = b.schema.as_ref().map(|s| {
@@ -755,6 +780,7 @@ impl PluginHost {
                         backend: record.id.clone(),
                         config: None,
                         icon,
+                        reader: limits_reader((&record.id, manifest), (&record.id, None)),
                     },
                     Some((key, table)) => {
                         let Some((backend, backend_version, schema)) = backends.get(key) else {
@@ -812,6 +838,10 @@ impl PluginHost {
                             backend: backend.clone(),
                             config: Some(table.to_string()),
                             icon,
+                            reader: limits_reader(
+                                (&record.id, manifest),
+                                (backend, manifests.get(backend.as_str()).copied()),
+                            ),
                         }
                     }
                 };
@@ -933,6 +963,27 @@ impl PluginHost {
             )));
         }
         Ok(())
+    }
+
+    /// Starts a short-lived instance of `config`'s plugin linked as a plan limits reader
+    /// (ADR 0035). It is not activated: it runs `read-limits` once and is dropped.
+    async fn start_reader(&self, config: InstanceConfig) -> Result<Instance, ProviderError> {
+        let plugin = config.identity.plugin.clone();
+        self.check_backoff(&plugin)?;
+        let prepared = self
+            .inner
+            .manager
+            .prepared_reader(&plugin)
+            .await
+            .map_err(perr)?;
+        Instance::start(
+            self.inner.manager.runtime(),
+            &prepared,
+            config,
+            self.kernel().clone(),
+        )
+        .await
+        .map_err(perr)
     }
 
     async fn start_instance(&self, config: InstanceConfig) -> Result<Instance, ProviderError> {
@@ -1231,6 +1282,57 @@ impl Provider for WasmProvider {
 
     fn icon(&self) -> Option<&str> {
         self.spec.icon.as_deref()
+    }
+
+    fn reads_limits(&self) -> bool {
+        self.spec.reader.is_some()
+    }
+
+    fn read_limits(
+        &self,
+    ) -> BoxFuture<'_, ProviderResult<Option<kumikit_protocol::model::UsageLimits>>> {
+        Box::pin(async move {
+            let host = self.host()?;
+            let Some(reader) = self.spec.reader.clone() else {
+                return Err(ProviderError::new(format!(
+                    "provider {} cannot read its plan limits",
+                    self.spec.id
+                )));
+            };
+            // Like a delegated `list-models` probe: the declaring plugin's grants, an
+            // isolated empty directory, and a time limit that cancels blocking imports.
+            let probe_dir = host.probe_dir(&self.spec.contributor).await?;
+            let shared = Arc::new(SessionShared::default());
+            let ic = host.instance_config(
+                &reader,
+                &self.spec.contributor,
+                vec![probe_dir.clone()],
+                Arc::clone(&shared),
+                Some(probe_dir),
+            )?;
+            let instance = host.start_reader(ic).await?;
+            let cancel_shared = Arc::clone(&shared);
+            let limit = host.inner.config.limits_probe_timeout;
+            let watchdog = tokio::spawn(async move {
+                tokio::time::sleep(limit).await;
+                cancel_shared.cancel();
+            });
+            let r = instance.read_limits(self.pref()).await;
+            watchdog.abort();
+            host.drop_instance(&instance).await;
+            let limits = match r {
+                Ok(Ok(l)) => l,
+                Ok(Err(e)) => return Err(ProviderError::new(guest_message(e))),
+                Err(e) => {
+                    // A reader that traps fails like any call into the plugin.
+                    if matches!(e, CallError::Trap { .. }) {
+                        host.failed(&reader, &e.to_string()).await;
+                    }
+                    return Err(perr(e));
+                }
+            };
+            Ok(limits.map(crate::runtime::host::limits_from_wit))
+        })
     }
 
     fn list_models(&self) -> BoxFuture<'_, ProviderResult<Vec<Model>>> {

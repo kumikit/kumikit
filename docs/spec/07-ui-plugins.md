@@ -176,9 +176,13 @@ export default {
 } satisfies Plugin;
 ```
 
-- Runs in the page with access to the DOM it is given. Used for first-party plugins and
-  for plugins the user explicitly marks trusted, and for things where an iframe per item
-  is too expensive (transcript renderers).
+- Runs in the page with access to the DOM it is given. Used for first-party plugins
+  (`kumikit.ui-chat`, `kumikit.ui-settings`, `kumikit.ui-usage`) and for plugins the user
+  explicitly marks trusted, and for things where an iframe per item is too expensive
+  (transcript renderers). `kumikit.ui-usage` contributes a `thread.header` meter for the
+  thread's provider and an **Agent usage** dialog (per-provider tabs for enabled
+  providers, plan limits, 30-day statistics, activity heatmap and on-demand refresh;
+  [ADR 0035](../decisions/0035-usage-statistics-and-plan-limits.md)).
 - `mount(el, props) → unmount` keeps the API framework-agnostic: a plugin can use Svelte,
   another framework or none. Svelte plugins compile to plain JS and are the lightest.
 - A plugin that throws in `activate` or `mount` is caught and its slot shows an error

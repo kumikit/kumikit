@@ -44,8 +44,18 @@
 
   let menu = $state<SidebarMenu | undefined>();
 
-  function openThreadMenu(
-    e: MouseEvent,
+  /** What a thread's menu acts on, as the row knows it. */
+  type ThreadTarget = {
+    connection: string;
+    workspace: string;
+    threadId: string;
+    title: string;
+    status: string;
+    hasWorktree: boolean;
+    isChat: boolean;
+  };
+
+  function threadTarget(
     connection: string,
     workspace: string,
     threadId: string,
@@ -53,22 +63,38 @@
     status: string,
     hasWorktree: boolean,
     isChat: boolean,
-  ) {
-    e.preventDefault();
-    e.stopPropagation();
+  ): ThreadTarget {
+    return { connection, workspace, threadId, title, status, hasWorktree, isChat };
+  }
+
+  function showThreadMenu(x: number, y: number, t: ThreadTarget): void {
     menu = {
       kind: 'thread',
-      x: e.clientX,
-      y: e.clientY,
-      connection,
-      workspace,
-      threadId,
-      title,
-      archived: status === 'archived',
-      running: status === 'running' || status === 'awaiting_approval',
-      hasWorktree,
-      isChat,
+      x,
+      y,
+      connection: t.connection,
+      workspace: t.workspace,
+      threadId: t.threadId,
+      title: t.title,
+      archived: t.status === 'archived',
+      running: t.status === 'running' || t.status === 'awaiting_approval',
+      hasWorktree: t.hasWorktree,
+      isChat: t.isChat,
     };
+  }
+
+  /** Right click: the menu opens at the pointer. */
+  function openThreadMenu(e: MouseEvent, t: ThreadTarget): void {
+    e.preventDefault();
+    e.stopPropagation();
+    showThreadMenu(e.clientX, e.clientY, t);
+  }
+
+  /** The row's `⋯` button: the menu opens under the button. */
+  function openThreadMenuFromButton(e: MouseEvent, t: ThreadTarget): void {
+    e.stopPropagation();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    showThreadMenu(r.left, r.bottom, t);
   }
 
   function openWorkspaceMenu(
@@ -174,6 +200,14 @@
       ];
     }
     return [
+      {
+        id: 'rename',
+        label: 'Rename',
+        icon: 'pencil',
+        disabled: m.running,
+        onSelect: () =>
+          kernel.renameThread({ connection: m.connection, workspace: m.workspace, thread: m.threadId }, m.title),
+      },
       {
         id: 'archive',
         label: 'Archive',
@@ -418,15 +452,15 @@
             kernel.activeTab?.connection === item.conn.id &&
             kernel.activeTab?.workspace === item.wsId &&
             kernel.activeThread?.thread === item.id}
-          <li>
+          {@const target = threadTarget(item.conn.id, item.wsId, item.id, item.title, item.status, Boolean(item.worktreePath), item.isChat)}
+          <li class="row" class:current={here}>
             <button
               type="button"
               class="thread flat-thread"
               class:current={here}
               aria-current={here ? 'page' : undefined}
               onclick={() => kernel.openTab(item.conn.id, item.wsId, item.id)}
-              oncontextmenu={(e) =>
-                openThreadMenu(e, item.conn.id, item.wsId, item.id, item.title, item.status, Boolean(item.worktreePath), item.isChat)}
+              oncontextmenu={(e) => openThreadMenu(e, target)}
             >
               <span class="kk-status {item.status}" aria-hidden="true"></span>
               <span class="thread-main">
@@ -441,6 +475,16 @@
                 <span class="meta">{item.isChat ? 'Chat' : item.wsName} · {shortTime(item.created)}</span>
               </span>
               <span class="kk-sr-only">, {statusText[item.status] ?? item.status}</span>
+            </button>
+            <button
+              type="button"
+              class="kk-icon-btn row-more"
+              aria-label="Thread actions"
+              aria-haspopup="menu"
+              title="Thread actions"
+              onclick={(e) => openThreadMenuFromButton(e, target)}
+            >
+              <Icon name="more" size={13} />
             </button>
           </li>
         {:else}
@@ -534,7 +578,8 @@
                     {#each filteredThreads as t (t.id)}
                       {@const here = current && kernel.activeThread?.thread === t.id}
                       {@const tLabel = t.title ?? `${isChat ? 'Chat' : 'Task'} ${t.created.slice(0, 16).replace('T', ' ')}`}
-                      <li>
+                      {@const target = threadTarget(conn.id, ws.id, t.id, tLabel, t.status, Boolean(t.worktreePath), isChat)}
+                      <li class="row" class:current={here}>
                         <button
                           type="button"
                           class="thread"
@@ -544,7 +589,7 @@
                             ? `${tLabel} (Worktree: ${t.worktreePath})`
                             : tLabel}
                           onclick={() => kernel.openTab(conn.id, ws.id, t.id)}
-                          oncontextmenu={(e) => openThreadMenu(e, conn.id, ws.id, t.id, tLabel, t.status, Boolean(t.worktreePath), isChat)}
+                          oncontextmenu={(e) => openThreadMenu(e, target)}
                         >
                           <span class="kk-status {t.status}" aria-hidden="true"></span>
                           {#if t.worktreePath}
@@ -552,6 +597,16 @@
                           {/if}
                           <span class="title">{tLabel}</span>
                           <span class="kk-sr-only">, {statusText[t.status] ?? t.status}</span>
+                        </button>
+                        <button
+                          type="button"
+                          class="kk-icon-btn row-more"
+                          aria-label="Thread actions"
+                          aria-haspopup="menu"
+                          title="Thread actions"
+                          onclick={(e) => openThreadMenuFromButton(e, target)}
+                        >
+                          <Icon name="more" size={13} />
                         </button>
                       </li>
                     {:else}
@@ -598,7 +653,8 @@
               kernel.activeTab?.connection === item.conn.id &&
               kernel.activeTab?.workspace === item.wsId &&
               kernel.activeThread?.thread === item.id}
-            <li>
+            {@const target = threadTarget(item.conn.id, item.wsId, item.id, item.title, 'archived', Boolean(item.worktreePath), item.isChat)}
+            <li class="row" class:current={here}>
               <button
                 type="button"
                 class="thread archived-thread"
@@ -606,8 +662,7 @@
                 aria-current={here ? 'page' : undefined}
                 title={`${item.title} · ${item.wsName}`}
                 onclick={() => kernel.openTab(item.conn.id, item.wsId, item.id)}
-                oncontextmenu={(e) =>
-                  openThreadMenu(e, item.conn.id, item.wsId, item.id, item.title, 'archived', Boolean(item.worktreePath), item.isChat)}
+                oncontextmenu={(e) => openThreadMenu(e, target)}
               >
                 {#if item.isChat}
                   <span class="chat-mark" aria-hidden="true"><Icon name="message" size={11} /></span>
@@ -617,6 +672,16 @@
                 <span class="title">{item.title}</span>
                 <span class="ws-tag">{item.wsName}</span>
                 <span class="kk-sr-only">, archived</span>
+              </button>
+              <button
+                type="button"
+                class="kk-icon-btn row-more"
+                aria-label="Thread actions"
+                aria-haspopup="menu"
+                title="Thread actions"
+                onclick={(e) => openThreadMenuFromButton(e, target)}
+              >
+                <Icon name="more" size={13} />
               </button>
             </li>
           {:else}
@@ -825,6 +890,29 @@
   .thread.current {
     background: var(--kk-surface-selected, Highlight);
     color: var(--kk-text-primary, CanvasText);
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    border-radius: var(--kk-radius-small, 0);
+  }
+  .row > .thread {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+  }
+  .row-more {
+    width: 22px;
+    min-width: 22px;
+    height: 22px;
+    flex: none;
+    opacity: 0;
+  }
+  .row:hover .row-more,
+  .row:focus-within .row-more,
+  .row.current .row-more {
+    opacity: 1;
   }
   .flat-thread {
     align-items: flex-start;

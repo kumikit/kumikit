@@ -233,6 +233,129 @@ async fn a_client_plugin_acts_only_where_it_may_and_is_recorded() {
     .await;
 }
 
+/// `kumikit:threads@0.2.0` (ADR 0034): models with settings, threads created with
+/// settings, and permission modes bounded by `full_access` and the origin thread.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_plugin_creates_threads_with_settings_and_bounded_modes() {
+    within(async {
+        let dirs = Dirs::new();
+        let _core = Core::start(&dirs).await;
+        let mut c = Client::hello(&dirs.address).await;
+        install(&mut c, &probe_kkp(&dirs)).await;
+        install(
+            &mut c,
+            &client_kkp(&dirs, kumikit_test_plugins::CLIENT_MANIFEST),
+        )
+        .await;
+        let w = c
+            .call("workspace.open", json!({ "path": dirs.workspace() }))
+            .await["workspace"]["id"]
+            .clone();
+        let other = dirs.root().join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        let w2 = c
+            .call("workspace.open", json!({ "path": other.to_str().unwrap() }))
+            .await["workspace"]["id"]
+            .clone();
+        c.call(
+            "plugin.setWorkspaces",
+            json!({ "plugin": "test.client", "workspaces": [w, w2] }),
+        )
+        .await;
+        let mode = |snap: &Value| snap["thread"]["permissionMode"].clone();
+
+        // Models come with their settings.
+        let models = run(&mut c, "models", json!({ "provider": "test.probe/probe" }))
+            .await
+            .unwrap();
+        assert_eq!(models[0]["id"], "probe");
+        assert_eq!(models[0]["options"][0]["id"], "effort");
+
+        // A thread with a model setting; an unknown value is an invalid argument.
+        let t = run(
+            &mut c,
+            "create-with",
+            json!({
+                "workspace": w,
+                "provider": "test.probe/probe",
+                "model": "probe",
+                "options": { "effort": "high" },
+                "title": "Review"
+            }),
+        )
+        .await
+        .unwrap();
+        let snap = run(&mut c, "get", json!({ "thread": t["id"] })).await.unwrap();
+        assert_eq!(snap["thread"]["options"], json!({ "effort": "high" }));
+        assert_eq!(snap["thread"]["title"], "Review");
+        assert_eq!(mode(&snap), Value::Null, "standard is the default");
+        assert_eq!(
+            run(
+                &mut c,
+                "create-with",
+                json!({
+                    "workspace": w,
+                    "provider": "test.probe/probe",
+                    "model": "probe",
+                    "options": { "effort": "extreme" }
+                }),
+            )
+            .await,
+            Err("invalid_params".into())
+        );
+
+        // Never full_access, even without an origin.
+        assert_eq!(
+            run(
+                &mut c,
+                "create-with",
+                json!({ "workspace": w, "provider": "test.probe/probe", "permissionMode": "full_access" }),
+            )
+            .await,
+            Err("permission_denied".into())
+        );
+
+        // A plan origin: the default follows it and a looser mode is refused.
+        let origin = c
+            .call(
+                "thread.create",
+                json!({ "workspace": w, "provider": "test.probe/probe", "model": "echo", "permissionMode": "plan" }),
+            )
+            .await["thread"]["id"]
+            .clone();
+        let child = run(
+            &mut c,
+            "create-with",
+            json!({ "workspace": w, "provider": "test.probe/probe", "origin": origin }),
+        )
+        .await
+        .unwrap();
+        let snap = run(&mut c, "get", json!({ "thread": child["id"] })).await.unwrap();
+        assert_eq!(mode(&snap), "plan");
+        assert_eq!(
+            run(
+                &mut c,
+                "create-with",
+                json!({ "workspace": w, "provider": "test.probe/probe", "origin": origin, "permissionMode": "standard" }),
+            )
+            .await,
+            Err("permission_denied".into())
+        );
+
+        // The origin must be in the workspace the thread is created in.
+        assert_eq!(
+            run(
+                &mut c,
+                "create-with",
+                json!({ "workspace": w2, "provider": "test.probe/probe", "origin": origin }),
+            )
+            .await,
+            Err("permission_denied".into())
+        );
+    })
+    .await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn each_operation_needs_its_grant() {
     within(async {
@@ -255,6 +378,8 @@ async fn each_operation_needs_its_grant() {
         for (command, args) in [
             ("providers", json!({})),
             ("create", json!({ "workspace": w })),
+            ("models", json!({ "provider": "test.probe/probe" })),
+            ("create-with", json!({ "workspace": w })),
             ("send", json!({ "thread": thread, "text": "hi" })),
             ("steer", json!({ "thread": thread, "text": "go left" })),
             (

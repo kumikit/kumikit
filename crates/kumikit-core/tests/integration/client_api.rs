@@ -33,7 +33,7 @@ async fn providers_are_listed_with_names_and_models() {
         let list = c.call("provider.list", json!({})).await;
         assert_eq!(
             list,
-            json!({"providers": [{"id": PROBE, "name": "Probe", "plugin": "test.probe"}]})
+            json!({"providers": [{"id": PROBE, "name": "Probe", "plugin": "test.probe", "readsLimits": true}]})
         );
         let models = c.call("provider.models", json!({"provider": PROBE})).await;
         let ids: Vec<&str> = models["models"]
@@ -219,7 +219,7 @@ async fn bundled_plugins_are_seeded_once() {
         let hello = c
             .call(
                 "core.hello",
-                json!({"protocol":"0.11", "client": {"name": "t", "version": "0"}}),
+                json!({"protocol":"0.12", "client": {"name": "t", "version": "0"}}),
             )
             .await;
         if hello["plugins"].as_array().unwrap().is_empty() {

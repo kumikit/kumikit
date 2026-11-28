@@ -165,20 +165,32 @@ export interface IndexedItem {
 
 /** A finished turn split into its collapsed activity, the user's own items and the final reply. */
 export interface TurnSummaryParts {
-  /** Agent work (tools, reasoning, intermediate messages, plugin events), collapsed by default. */
+  /** Agent work (tools, intermediate messages, plugin events), collapsed by default. */
   activity: IndexedItem[];
   /** Approvals and steers, kept visible. */
   user: IndexedItem[];
   /** The trailing assistant message(s): the turn's answer. */
   summary: IndexedItem[];
+  /** All of the turn's reasoning, in order; shown in the Thinking box, never in the summary. */
+  thinking: string;
   tools: number;
   failed: number;
 }
 
+/** The turn's reasoning as one text: every reasoning item, in order, one blank line apart. */
+export function turnThinking(items: readonly TranscriptItem[]): string {
+  return items.flatMap((it) => (it.kind === 'reasoning' ? [it.text] : [])).join('\n\n');
+}
+
+/** The turn's items without reasoning: reasoning is shown in the Thinking box instead. */
+export function withoutReasoning(items: readonly TranscriptItem[]): TranscriptItem[] {
+  return items.filter((it) => it.kind !== 'reasoning');
+}
+
 /**
  * Splits a finished turn for the summary card. The summary is the run of `message` items at
- * the end of the turn (ignoring `file.changed`, shown in the footer instead); everything else
- * the agent did goes to `activity`.
+ * the end of the turn (ignoring `file.changed`, shown in the footer instead); the agent's
+ * tools and other work go to `activity`; reasoning goes to `thinking`.
  */
 export function splitFinishedTurn(items: readonly TranscriptItem[]): TurnSummaryParts {
   let start = items.length;
@@ -188,9 +200,16 @@ export function splitFinishedTurn(items: readonly TranscriptItem[]): TurnSummary
     if (kind !== 'message') break;
     start = i;
   }
-  const parts: TurnSummaryParts = { activity: [], user: [], summary: [], tools: 0, failed: 0 };
+  const parts: TurnSummaryParts = {
+    activity: [],
+    user: [],
+    summary: [],
+    thinking: turnThinking(items),
+    tools: 0,
+    failed: 0,
+  };
   items.forEach((item, index) => {
-    if (item.kind === 'file.changed') return;
+    if (item.kind === 'file.changed' || item.kind === 'reasoning') return;
     if (item.kind === 'message' && index >= start) parts.summary.push({ item, index });
     else if (USER_KINDS.has(item.kind)) parts.user.push({ item, index });
     else {
@@ -204,9 +223,10 @@ export function splitFinishedTurn(items: readonly TranscriptItem[]): TurnSummary
   return parts;
 }
 
-/** The activity header text: "Used 3 tools", "Used 1 tool · 1 failed", or "2 steps". */
+/** The activity header text: "Used 3 tools", "Used 1 tool · 1 failed", "2 steps", or "Thinking". */
 export function activityLabel(parts: Pick<TurnSummaryParts, 'activity' | 'tools' | 'failed'>): string {
   const n = parts.activity.length;
+  if (n === 0) return 'Thinking';
   const base =
     parts.tools > 0
       ? `Used ${parts.tools} ${parts.tools === 1 ? 'tool' : 'tools'}`

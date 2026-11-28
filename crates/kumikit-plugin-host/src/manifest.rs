@@ -27,12 +27,16 @@ pub const WORLD_TOOL: &str = "kumikit:tool/plugin@0.1.0";
 /// The provider world with steering (ADR 0028): listed next to [`WORLD_PROVIDER`] by
 /// providers that import `kumikit:turn/input`.
 pub const WORLD_PROVIDER_STEER: &str = "kumikit:turn/provider@0.1.0";
+/// The on-demand plan limits reader (ADR 0035): listed next to [`WORLD_PROVIDER`] or
+/// [`WORLD_PLUGIN`] by a plugin whose component also exports `kumikit:usage/probe`.
+pub const WORLD_USAGE_READER: &str = "kumikit:usage/reader@0.1.0";
 /// Worlds this host can run.
 pub const WORLDS: &[&str] = &[
     WORLD_PLUGIN,
     WORLD_PROVIDER,
     WORLD_TOOL,
     WORLD_PROVIDER_STEER,
+    WORLD_USAGE_READER,
 ];
 
 /// Manifest file name inside a package.
@@ -519,6 +523,15 @@ impl Manifest {
         })
     }
 
+    /// Whether its component exports the plan limits reader (ADR 0035).
+    pub fn reads_limits(&self) -> bool {
+        self.wasm().is_some()
+            && self
+                .runtime
+                .as_ref()
+                .is_some_and(|r| r.worlds.iter().any(|w| w == WORLD_USAGE_READER))
+    }
+
     /// What it asks for, in protocol form: permissions plus limits raised above the
     /// defaults (what install shows and the registry copies).
     pub fn requested(&self) -> kumikit_protocol::methods::Permissions {
@@ -642,6 +655,16 @@ impl Manifest {
                     if w == WORLD_PROVIDER_STEER && !rt.worlds.iter().any(|x| x == WORLD_PROVIDER) {
                         p.push(format!(
                             "world `{WORLD_PROVIDER_STEER}` adds steering to {WORLD_PROVIDER}: list that world too"
+                        ));
+                    }
+                    if w == WORLD_USAGE_READER
+                        && !rt
+                            .worlds
+                            .iter()
+                            .any(|x| x == WORLD_PROVIDER || x == WORLD_PLUGIN)
+                    {
+                        p.push(format!(
+                            "world `{WORLD_USAGE_READER}` adds a limits reader to a component: list {WORLD_PROVIDER} or {WORLD_PLUGIN} too"
                         ));
                     }
                     if WORLDS.contains(&w.as_str()) {

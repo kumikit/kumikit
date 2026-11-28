@@ -8,6 +8,8 @@ import {
   splitDiffRows,
   splitFinishedTurn,
   totalChanges,
+  turnThinking,
+  withoutReasoning,
 } from '../src/transcript';
 
 const tool = (ok?: boolean): TranscriptItem => ({ kind: 'tool', call: 'c', name: 'Read', input: {}, ...(ok === undefined ? {} : { ok }) });
@@ -27,7 +29,8 @@ describe('splitFinishedTurn', () => {
     ];
     const parts = splitFinishedTurn(items);
     expect(parts.summary.map((s) => s.index)).toEqual([5, 7]);
-    expect(parts.activity.map((s) => s.index)).toEqual([0, 1, 2, 3]);
+    expect(parts.activity.map((s) => s.index)).toEqual([0, 1, 3]);
+    expect(parts.thinking).toBe('hmm');
     expect(parts.user.map((s) => s.index)).toEqual([4]);
     expect(parts.tools).toBe(2);
     expect(parts.failed).toBe(1);
@@ -37,8 +40,25 @@ describe('splitFinishedTurn', () => {
   it('has no summary when the turn ends on a tool, and labels steps without tools', () => {
     expect(splitFinishedTurn([msg('a'), tool(true)]).summary).toEqual([]);
     const parts = splitFinishedTurn([{ kind: 'reasoning', text: 'r' }, msg('answer')]);
-    expect(activityLabel(parts)).toBe('1 step');
+    expect(parts.summary.map((s) => s.index)).toEqual([1]);
+    expect(parts.activity).toEqual([]);
+    expect(activityLabel(parts)).toBe('Thinking');
+    expect(activityLabel(splitFinishedTurn([msg('a'), tool(true), msg('b')]))).toBe('Used 1 tool');
     expect(activityLabel(splitFinishedTurn([tool(true), msg('ok')]))).toBe('Used 1 tool');
+  });
+});
+
+describe('thinking', () => {
+  it('joins every reasoning item of the turn, in order, and keeps them out of the other lists', () => {
+    const items: TranscriptItem[] = [
+      { kind: 'reasoning', text: 'first' },
+      tool(true),
+      { kind: 'reasoning', text: 'second' },
+      msg('answer'),
+    ];
+    expect(turnThinking(items)).toBe('first\n\nsecond');
+    expect(withoutReasoning(items).map((i) => i.kind)).toEqual(['tool', 'message']);
+    expect(turnThinking([msg('x')])).toBe('');
   });
 });
 

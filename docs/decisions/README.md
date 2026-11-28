@@ -57,3 +57,5 @@ Small, local choices do not need one; a clear commit message is enough.
 | [0031](0031-signed-release-manifest-and-updates.md) | Signed release manifest and idle-gated application updates | Accepted |
 | [0032](0032-ssh-remote-core-sync.md) | Matching remote core installation over SSH | Accepted |
 | [0033](0033-model-settings-and-provider-icons.md) | Model settings and provider icons | Accepted |
+| [0034](0034-agents-start-threads.md) | Agents start threads with a chosen model and settings | Accepted |
+| [0035](0035-usage-statistics-and-plan-limits.md) | Usage statistics and plan limits | Accepted |

@@ -987,3 +987,62 @@ describe('usage limits and post-turn checks (M7 step 8)', () => {
     unmount(c);
   });
 });
+
+describe('the thinking box', () => {
+  const at = (items: ThreadView['turns'][number]['items'], ended = true): ThreadView => ({
+    ...base,
+    turns: [{ id: 'u1', input: 'think', started: '2026-11-15T10:00:00Z', ...(ended ? { ended: '2026-11-15T10:00:09Z', outcome: 'done' } : {}), items }],
+  });
+  const items = [
+    { kind: 'reasoning', text: 'first thought' },
+    { kind: 'tool', call: 'c1', name: 'Read', input: { path: 'a.ts' }, ok: true },
+    { kind: 'reasoning', text: 'second thought' },
+    { kind: 'message', text: 'Done.', done: true },
+  ] as ThreadView['turns'][number]['items'];
+
+  it('in a finished turn sits last in the collapsed activity, collapsed, and stays out of the summary', () => {
+    const { ctx } = fakeCtx(at(items));
+    const target = document.createElement('div');
+    document.body.append(target);
+    const c = mount(Chat, { target, props: { ctx, address } });
+    flushSync();
+
+    const box = target.querySelector<HTMLDetailsElement>('details.activity details.thinking')!;
+    expect(box).toBeTruthy();
+    expect(box.open).toBe(false);
+    expect(box.querySelector('summary')!.textContent).toBe('Thinking...');
+    expect(box.querySelector('.thinking-body p')!.textContent).toBe('first thought\n\nsecond thought');
+    const body = target.querySelector('details.activity .activity-body')!;
+    expect(body.lastElementChild).toBe(box);
+    expect(target.querySelector('.summary')!.textContent).not.toContain('thought');
+    expect(target.querySelector('.summary')!.textContent).toContain('Done.');
+    unmount(c);
+    target.remove();
+  });
+
+  it('while the turn runs sits beneath the tool calls', () => {
+    const { ctx } = fakeCtx(at(items.slice(0, 3), false));
+    const target = document.createElement('div');
+    document.body.append(target);
+    const c = mount(Chat, { target, props: { ctx, address } });
+    flushSync();
+
+    const box = target.querySelector<HTMLDetailsElement>('details.thinking')!;
+    expect(box.open).toBe(false);
+    expect(box.querySelector('.thinking-body p')!.textContent).toBe('first thought\n\nsecond thought');
+    const tool = target.querySelector('.item')!;
+    expect(tool.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    unmount(c);
+    target.remove();
+  });
+
+  it('shows a turn that is only thinking as Thinking, with no summary', () => {
+    const { ctx } = fakeCtx(at([{ kind: 'reasoning', text: 'just this' }]));
+    const target = document.createElement('div');
+    const c = mount(Chat, { target, props: { ctx, address } });
+    flushSync();
+    expect(target.querySelector('details.activity .activity-label')!.textContent).toBe('Thinking');
+    expect(target.querySelector('.summary')).toBeNull();
+    unmount(c);
+  });
+});

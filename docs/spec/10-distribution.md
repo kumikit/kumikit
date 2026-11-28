@@ -11,6 +11,7 @@ disabled; the UI kernel works (with an empty state) without any of them.
 | `kumikit.threads` | core | Agent tools for wake-ups, thread coordination, queues, and title suggestions via the MCP tool gateway. Shipped in `core-plugins/` alongside `provider-acp` (waits for the user's permission grant). |
 | `kumikit.ui-chat` | client | Transcript and composer |
 | `kumikit.ui-settings` | client | Settings pages for the kernel and declarative plugin settings |
+| `kumikit.ui-usage` | client | Thread header plan-limit meter and Agent usage dialog (statistics, heatmap, refresh) |
 | `kumikit.theme-default` | client | Light and dark themes; the fallback for missing tokens |
 
 ### Bundled core plugins

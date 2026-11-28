@@ -1,0 +1,90 @@
+package kumikit:usage@0.1.0;
+
+/// Account plan limits and per-model token usage that providers report (ADR 0035).
+/// Additive to `kumikit:provider/plugin@0.2.0`, whose published interfaces cannot change.
+interface types {
+  /// One limit window of the account's plan, such as "5 hours" or "Weekly".
+  record limit-window {
+    /// Stable id within the provider (`five-hour`, `weekly`, `weekly-opus`, …).
+    id: string,
+    /// Display label, from the provider ("5 hours").
+    label: string,
+    /// Optional group the window is shown under ("Gemini models").
+    group: option<string>,
+    /// Share of the window used, 0–100.
+    used-percent: f32,
+    /// When the window resets, RFC 3339.
+    resets-at: option<string>,
+    /// Set when the window covers only some models: a model id or a family name the
+    /// provider's model ids contain (`opus`).
+    model: option<string>,
+  }
+
+  /// A snapshot of the account's plan limits.
+  record limits {
+    /// The plan's name ("Pro"), if known.
+    plan: option<string>,
+    /// The account, such as an email, if the agent reports it.
+    account: option<string>,
+    /// A web page where the user can see the account, `https` only.
+    account-url: option<string>,
+    /// The windows, in display order.
+    windows: list<limit-window>,
+  }
+
+  /// Tokens one model used in a turn.
+  record model-usage {
+    /// Model id.
+    model: string,
+    /// Input tokens, including cached input.
+    input-tokens: u64,
+    /// Output tokens.
+    output-tokens: u64,
+    /// The part of `input-tokens` read from a cache.
+    cached-input-tokens: u64,
+    /// Cost in US dollars, if known.
+    cost: option<f64>,
+  }
+}
+
+/// Imported by providers: reports made while a turn runs. Outside a turn both fail with
+/// `conflict`, like `kumikit:host/events`.
+interface report {
+  use kumikit:host/types@0.2.0.{error};
+  use types.{limits, model-usage};
+
+  /// Reports a snapshot of the account's plan limits, as the agent showed it during the
+  /// turn. Replaces the provider's previous snapshot.
+  emit-limits: func(limits: limits) -> result<_, error>;
+
+  /// Reports the running turn's usage by model, for example a smaller model's subagent
+  /// inside a larger model's turn. Use it instead of `kumikit:host/events` `usage`: the
+  /// kernel records a `usage` event with the totals and the breakdown. Like `usage`, it
+  /// is the turn's total so far, so a later call replaces an earlier one.
+  emit-turn-usage: func(models: list<model-usage>) -> result<_, error>;
+}
+
+/// Exported by a plugin that can read a provider's plan limits on demand: the provider's
+/// own plugin, its provider backend, or a declarative provider's plugin that adds a small
+/// component only for this. The host calls it in a short-lived instance when the user
+/// asks for a refresh, never on a timer.
+interface probe {
+  use kumikit:host/types@0.2.0.{error};
+  use kumikit:provider/types@0.2.0.{provider-ref};
+  use types.{limits};
+
+  /// Reads the account's current plan limits. `none` when the provider has no plan
+  /// limits to show (for example an API key setup).
+  read-limits: func(provider: provider-ref) -> result<option<limits>, error>;
+}
+
+/// The reporting import, for providers.
+world reporter {
+  import report;
+}
+
+/// The on-demand reader. A manifest lists it in `runtime.worlds` next to the plugin's
+/// main world (`kumikit:provider/plugin@0.2.0` or `kumikit:plugin/plugin@0.2.0`).
+world reader {
+  export probe;
+}

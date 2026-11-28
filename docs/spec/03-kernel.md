@@ -36,6 +36,15 @@ Approval  { id, thread, turn, kind, summary, detail, status }
 - `status` of an approval: `pending`, `allowed`, `denied`, `cancelled`. A decision is
   `allow`, `allow_always` or `deny`.
 - `Turn.outcome`: `done`, `cancelled`, `failed`.
+- `Thread.titleSource` is unset (the title was given at creation, or there is none),
+  `agent` (a suggestion from an agent through `threads.title.suggest`) or `user` (a
+  rename). A suggestion never replaces a `user` title.
+- **Title hint.** On a thread's first user turn, while `titleSource` is unset and the
+  thread is not a side thread, the kernel puts a short note ahead of the user's message
+  for the provider: the thread has no title yet, and if a tool suggests titles, it should
+  call it once with a short title. The note is not added to the log, which keeps the
+  user's own text, and it names no tool. The note ends at the first blank line
+  ([ADR 0030](../decisions/0030-thread-agent-tools-plugin.md)).
 - The domain model is the shared language of providers and clients. It is the reason the
   kernel, not a plugin, owns threads ([ADR 0006](../decisions/0006-kernel-owns-domain-model.md)).
 
@@ -53,7 +62,7 @@ Approval  { id, thread, turn, kind, summary, detail, status }
 | `file.changed` | `turn`, `path`, `diff?` | provider |
 | `approval.requested` | `approval` | provider, or the kernel for gateway calls (kind `tool`) |
 | `approval.resolved` | `approval`, `decision` (`allow`, `allow_always`, `deny`, `cancelled`), `by?` (the paired device that answered; absent for local and SSH connections and for cancellations), `plugin?` (the plugin that answered through the client interface) | kernel |
-| `usage` | `turn`, `inputTokens`, `outputTokens`, `cost?` | provider |
+| `usage` | `turn`, `inputTokens` (including cached input), `outputTokens`, `cost?`, `cachedInputTokens?`, `models?` (the same usage by model: `{ model, inputTokens, outputTokens, cachedInputTokens?, cost? }`; the totals are their sums). The turn's total so far: a later one replaces an earlier one. | provider |
 | `turn.ended` | `turn`, `outcome` (`done`, `cancelled`, `failed`), `error?` | kernel |
 | `plugin.event` | `plugin`, `kind`, `data` | any plugin, namespaced |
 | `queue.added` | `entry` (`{ id, turn, input, from?, trigger? }`), `front?` (true: it went to the front), `reason?` (`not_steered` when a steer fell back to the queue or was not taken before the turn ended) | kernel |
@@ -104,6 +113,30 @@ Decided in [ADR 0027](../decisions/0027-durable-queue-and-deferred-messages.md).
 `plugin.event` lets a plugin add its own event kinds without a protocol change. Clients
 that do not understand one skip it; a UI plugin can register a renderer for it.
 
+## Usage
+
+Decided in [ADR 0035](../decisions/0035-usage-statistics-and-plan-limits.md).
+
+- **Records.** Each `usage` event updates its turn's row in `usage_records`, in the same
+  transaction: provider and model (the turn's, else the thread's), the turn's start
+  time, input, output and cached input tokens, cost, and the `models` breakdown. The row
+  keeps the last report, because `usage` is a running total. Rows hold no text and
+  outlive their thread and workspace, so deleting them doesn't change the statistics.
+  Copied events in a fork have no turn of their own and aren't counted again.
+- **Summary.** `usage.summary` adds up the rows whose turn started in the period. A row
+  with a breakdown counts per model, and a row without one counts under its own model.
+  `daily` groups by the client's local days, from its UTC offset.
+- **Limits.** The kernel keeps each provider's latest plan limits snapshot
+  (`provider_limits`), from a provider's report during a turn or from a refresh, and
+  announces each one on the `usage` topic. A snapshot is tidied before it is stored:
+  - percentages are clamped to 0–100, and a NaN is refused;
+  - there are at most 32 windows;
+  - texts are cut to 200 bytes;
+  - reset times must be RFC 3339;
+  - an account URL is kept only if it is `https`.
+- **Refresh.** `usage.refresh` calls the provider's reader at most once per 60 s
+  (concurrent calls wait for one read). Nothing reads limits on a timer.
+
 ## Storage
 
 - One SQLite database per core, WAL mode. Schema migrations are numbered, forward-only,
@@ -116,8 +149,8 @@ that do not understand one skip it; a UI plugin can register a renderer for it.
 - Derived columns (thread `status`, `updated`, turn `ended`/`outcome`, approval `status`)
   are written in the same transaction as the event that changes them, so they cannot
   disagree with the log.
-- Core tables (workspaces, threads, events, approvals, devices, plugins) belong to the
-  kernel. Plugins never get SQL access to them.
+- Core tables (workspaces, threads, events, approvals, devices, plugins, usage records
+  and provider limits) belong to the kernel. Plugins never get SQL access to them.
 - The `devices` table records paired devices ([02](02-protocol.md#pairing)): id (ULID),
   name, the SHA-256 of the device token, created and last-seen times (last seen is
   written at most once a minute per device). The token itself is never stored. Revoking
@@ -198,6 +231,22 @@ workspaces the user linked to the plugin with `plugin.setWorkspaces`) or `all`. 
 plugin sends carry `from { plugin }` in `turn.started`; approvals it answers carry
 `plugin` in `approval.resolved`; it cannot answer `allow_always`. Subscriptions are
 resources with a `wasi:io` pollable, so a plugin can wait on several things at once.
+
+`kumikit:threads@0.2.0` adds to this:
+
+- `list-models(provider)` (`threads.create`): the provider's models and their settings,
+  as in `provider.models`.
+- `create-thread(request)` (`threads.create`): a thread with `provider`, `model`,
+  `title`, model settings (`options`, checked against the model as in `thread.create`)
+  and `permission-mode`. All are optional. The permission mode is bounded
+  ([ADR 0034](../decisions/0034-agents-start-threads.md)):
+  - A plugin never creates a `full_access` thread.
+  - `origin` names the thread the plugin acts for (a tool passes `tool-call.thread`). It
+    must be in the same workspace, and the new thread can't be looser than it. Strictness,
+    from most to least strict: `plan`, `standard`, `accept_edits`, `full_access`.
+  - With no mode given, the thread gets `standard`, or the origin's mode if that is
+    stricter.
+  - A refused mode fails with `permission-denied`.
 
 ## Schedules
 

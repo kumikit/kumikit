@@ -13,6 +13,16 @@ use crate::clock::{SequentialIds, StepClock};
 use crate::provider::{BoxFuture, Model, ProviderError, ProviderEvent, ProviderResult};
 use crate::repo::StoredEvent;
 
+/// The user's message as a provider sees it: the first-turn title hint (`TITLE_HINT`) and
+/// the blank line after it are dropped, so scripts match on what the user typed.
+fn user_text(text: &str) -> &str {
+    if text.starts_with(crate::turns::TITLE_HINT) {
+        text.split_once("\n\n").map_or(text, |(_, rest)| rest)
+    } else {
+        text
+    }
+}
+
 /// A fake provider; the message text picks the behavior:
 /// `echo <x>`, `approve`, `approve-fail`, `fail`, `plugin`, `block`, `late`, `steer`.
 /// Model `one` reports `steer`; `two` does not.
@@ -23,6 +33,7 @@ struct Fake {
     cancels: AtomicUsize,
     resumes: Mutex<Vec<Option<String>>>,
     late_sink: Mutex<Option<EventSink>>,
+    limit_reads: AtomicUsize,
 }
 
 impl Fake {
@@ -80,7 +91,7 @@ impl Provider for Fake {
                         .map_err(|e| ProviderError::new(e.to_string()))
                 }
             };
-            match input.text.as_str() {
+            match user_text(&input.text) {
                 t if t.starts_with("echo ") => {
                     let text = t["echo ".len()..].to_owned();
                     emit(ProviderEvent::TextDelta { text: text.clone() }).await?;
@@ -134,6 +145,39 @@ impl Provider for Fake {
                     *self.late_sink.lock().unwrap() = Some(sink.clone());
                     Ok(())
                 }
+                "usage" => {
+                    // A running total: the second report replaces the first.
+                    for (input, output) in [(5, 1), (10, 2)] {
+                        emit(ProviderEvent::Usage {
+                            input_tokens: input,
+                            output_tokens: output,
+                            cost: Some(0.25),
+                        })
+                        .await?;
+                    }
+                    Ok(())
+                }
+                "models" => {
+                    let m =
+                        |model: &str, input, cached, cost| kumikit_protocol::model::ModelUsage {
+                            model: model.into(),
+                            input_tokens: input,
+                            output_tokens: 1,
+                            cached_input_tokens: Some(cached),
+                            cost,
+                        };
+                    emit(ProviderEvent::UsageByModel {
+                        models: vec![m("one", 100, 80, Some(1.0)), m("small", 20, 5, None)],
+                    })
+                    .await?;
+                    Ok(())
+                }
+                "limits" => {
+                    sink.report_limits(test_limits(42.0))
+                        .await
+                        .map_err(|e| ProviderError::new(e.to_string()))?;
+                    Ok(())
+                }
                 other => Err(ProviderError::new(format!("unknown script {other}"))),
             }
         })
@@ -156,6 +200,32 @@ impl Provider for Fake {
     }
     fn end_session(&self, _s: String) -> BoxFuture<'_, ()> {
         Box::pin(async {})
+    }
+    fn reads_limits(&self) -> bool {
+        true
+    }
+    fn read_limits(
+        &self,
+    ) -> BoxFuture<'_, ProviderResult<Option<kumikit_protocol::model::UsageLimits>>> {
+        let n = self.limit_reads.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async move { Ok(Some(test_limits(10.0 + n as f64))) })
+    }
+}
+
+fn test_limits(pct: f64) -> kumikit_protocol::model::UsageLimits {
+    kumikit_protocol::model::UsageLimits {
+        plan: Some("Pro".into()),
+        windows: vec![kumikit_protocol::model::LimitWindow {
+            id: "five-hour".into(),
+            label: "5 hours".into(),
+            group: None,
+            used_percent: pct,
+            resets_at: Some(kumikit_protocol::model::Timestamp(
+                "2026-11-15T15:00:00.000Z".into(),
+            )),
+            model: None,
+        }],
+        ..Default::default()
     }
 }
 
@@ -1429,4 +1499,231 @@ async fn switch_provider_refused_while_running() {
     assert_eq!(err.code(), ErrorCode::Conflict);
     e.kernel.thread_cancel(&e.thread).await.unwrap();
     e.until(0, "turn.ended").await;
+}
+
+/// ADR 0030 title hint: only the first turn of an untitled thread gets it, and the log
+/// keeps the user's own text.
+#[tokio::test]
+async fn first_turn_of_an_untitled_thread_gets_the_title_hint() {
+    let e = env().await;
+    let rec = RecordingProvider::new("other");
+    e.kernel.register_provider(rec.clone()).unwrap();
+    e.kernel
+        .thread_update(
+            &e.thread,
+            Some("other".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    e.send("hello there").await;
+    let first = e.until(0, "turn.ended").await;
+    e.send("and again").await;
+    let second = e.until(first.last().unwrap().seq, "turn.ended").await;
+
+    let prompts = rec.prompts.lock().unwrap().clone();
+    assert_eq!(prompts.len(), 2);
+    assert!(prompts[0].starts_with(crate::turns::TITLE_HINT));
+    assert!(prompts[0].ends_with("hello there"));
+    assert_eq!(prompts[1], "and again");
+    let logged: Vec<String> = first
+        .iter()
+        .chain(second.iter())
+        .filter_map(|ev| match &ev.event {
+            ThreadEvent::TurnStarted(t) => Some(t.input.text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        logged,
+        vec!["hello there".to_string(), "and again".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn a_titled_thread_gets_no_title_hint() {
+    let e = env().await;
+    let rec = RecordingProvider::new("other");
+    e.kernel.register_provider(rec.clone()).unwrap();
+    e.kernel
+        .thread_update(
+            &e.thread,
+            Some("other".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(
+        e.kernel
+            .thread_suggest_title(&e.thread, "Planning the release")
+            .await
+            .unwrap()
+    );
+
+    e.send("plan it").await;
+    e.until(0, "turn.ended").await;
+
+    assert_eq!(*rec.prompts.lock().unwrap(), vec!["plan it".to_string()]);
+}
+
+// ---- usage statistics and plan limits (ADR 0035) ----
+
+fn summary_params(days: u32) -> kumikit_protocol::methods::UsageSummaryParams {
+    kumikit_protocol::methods::UsageSummaryParams {
+        provider: None,
+        days,
+        tz_offset_minutes: None,
+    }
+}
+
+#[tokio::test]
+async fn a_turns_last_usage_report_counts_once_and_outlives_its_thread() {
+    let e = env().await;
+    let mut usage = e.kernel.usage_changes();
+    e.send("usage").await;
+    e.until(0, "turn.ended").await;
+    let s = e.kernel.usage_summary(summary_params(1)).await.unwrap();
+    assert_eq!(s.totals.turns, 1);
+    assert_eq!((s.totals.input_tokens, s.totals.output_tokens), (10, 2));
+    assert_eq!(s.totals.cost, Some(0.25));
+    assert_eq!(s.threads, 1);
+    assert_eq!(s.models[0].provider, "fake");
+    assert_eq!(s.daily.len(), 1);
+    let ev = usage.recv().await.unwrap();
+    assert_eq!(ev.kind(), "usage.recorded");
+
+    e.kernel.thread_delete(&e.thread).await.unwrap();
+    let s = e.kernel.usage_summary(summary_params(1)).await.unwrap();
+    assert_eq!(s.totals.turns, 1, "deleting a thread keeps its usage");
+}
+
+#[tokio::test]
+async fn usage_by_model_adds_up_and_breaks_down() {
+    let e = env().await;
+    e.send("models").await;
+    let events = e.until(0, "turn.ended").await;
+    let usage = events
+        .iter()
+        .find_map(|ev| match &ev.event {
+            ThreadEvent::Usage(u) => Some(u.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!((usage.input_tokens, usage.output_tokens), (120, 2));
+    assert_eq!(usage.cached_input_tokens, Some(85));
+    assert_eq!(usage.cost, Some(1.0));
+    assert_eq!(usage.models.len(), 2);
+    let s = e.kernel.usage_summary(summary_params(30)).await.unwrap();
+    let rows: Vec<(&str, u64)> = s
+        .models
+        .iter()
+        .map(|r| (r.model.as_str(), r.totals.input_tokens))
+        .collect();
+    assert_eq!(rows, vec![("one", 100), ("small", 20)]);
+    assert_eq!(s.totals.cached_input_tokens, 85);
+}
+
+#[tokio::test]
+async fn summary_days_are_bounded() {
+    let e = env().await;
+    for days in [0, crate::usage::MAX_SUMMARY_DAYS + 1] {
+        let err = e
+            .kernel
+            .usage_summary(summary_params(days))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), ErrorCode::InvalidParams);
+    }
+}
+
+#[tokio::test]
+async fn limits_reported_in_a_turn_are_stored_for_its_provider() {
+    let e = env().await;
+    let before = e.kernel.usage_limits(None).await.unwrap();
+    assert_eq!(before.len(), 1);
+    assert!(before[0].limits.is_none() && before[0].observed.is_none());
+    let mut usage = e.kernel.usage_changes();
+    e.send("limits").await;
+    e.until(0, "turn.ended").await;
+    let ev = usage.recv().await.unwrap();
+    let kumikit_protocol::UsageEvent::Limits(snap) = ev else {
+        panic!("{ev:?}")
+    };
+    assert_eq!(snap.provider, "fake");
+    let stored = e.kernel.usage_limits(Some("fake")).await.unwrap();
+    assert_eq!(stored, vec![snap]);
+    assert_eq!(
+        stored[0].limits.as_ref().unwrap().windows[0].used_percent,
+        42.0
+    );
+    let err = e.kernel.usage_limits(Some("nope")).await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::NotFound);
+}
+
+#[tokio::test]
+async fn a_refresh_reads_once_per_interval() {
+    let e = env().await;
+    let first = e.kernel.usage_refresh("fake").await.unwrap();
+    assert_eq!(first.limits.unwrap().windows[0].used_percent, 10.0);
+    // Within the interval the stored snapshot comes back without asking again.
+    let again = e.kernel.usage_refresh("fake").await.unwrap();
+    assert_eq!(again.limits.unwrap().windows[0].used_percent, 10.0);
+    assert_eq!(e.fake.limit_reads.load(Ordering::SeqCst), 1);
+    let err = e.kernel.usage_refresh("nope").await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::NotFound);
+}
+
+#[derive(Debug)]
+struct NoLimits;
+
+impl Provider for NoLimits {
+    fn id(&self) -> &str {
+        "plain"
+    }
+    fn list_models(&self) -> BoxFuture<'_, ProviderResult<Vec<Model>>> {
+        Box::pin(async { Ok(vec![]) })
+    }
+    fn start_session(&self, _c: SessionConfig) -> BoxFuture<'_, ProviderResult<String>> {
+        Box::pin(async { Ok("s".into()) })
+    }
+    fn send(&self, _s: String, _i: UserInput, _k: EventSink) -> BoxFuture<'_, ProviderResult<()>> {
+        Box::pin(async { Ok(()) })
+    }
+    fn respond_approval(
+        &self,
+        _s: String,
+        _a: ApprovalId,
+        _d: Decision,
+    ) -> BoxFuture<'_, ProviderResult<()>> {
+        Box::pin(async { Ok(()) })
+    }
+    fn cancel(&self, _s: String) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
+    fn end_session(&self, _s: String) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
+}
+
+#[tokio::test]
+async fn a_provider_without_a_reader_cannot_refresh() {
+    let e = env().await;
+    e.kernel.register_provider(Arc::new(NoLimits)).unwrap();
+    let err = e.kernel.usage_refresh("plain").await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::Unsupported);
+    let list = e.kernel.provider_list();
+    let flags: Vec<(&str, Option<bool>)> = list
+        .iter()
+        .map(|p| (p.id.as_str(), p.reads_limits))
+        .collect();
+    assert_eq!(flags, vec![("fake", Some(true)), ("plain", None)]);
 }
