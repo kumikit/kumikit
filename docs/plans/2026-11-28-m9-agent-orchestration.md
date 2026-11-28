@@ -245,6 +245,28 @@ Steps:
 - [x] **Step 2.10 — Publish:** add `kumikit-usage@0.1.0` to `wit/PUBLISHED` when it
   ships in a release.
 
+### Feature 3 — Started threads are side threads (ADR 0036)
+
+**What the user sees.** A thread that an agent starts with `start_thread` appears in the
+**Side thread** panel of the thread that started it, not in the sidebar. The panel is the
+inspector tab that already lists the side threads (`/btw`) of the active thread.
+
+- [x] **Step 3.0 — Decision and docs:** ADR 0036; ADR 0034 status note; `03-kernel.md`
+  (client interface); the threads README and tool description; the Notes above.
+- [x] **Step 3.1 — Host:** `runtime/client.rs` `create_thread` passes the origin as
+  `parent` and sets `side`. The permission mode is always passed when there is an origin,
+  so the kernel never inherits a looser mode from the origin.
+- [x] **Step 3.2 — Tests:** `client_interface.rs` checks that a thread with an origin has
+  `parent` and `side`, is hidden from `thread.list` and shown with `includeSide`, that a
+  thread without an origin has neither, and that an `accept_edits` origin gives `standard`
+  when no mode is asked for.
+- [ ] **Step 3.3 — Verify the side panel:** a started thread shows in the side panel of its
+  origin, live, and not in the sidebar. Checked by reading `plugins/ui-chat/src/SideThread.svelte`
+  (it loads `thread.list` with `includeSide` and keeps threads whose `parent` is the
+  active thread, live from `thread.created`); not yet run in the desktop app or e2e.
+- [ ] **Step 3.4 — Verify:** fmt, clippy (host and wasm), `cargo test --workspace`,
+  `check-docs.sh`, `check-plugin-names.sh`, `check-no-keys.sh`.
+
 ## Notes
 
 - Feature 2: the kernel and `ui-usage` never name a provider or a window. Labels, groups
@@ -260,8 +282,9 @@ Steps:
   it. It stays on the core and its clients and is never logged.
 - Feature 1: the protocol doesn't change: `thread.create` already takes `options` and
   `permissionMode` (protocol 0.11).
-- `origin` is used only for checks (same workspace, mode bound). It isn't the kernel's
-  `parent` link: started threads are ordinary sidebar threads, not side threads.
+- `origin` is used for checks (same workspace, mode bound) and as the `parent` of the
+  started thread: started threads are side threads of the calling thread
+  ([ADR 0036](../decisions/0036-tool-started-threads-are-side-threads.md), Feature 3).
 - `kumikit.threads` 0.2.0 widens its grant (`threads.create`), so a bundled upgrade waits,
   disabled, for the user to grant it again.
 - Through `command.run`, a plugin's `invalid-argument` reaches clients as

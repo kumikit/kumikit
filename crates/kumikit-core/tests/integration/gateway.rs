@@ -66,6 +66,27 @@ fn tool_plugin(dirs: &Dirs) -> PathBuf {
     )
 }
 
+fn threads_plugin(dirs: &Dirs) -> PathBuf {
+    let src = Path::new(kumikit_test_plugins::THREADS_DIR);
+    let manifest = std::fs::read_to_string(src.join("plugin.toml")).unwrap();
+    let wasm = std::fs::read(kumikit_test_plugins::THREADS_WASM).unwrap();
+    let schemas: Vec<(String, Vec<u8>)> = std::fs::read_dir(src.join("tools"))
+        .unwrap()
+        .map(|entry| {
+            let entry = entry.unwrap();
+            let name = format!("tools/{}", entry.file_name().to_string_lossy());
+            let bytes = std::fs::read(entry.path()).unwrap();
+            (name, bytes)
+        })
+        .collect();
+    let mut files: Vec<(&str, &[u8])> = vec![("plugin.wasm", &wasm)];
+    for (name, bytes) in &schemas {
+        files.push((name.as_str(), bytes.as_slice()));
+    }
+    std::fs::create_dir_all(dirs.root().join("threads-src/tools")).unwrap();
+    kkp(dirs, "threads", &manifest, &files)
+}
+
 /// The agent's side: `kumikit mcp` started as the record says.
 struct Agent {
     child: Child,
@@ -369,6 +390,255 @@ async fn an_acp_agent_gets_the_gateway_from_its_provider() {
             std::fs::canonicalize(ws["root"].as_str().unwrap()).unwrap(),
             "the agent says what the tool answered: {said}"
         );
+    })
+    .await;
+}
+
+/// End-to-end through the real core and MCP gateway: `kumikit.threads`'s `list_models`
+/// and `start_thread` tools discover providers/models/options and spawn side threads with
+/// chosen models, settings, creation titles, and bounded permission modes (ADRs 0034, 0036).
+#[tokio::test(flavor = "multi_thread")]
+async fn kumikit_threads_list_models_and_start_thread_end_to_end() {
+    within(async {
+        let dirs = Dirs::new();
+        let (_core, _) = Core::start_with_path(&dirs, Some(&bin_dir())).await;
+        let mut c = Client::hello(&dirs.address).await;
+        install(&mut c, &probe(&dirs, true)).await;
+        install(&mut c, &threads_plugin(&dirs)).await;
+
+        let ws = c
+            .call("workspace.open", json!({ "path": dirs.workspace() }))
+            .await["workspace"]
+            .clone();
+        c.call(
+            "plugin.setWorkspaces",
+            json!({ "plugin": "kumikit.threads", "workspaces": [ws["id"]] }),
+        )
+        .await;
+
+        // Parent thread with `accept_edits` so we also verify the side thread defaults to
+        // `standard` unless explicitly requested, and rejects `full_access`.
+        let parent = c
+            .call(
+                "thread.create",
+                json!({
+                    "workspace": ws["id"],
+                    "provider": "test.probe/probe",
+                    "model": "probe",
+                    "title": "Coordinator",
+                    "permissionMode": "accept_edits"
+                }),
+            )
+            .await["thread"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        c.call(
+            "events.subscribe",
+            json!({ "topic": format!("thread:{parent}"), "after": 0 }),
+        )
+        .await;
+        c.call(
+            "thread.send",
+            json!({ "thread": parent, "input": { "text": format!("mcp-info {parent}") } }),
+        )
+        .await;
+        let events = c.events_until("turn.ended").await;
+        let done = events.iter().find(|e| e["kind"] == "text.done").unwrap();
+        let record: Value = serde_json::from_str(done["data"]["text"].as_str().unwrap()).unwrap();
+
+        let mut agent = Agent::start(&record);
+        agent
+            .call(
+                "initialize",
+                json!({ "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "test", "version": "0" } }),
+            )
+            .await;
+        let list = agent.call("tools/list", json!({})).await;
+        let tool_names: Vec<&str> = list["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap())
+            .collect();
+        assert!(tool_names.contains(&"kumikit_threads__list_models"), "{tool_names:?}");
+        assert!(tool_names.contains(&"kumikit_threads__start_thread"), "{tool_names:?}");
+
+        // Start a running turn on the parent so MCP tools are permitted.
+        c.call(
+            "thread.send",
+            json!({ "thread": parent, "input": { "text": "hang" } }),
+        )
+        .await;
+        c.events_until("turn.started").await;
+
+        // 1. list_models discovers the provider, its models, and the effort setting.
+        let models = agent
+            .tool("kumikit_threads__list_models", json!({}))
+            .await;
+        assert_ne!(models["isError"], true, "{models}");
+        let providers = models["structuredContent"]["providers"].as_array().unwrap();
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0]["id"], "test.probe/probe");
+        assert_eq!(providers[0]["models"][0]["id"], "probe");
+        assert_eq!(providers[0]["models"][0]["options"][0]["id"], "effort");
+        assert!(
+            models["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("effort")
+        );
+
+        let missing = agent
+            .tool(
+                "kumikit_threads__list_models",
+                json!({ "provider": "nope/missing" }),
+            )
+            .await;
+        assert_eq!(missing["isError"], true, "{missing}");
+
+        // 2. start_thread is a write tool; approve it and verify it spawns a side thread
+        // with the requested model, title, standard permission mode, and sends the prompt.
+        let pending = tokio::spawn(async move {
+            let r = agent
+                .tool(
+                    "kumikit_threads__start_thread",
+                    json!({
+                        "provider": "test.probe/probe",
+                        "model": "echo",
+                        "title": "Echo worker",
+                        "text": "hello from worker"
+                    }),
+                )
+                .await;
+            (agent, r)
+        });
+        let events = c.events_until("approval.requested").await;
+        let approval = events.last().unwrap()["data"]["approval"]["id"].clone();
+        c.call(
+            "thread.respondApproval",
+            json!({ "approval": approval, "decision": "allow_always" }),
+        )
+        .await;
+        let (mut agent, started) = pending.await.unwrap();
+        assert_ne!(started["isError"], true, "{started}");
+        let child_id = started["structuredContent"]["thread"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(started["structuredContent"]["provider"], "test.probe/probe");
+        assert_eq!(started["structuredContent"]["model"], "echo");
+        assert!(started["structuredContent"]["turn"].is_string());
+
+        // Verify the spawned thread is a side thread of `parent`, hidden from default
+        // thread.list, visible with includeSide, titled as requested, and in standard mode.
+        let snap = c.call("thread.get", json!({ "thread": child_id })).await;
+        assert_eq!(snap["thread"]["parent"], parent.as_str());
+        assert_eq!(snap["thread"]["side"], true);
+        assert_eq!(snap["thread"]["title"], "Echo worker");
+        assert_eq!(snap["thread"]["permissionMode"], Value::Null);
+
+        let plain = c
+            .call("thread.list", json!({ "workspace": ws["id"] }))
+            .await["threads"]
+            .clone();
+        assert!(!plain.to_string().contains(&child_id));
+        let with_side = c
+            .call(
+                "thread.list",
+                json!({ "workspace": ws["id"], "includeSide": true }),
+            )
+            .await["threads"]
+            .clone();
+        assert!(with_side.to_string().contains(&child_id));
+
+        // Wait for the echo worker's turn to finish and check its output.
+        let mut child_client = Client::hello(&dirs.address).await;
+        child_client
+            .call(
+                "events.subscribe",
+                json!({ "topic": format!("thread:{child_id}"), "after": 0 }),
+            )
+            .await;
+        let child_events = child_client.events_until("turn.ended").await;
+        let reply = child_events
+            .iter()
+            .find(|e| e["kind"] == "text.done")
+            .unwrap();
+        let reply_text = reply["data"]["text"].as_str().unwrap();
+        assert!(
+            reply_text.contains("[Main thread context]"),
+            "side thread receives main thread context: {reply_text}"
+        );
+        assert!(
+            !reply_text.contains("[Thread title]"),
+            "titled start_thread gets no title hint: {reply_text}"
+        );
+        assert!(
+            reply_text.ends_with("hello from worker"),
+            "prompt reached worker: {reply_text}"
+        );
+
+        // 3. start_thread with model options passes them to the spawned session.
+        let with_opts = agent
+            .tool(
+                "kumikit_threads__start_thread",
+                json!({
+                    "provider": "test.probe/probe",
+                    "model": "probe",
+                    "options": { "effort": "high" },
+                    "title": "High effort worker"
+                }),
+            )
+            .await;
+        assert_ne!(with_opts["isError"], true, "{with_opts}");
+        let opts_child = with_opts["structuredContent"]["thread"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let opts_snap = c.call("thread.get", json!({ "thread": opts_child })).await;
+        assert_eq!(opts_snap["thread"]["options"], json!({ "effort": "high" }));
+        child_client
+            .call(
+                "events.subscribe",
+                json!({ "topic": format!("thread:{opts_child}"), "after": 0 }),
+            )
+            .await;
+        c.call(
+            "thread.send",
+            json!({
+                "thread": opts_child,
+                "input": { "text": format!("session-options {opts_child}") }
+            }),
+        )
+        .await;
+        let opts_events = child_client.events_until("turn.ended").await;
+        let opts_done = opts_events
+            .iter()
+            .find(|e| e["kind"] == "text.done")
+            .unwrap();
+        assert!(
+            opts_done["data"]["text"]
+                .as_str()
+                .unwrap()
+                .contains("option.effort=high"),
+            "{opts_done}"
+        );
+
+        // 4. full_access is always refused.
+        let denied = agent
+            .tool(
+                "kumikit_threads__start_thread",
+                json!({
+                    "provider": "test.probe/probe",
+                    "permissionMode": "full_access"
+                }),
+            )
+            .await;
+        assert_eq!(denied["isError"], true, "{denied}");
+
+        c.call("thread.cancel", json!({ "thread": parent })).await;
+        c.events_until("turn.ended").await;
     })
     .await;
 }

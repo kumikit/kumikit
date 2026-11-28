@@ -185,7 +185,7 @@ impl Provider for Probe {
                 emit(Event::TextDelta("about to fail".into()))?;
                 Err(fail(ErrorCode::Internal, "scripted failure"))
             }
-            _ => probe(strip_title_hint(&input.text)),
+            _ => probe(strip_side_context(strip_title_hint(&input.text))),
         }
     }
 
@@ -280,6 +280,17 @@ fn strip_title_hint(text: &str) -> &str {
     }
 }
 
+/// Side threads prepend the main thread's context to their first turn. Probe commands
+/// read only the user's message after the closing marker.
+fn strip_side_context(text: &str) -> &str {
+    const END: &str = "[End of main thread context — answer the side question below]\n\n";
+    if text.starts_with("[Main thread context]") {
+        text.split_once(END).map_or(text, |(_, rest)| rest)
+    } else {
+        text
+    }
+}
+
 fn limits(percent: f32) -> Limits {
     Limits {
         plan: Some("Probe plan".into()),
@@ -318,6 +329,33 @@ fn probe(command: &str) -> Result<(), Error> {
                 .parse()
                 .map_err(|_| fail(ErrorCode::InvalidArgument, "not a number"))?;
             usage::emit_limits(&limits(percent))?;
+            emit(Event::TextDone("reported".into()))
+        }
+        ["limits-invalid", kind] => {
+            let bad = match *kind {
+                "nan" => limits(f32::NAN),
+                "reset" => {
+                    let mut l = limits(10.0);
+                    l.windows[0].resets_at = Some("not-a-timestamp".into());
+                    l
+                }
+                "too-many" => {
+                    let mut l = limits(10.0);
+                    l.windows = (0..33)
+                        .map(|i| LimitWindow {
+                            id: format!("w-{i}"),
+                            label: format!("Window {i}"),
+                            group: None,
+                            used_percent: 10.0,
+                            resets_at: None,
+                            model: None,
+                        })
+                        .collect();
+                    l
+                }
+                other => return Err(fail(ErrorCode::InvalidArgument, format!("unknown {other}"))),
+            };
+            usage::emit_limits(&bad)?;
             emit(Event::TextDone("reported".into()))
         }
         ["usage-models"] => {

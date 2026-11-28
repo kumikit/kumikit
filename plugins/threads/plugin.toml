@@ -98,6 +98,6 @@ effect = "read"
 [[contributes.tools]]
 name = "start_thread"
 title = "Start a thread"
-description = "Start a new thread in this workspace with a provider, model and model settings, and optionally send it a first message. It cannot be given a looser permission mode than the calling thread, nor full_access."
+description = "Start a side thread of this thread, with a provider, model and model settings, and optionally send it a first message. It shows in this thread's side panel, not the sidebar. It cannot be given a looser permission mode than this thread, nor full_access."
 input = "tools/start_thread.schema.json"
 effect = "write"

@@ -1457,7 +1457,11 @@ impl Kernel {
     /// and nobody has titled it yet (`titleSource` unset). Only then is [`TITLE_HINT`] sent.
     async fn wants_title_hint(&self, thread: &ThreadId, turn: &TurnId) -> KernelResult<bool> {
         let row = self.thread_row(thread).await?;
-        if row.thread.title_source.is_some() || row.thread.side == Some(true) {
+        // A thread with a title (given at creation or suggested) is not untitled.
+        if row.thread.title_source.is_some()
+            || row.thread.title.is_some()
+            || row.thread.side == Some(true)
+        {
             return Ok(false);
         }
         let tid = thread.clone();

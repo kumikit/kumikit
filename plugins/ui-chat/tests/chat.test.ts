@@ -1011,6 +1011,7 @@ describe('the thinking box', () => {
     expect(box).toBeTruthy();
     expect(box.open).toBe(false);
     expect(box.querySelector('summary')!.textContent).toBe('Thinking...');
+    expect(box.querySelector('summary svg.chevron')).toBeTruthy();
     expect(box.querySelector('.thinking-body p')!.textContent).toBe('first thought\n\nsecond thought');
     const body = target.querySelector('details.activity .activity-body')!;
     expect(body.lastElementChild).toBe(box);
@@ -1018,6 +1019,41 @@ describe('the thinking box', () => {
     expect(target.querySelector('.summary')!.textContent).toContain('Done.');
     unmount(c);
     target.remove();
+  });
+
+  it('moves intermediate narration between tool calls into the Thinking box while running and when finished', () => {
+    const narrated = [
+      { kind: 'message', text: 'Let me check a.ts.', done: false },
+      { kind: 'tool', call: 'c1', name: 'Read', input: { path: 'a.ts' }, ok: true },
+      { kind: 'message', text: 'Now checking b.ts.', done: false },
+      { kind: 'tool', call: 'c2', name: 'Read', input: { path: 'b.ts' }, ok: true },
+      { kind: 'message', text: 'All done.', done: true },
+    ] as ThreadView['turns'][number]['items'];
+
+    // While running: only tool calls appear above the Thinking box, not intermediate text.
+    const runningTarget = document.createElement('div');
+    document.body.append(runningTarget);
+    const running = mount(Chat, { target: runningTarget, props: { ctx: fakeCtx(at(narrated.slice(0, 4), false)).ctx, address } });
+    flushSync();
+    expect(runningTarget.querySelectorAll('.item')).toHaveLength(2);
+    const runningBox = runningTarget.querySelector<HTMLDetailsElement>('details.thinking')!;
+    expect(runningBox.querySelector('.thinking-body p')!.textContent).toBe('Let me check a.ts.\n\nNow checking b.ts.');
+    unmount(running);
+    runningTarget.remove();
+
+    // When finished: activity holds only the tool calls + Thinking box; summary holds only the reply.
+    const doneTarget = document.createElement('div');
+    document.body.append(doneTarget);
+    const done = mount(Chat, { target: doneTarget, props: { ctx: fakeCtx(at(narrated, true)).ctx, address } });
+    flushSync();
+    expect(doneTarget.querySelectorAll('details.activity .activity-body > .item')).toHaveLength(2);
+    expect(doneTarget.querySelector('details.activity details.thinking .thinking-body p')!.textContent).toBe(
+      'Let me check a.ts.\n\nNow checking b.ts.',
+    );
+    expect(doneTarget.querySelector('.summary')!.textContent).toContain('All done.');
+    expect(doneTarget.querySelector('.summary')!.textContent).not.toContain('Let me check');
+    unmount(done);
+    doneTarget.remove();
   });
 
   it('while the turn runs sits beneath the tool calls', () => {

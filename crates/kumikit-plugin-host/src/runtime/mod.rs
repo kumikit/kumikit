@@ -467,6 +467,7 @@ impl Instance {
             session: config.session,
             settings_schema: config.settings_schema,
             call_workspace: None,
+            call_thread: None,
             model_options: None,
         };
         let mut store = Store::new(engine.engine(), state);
@@ -744,7 +745,12 @@ impl Instance {
                     .await
                     .ok();
                 let prev_call_ws = std::mem::replace(&mut store.data_mut().call_workspace, call_ws);
+                let prev_call_thread = store
+                    .data_mut()
+                    .call_thread
+                    .replace(kumikit_protocol::model::ThreadId(call.thread.clone()));
                 let r = p.kumikit_tool_tool().call_call(&mut *store, &call).await;
+                store.data_mut().call_thread = prev_call_thread;
                 store.data_mut().call_workspace = prev_call_ws;
                 store.data_mut().id.workspaces = acting;
                 finish(&plugin, store, r)

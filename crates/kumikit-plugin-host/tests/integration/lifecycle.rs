@@ -97,6 +97,10 @@ fn kkp(dir: &Path, name: &str, manifest: &str, files: &[(&str, &[u8])]) -> PathB
 }
 
 async fn env() -> Env {
+    env_with_limits_timeout(HostConfig::default().limits_probe_timeout).await
+}
+
+async fn env_with_limits_timeout(limits_probe_timeout: Duration) -> Env {
     let dir = tempfile::tempdir().unwrap();
     let agent_dir = Path::new(kumikit_test_plugins::FAKE_ACP_AGENT)
         .parent()
@@ -123,6 +127,7 @@ async fn env() -> Env {
     let c = clock.clone();
     let config = HostConfig {
         cancel_grace: Duration::from_millis(200),
+        limits_probe_timeout,
         now: Arc::new(move || c.now()),
         ..HostConfig::default()
     };
@@ -680,4 +685,151 @@ async fn icons_and_model_settings_reach_clients_and_sessions() {
         .await
         .unwrap();
     assert!(t2.options.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn invalid_limits_snapshots_are_refused_and_keep_the_stored_snapshot() {
+    let e = env().await;
+    e.install_probe().await;
+    let t = e.thread("test.probe/probe", "probe").await;
+
+    let ok = e.turn(&t, 0, "limits 26").await;
+    assert_eq!(ended(&ok).0, TurnOutcome::Done);
+    let mut after = last_seq(&ok);
+
+    for bad in [
+        "limits-invalid nan",
+        "limits-invalid reset",
+        "limits-invalid too-many",
+    ] {
+        let evs = e.turn(&t, after, bad).await;
+        after = last_seq(&evs);
+        let (outcome, err) = ended(&evs);
+        assert_eq!(outcome, TurnOutcome::Failed, "{bad}: {err:?}");
+    }
+
+    let stored = e
+        .kernel
+        .usage_limits(Some("test.probe/probe"))
+        .await
+        .unwrap();
+    assert_eq!(
+        stored[0].limits.as_ref().unwrap().windows[0].used_percent,
+        26.0,
+        "invalid snapshots must not overwrite valid stored limits"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn read_limits_timeout_cancels_a_hanging_reader() {
+    let e = env_with_limits_timeout(Duration::from_millis(150)).await;
+    let backend_wasm = std::fs::read(kumikit_test_plugins::PROBE_WASM).unwrap();
+    let schema = r#"{ "type": "object", "properties": { "env": { "type": "object" } } }"#;
+    e.install(
+        "backend",
+        BACKEND,
+        &[
+            ("plugin.wasm", &backend_wasm),
+            ("entry.schema.json", schema.as_bytes()),
+        ],
+        &[],
+    )
+    .await;
+    let limits_wasm = std::fs::read(kumikit_test_plugins::LIMITS_WASM).unwrap();
+    let manifest = r#"
+id = "test.limits-hang"
+name = "Hanging limits"
+version = "0.1.0"
+kind = ["provider"]
+api = "^0.2"
+[runtime]
+wasm = "plugin.wasm"
+worlds = ["kumikit:plugin/plugin@0.2.0", "kumikit:usage/reader@0.1.0"]
+[permissions]
+spawn = ["fake-acp-agent"]
+[contributes]
+providers = [{ id = "hang", name = "Hang", probe-backend = { env = { LIMITS = "hang" } } }]
+"#;
+    e.install(
+        "limits-hang",
+        manifest,
+        &[("plugin.wasm", &limits_wasm)],
+        &["fake-acp-agent"],
+    )
+    .await;
+
+    let err = e
+        .kernel
+        .usage_refresh("test.limits-hang/hang")
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), kumikit_protocol::ErrorCode::PluginFailed);
+    assert_eq!(e.host.instances("test.limits-hang"), (false, 0));
+    assert!(
+        e.kernel.supervisor().processes().is_empty(),
+        "timed-out reader child must be cleaned up"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn read_limits_trap_and_invalid_snapshot_fail_cleanly() {
+    let e = env().await;
+    let backend_wasm = std::fs::read(kumikit_test_plugins::PROBE_WASM).unwrap();
+    let schema = r#"{ "type": "object", "properties": { "env": { "type": "object" } } }"#;
+    e.install(
+        "backend",
+        BACKEND,
+        &[
+            ("plugin.wasm", &backend_wasm),
+            ("entry.schema.json", schema.as_bytes()),
+        ],
+        &[],
+    )
+    .await;
+    let limits_wasm = std::fs::read(kumikit_test_plugins::LIMITS_WASM).unwrap();
+    let manifest = r#"
+id = "test.limits-fault"
+name = "Faulting limits"
+version = "0.1.0"
+kind = ["provider"]
+api = "^0.2"
+[runtime]
+wasm = "plugin.wasm"
+worlds = ["kumikit:plugin/plugin@0.2.0", "kumikit:usage/reader@0.1.0"]
+[permissions]
+spawn = ["fake-acp-agent"]
+[contributes]
+providers = [
+  { id = "invalid", name = "Invalid", probe-backend = { env = { LIMITS = "invalid" } } },
+  { id = "trap", name = "Trap", probe-backend = { env = { LIMITS = "trap" } } },
+]
+"#;
+    e.install(
+        "limits-fault",
+        manifest,
+        &[("plugin.wasm", &limits_wasm)],
+        &["fake-acp-agent"],
+    )
+    .await;
+
+    let invalid = e
+        .kernel
+        .usage_refresh("test.limits-fault/invalid")
+        .await
+        .unwrap_err();
+    assert_eq!(invalid.code(), kumikit_protocol::ErrorCode::InvalidParams);
+    assert!(e.host.failure("test.limits-fault").is_none());
+
+    let trapped = e
+        .kernel
+        .usage_refresh("test.limits-fault/trap")
+        .await
+        .unwrap_err();
+    assert_eq!(trapped.code(), kumikit_protocol::ErrorCode::PluginFailed);
+    let failure = e
+        .host
+        .failure("test.limits-fault")
+        .expect("a trapping reader records a plugin failure");
+    assert!(failure.retry_in.is_some());
+    assert_eq!(e.host.instances("test.limits-fault"), (false, 0));
 }

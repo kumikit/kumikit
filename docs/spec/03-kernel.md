@@ -38,9 +38,9 @@ Approval  { id, thread, turn, kind, summary, detail, status }
 - `Turn.outcome`: `done`, `cancelled`, `failed`.
 - `Thread.titleSource` is unset (the title was given at creation, or there is none),
   `agent` (a suggestion from an agent through `threads.title.suggest`) or `user` (a
-  rename). A suggestion never replaces a `user` title.
-- **Title hint.** On a thread's first user turn, while `titleSource` is unset and the
-  thread is not a side thread, the kernel puts a short note ahead of the user's message
+  rename). A suggestion never replaces a `user` title, nor a title given at creation.
+- **Title hint.** On a thread's first user turn, while the thread has no title and it is
+  not a side thread, the kernel puts a short note ahead of the user's message
   for the provider: the thread has no title yet, and if a tool suggests titles, it should
   call it once with a short title. The note is not added to the log, which keeps the
   user's own text, and it names no tool. The note ends at the first blank line
@@ -241,12 +241,20 @@ resources with a `wasi:io` pollable, so a plugin can wait on several things at o
   and `permission-mode`. All are optional. The permission mode is bounded
   ([ADR 0034](../decisions/0034-agents-start-threads.md)):
   - A plugin never creates a `full_access` thread.
-  - `origin` names the thread the plugin acts for (a tool passes `tool-call.thread`). It
+  - `origin` names the thread the plugin acts for. During a gateway `tool.call` it is
+    always the calling thread: left out, it is that thread, and naming any other thread
+    fails with `permission-denied`. Outside a tool call it is what the request names. It
     must be in the same workspace, and the new thread can't be looser than it. Strictness,
     from most to least strict: `plan`, `standard`, `accept_edits`, `full_access`.
   - With no mode given, the thread gets `standard`, or the origin's mode if that is
     stricter.
   - A refused mode fails with `permission-denied`.
+  - A thread created with an `origin` is a side thread of it (`parent` is the origin,
+    `side` is set), so it is hidden from the default thread list and shown in the origin's
+    side panel ([ADR 0036](../decisions/0036-tool-started-threads-are-side-threads.md)).
+    When `provider` is left out, the new thread also takes the origin's provider, model,
+    settings and worktree. The mode is always set from the bounded value, so it is never
+    looser than the mode checked here.
 
 ## Schedules
 

@@ -132,6 +132,8 @@ struct Access {
     grants: kumikit_kernel::grants::Grants,
     /// Workspace of the calling thread during a gateway `tool.call`, if any.
     call_workspace: Option<WorkspaceId>,
+    /// The calling thread during a gateway `tool.call`, if any.
+    call_thread: Option<ThreadId>,
 }
 
 impl Access {
@@ -196,6 +198,7 @@ impl HostState {
             actor: self.id.grants_from.clone(),
             grants: self.id.grants.clone(),
             call_workspace: self.call_workspace.clone(),
+            call_thread: self.call_thread.clone(),
         }
     }
 }
@@ -520,6 +523,23 @@ fn strictness(mode: PermissionMode) -> u8 {
     }
 }
 
+/// The origin of a thread a plugin creates (ADR 0036). During a tool call the origin is
+/// always the calling thread, so a plugin can't pick another thread's mode to be bounded
+/// by, or leave the bound out by naming no origin (ADR 0034). Outside a tool call the
+/// origin is what the request names.
+fn resolve_origin(
+    call_thread: Option<&ThreadId>,
+    requested: Option<ThreadId>,
+) -> Result<Option<ThreadId>, String> {
+    match (call_thread, requested) {
+        (Some(calling), None) => Ok(Some(calling.clone())),
+        (Some(calling), Some(named)) if &named != calling => Err(format!(
+            "origin {named} is not the thread that is calling ({calling})"
+        )),
+        (_, requested) => Ok(requested),
+    }
+}
+
 /// The permission mode a plugin-created thread gets (ADR 0034): never `full_access`,
 /// never looser than `origin`'s mode; with none requested, `standard` or the origin's
 /// mode if that is stricter. `Err` carries the reason for `permission-denied`.
@@ -612,17 +632,18 @@ impl wit_threads_client_v2::Host for HostState {
                 })
             })
             .transpose()?;
-        let origin = match request.origin {
+        let origin_id = resolve_origin(a.call_thread.as_ref(), request.origin.map(ThreadId))
+            .map_err(|reason| a.deny("client.threads.create", reason))?;
+        let origin = match &origin_id {
             Some(id) => {
-                let id = ThreadId(id);
-                let origin_ws = a.need_thread("threads.create", &id).await?;
+                let origin_ws = a.need_thread("threads.create", id).await?;
                 if origin_ws != ws {
                     return Err(a.deny(
                         "client.threads.create",
                         format!("origin thread {id} is not in workspace {ws}"),
                     ));
                 }
-                let snap = a.kernel.thread_get(&id).await.map_err(kernel_err)?;
+                let snap = a.kernel.thread_get(id).await.map_err(kernel_err)?;
                 Some(snap.thread.permission_mode.unwrap_or_default())
             }
             None => None,
@@ -635,6 +656,15 @@ impl wit_threads_client_v2::Host for HostState {
                 .into_iter()
                 .collect::<std::collections::BTreeMap<_, _>>()
         });
+        // A thread started for an origin is a side thread of it (ADR 0036). The kernel
+        // then inherits what the request leaves out from the origin, so the mode is always
+        // passed: inheriting it could make the thread looser than the mode checked above.
+        let (parent, side) = match &origin_id {
+            Some(id) => (Some(id.clone()), true),
+            None => (None, false),
+        };
+        let permission_mode =
+            (origin_id.is_some() || mode != PermissionMode::Standard).then_some(mode);
         let t = a
             .kernel
             .thread_create_opts(
@@ -642,11 +672,11 @@ impl wit_threads_client_v2::Host for HostState {
                 request.provider,
                 request.model,
                 request.title,
-                (mode != PermissionMode::Standard).then_some(mode),
+                permission_mode,
                 options,
                 None,
-                None,
-                false,
+                parent,
+                side,
             )
             .await
             .map_err(kernel_err)?;
@@ -712,6 +742,32 @@ mod tests {
     fn full_access_is_never_granted() {
         assert!(bounded_mode(Some(FullAccess), None).is_err());
         assert!(bounded_mode(Some(FullAccess), Some(FullAccess)).is_err());
+    }
+
+    #[test]
+    fn during_a_tool_call_the_origin_is_the_calling_thread() {
+        let calling = ThreadId("calling".into());
+        let other = ThreadId("other".into());
+        // No origin named: the calling thread bounds the new one (ADR 0034). Without this a
+        // tool could leave the bound out and get a looser mode.
+        assert_eq!(
+            resolve_origin(Some(&calling), None),
+            Ok(Some(calling.clone()))
+        );
+        assert_eq!(
+            resolve_origin(Some(&calling), Some(calling.clone())),
+            Ok(Some(calling.clone()))
+        );
+        // Another thread named as origin is refused, so the bound can't come from a
+        // thread the tool picks.
+        assert!(resolve_origin(Some(&calling), Some(other)).is_err());
+    }
+
+    #[test]
+    fn outside_a_tool_call_the_origin_is_what_the_request_names() {
+        let named = ThreadId("named".into());
+        assert_eq!(resolve_origin(None, None), Ok(None));
+        assert_eq!(resolve_origin(None, Some(named.clone())), Ok(Some(named)));
     }
 
     #[test]

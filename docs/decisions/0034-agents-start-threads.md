@@ -1,6 +1,6 @@
 # 0034 — Agents start threads with a chosen model and settings
 
-- **Status:** Accepted
+- **Status:** Accepted (the sidebar placement is amended by [0036](0036-tool-started-threads-are-side-threads.md))
 - **Date:** 2026-11-28
 
 ## Context

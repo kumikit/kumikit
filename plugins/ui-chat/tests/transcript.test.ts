@@ -29,12 +29,20 @@ describe('splitFinishedTurn', () => {
     ];
     const parts = splitFinishedTurn(items);
     expect(parts.summary.map((s) => s.index)).toEqual([5, 7]);
-    expect(parts.activity.map((s) => s.index)).toEqual([0, 1, 3]);
-    expect(parts.thinking).toBe('hmm');
+    expect(parts.activity.map((s) => s.index)).toEqual([1, 3]);
+    expect(parts.thinking).toBe('Let me look.\n\nhmm');
     expect(parts.user.map((s) => s.index)).toEqual([4]);
     expect(parts.tools).toBe(2);
     expect(parts.failed).toBe(1);
     expect(activityLabel(parts)).toBe('Used 2 tools · 1 failed');
+  });
+
+  it('keeps the trailing summary even when a reasoning item follows it', () => {
+    const items: TranscriptItem[] = [tool(true), msg('Final answer.'), { kind: 'reasoning', text: 'afterthought' }];
+    const parts = splitFinishedTurn(items);
+    expect(parts.summary.map((s) => s.index)).toEqual([1]);
+    expect(parts.activity.map((s) => s.index)).toEqual([0]);
+    expect(parts.thinking).toBe('afterthought');
   });
 
   it('has no summary when the turn ends on a tool, and labels steps without tools', () => {
@@ -49,15 +57,18 @@ describe('splitFinishedTurn', () => {
 });
 
 describe('thinking', () => {
-  it('joins every reasoning item of the turn, in order, and keeps them out of the other lists', () => {
+  it('joins reasoning and pre-tool narration in order and keeps them out of the tool list', () => {
     const items: TranscriptItem[] = [
       { kind: 'reasoning', text: 'first' },
+      msg('Let me check a.ts.'),
       tool(true),
       { kind: 'reasoning', text: 'second' },
+      msg('Now checking b.ts.'),
+      tool(true),
       msg('answer'),
     ];
-    expect(turnThinking(items)).toBe('first\n\nsecond');
-    expect(withoutReasoning(items).map((i) => i.kind)).toEqual(['tool', 'message']);
+    expect(turnThinking(items)).toBe('first\n\nLet me check a.ts.\n\nsecond\n\nNow checking b.ts.');
+    expect(withoutReasoning(items).map((i) => i.kind)).toEqual(['tool', 'tool', 'message']);
     expect(turnThinking([msg('x')])).toBe('');
   });
 });

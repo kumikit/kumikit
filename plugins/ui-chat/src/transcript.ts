@@ -177,29 +177,54 @@ export interface TurnSummaryParts {
   failed: number;
 }
 
-/** The turn's reasoning as one text: every reasoning item, in order, one blank line apart. */
-export function turnThinking(items: readonly TranscriptItem[]): string {
-  return items.flatMap((it) => (it.kind === 'reasoning' ? [it.text] : [])).join('\n\n');
+function lastToolIndex(items: readonly TranscriptItem[]): number {
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i]!.kind === 'tool') return i;
+  }
+  return -1;
 }
 
-/** The turn's items without reasoning: reasoning is shown in the Thinking box instead. */
+/**
+ * Whether `item` at `index` belongs in the Thinking box rather than the tool/activity stream:
+ * explicit `reasoning` items plus intermediate narration messages emitted before a tool call.
+ */
+function isThinkingItem(item: TranscriptItem, index: number, lastTool: number): boolean {
+  if (item.kind === 'reasoning') return true;
+  return item.kind === 'message' && index < lastTool;
+}
+
+/**
+ * The turn's thinking as one text: every reasoning item and pre-tool narration message,
+ * in order, one blank line apart.
+ */
+export function turnThinking(items: readonly TranscriptItem[]): string {
+  const lastTool = lastToolIndex(items);
+  return items
+    .flatMap((it, index) => (isThinkingItem(it, index, lastTool) ? [(it as { text: string }).text] : []))
+    .filter((t) => t.trim().length > 0)
+    .join('\n\n');
+}
+
+/** The turn's items without thinking items: those are shown in the Thinking box instead. */
 export function withoutReasoning(items: readonly TranscriptItem[]): TranscriptItem[] {
-  return items.filter((it) => it.kind !== 'reasoning');
+  const lastTool = lastToolIndex(items);
+  return items.filter((it, index) => !isThinkingItem(it, index, lastTool));
 }
 
 /**
  * Splits a finished turn for the summary card. The summary is the run of `message` items at
- * the end of the turn (ignoring `file.changed`, shown in the footer instead); the agent's
- * tools and other work go to `activity`; reasoning goes to `thinking`.
+ * the end of the turn (ignoring `file.changed` and `reasoning`); the agent's tools and other
+ * work go to `activity`; reasoning and pre-tool narration go to `thinking`.
  */
 export function splitFinishedTurn(items: readonly TranscriptItem[]): TurnSummaryParts {
   let start = items.length;
   for (let i = items.length - 1; i >= 0; i--) {
     const kind = items[i]!.kind;
-    if (kind === 'file.changed') continue;
+    if (kind === 'file.changed' || kind === 'reasoning') continue;
     if (kind !== 'message') break;
     start = i;
   }
+  const lastTool = lastToolIndex(items);
   const parts: TurnSummaryParts = {
     activity: [],
     user: [],
@@ -209,7 +234,7 @@ export function splitFinishedTurn(items: readonly TranscriptItem[]): TurnSummary
     failed: 0,
   };
   items.forEach((item, index) => {
-    if (item.kind === 'file.changed' || item.kind === 'reasoning') return;
+    if (item.kind === 'file.changed' || isThinkingItem(item, index, lastTool)) return;
     if (item.kind === 'message' && index >= start) parts.summary.push({ item, index });
     else if (USER_KINDS.has(item.kind)) parts.user.push({ item, index });
     else {
