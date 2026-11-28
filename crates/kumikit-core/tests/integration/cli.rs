@@ -75,7 +75,7 @@ async fn add_on_a_stopped_core_then_serve_offers_the_provider() {
         let hello = c
             .call(
                 "core.hello",
-                json!({"protocol":"0.13", "client": {"name": "t", "version": "0"}}),
+                json!({"protocol":"0.14", "client": {"name": "t", "version": "0"}}),
             )
             .await;
         assert_eq!(
@@ -424,11 +424,11 @@ async fn bridge_copies_lines_to_the_local_core() {
         let mut stdin = child.stdin.take().unwrap();
         let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
         stdin
-            .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"core.hello\",\"params\":{\"protocol\":\"0.13\",\"client\":{\"name\":\"t\",\"version\":\"0\"}}}\n\n")
+            .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"core.hello\",\"params\":{\"protocol\":\"0.14\",\"client\":{\"name\":\"t\",\"version\":\"0\"}}}\n\n")
             .await
             .unwrap();
         let hello: serde_json::Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
-        assert_eq!(hello["result"]["protocol"], "0.13");
+        assert_eq!(hello["result"]["protocol"], "0.14");
         // A local connection: no devices capability without --listen, auth not needed.
         stdin
             .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"auth.token\",\"params\":{\"token\":\"x\"}}\n")

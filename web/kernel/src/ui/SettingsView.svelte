@@ -7,7 +7,7 @@
   import CoreSettings from './CoreSettings.svelte';
   import GeneralSettings from './GeneralSettings.svelte';
   import SlotHost from './SlotHost.svelte';
-  import UpdatesSettings from './UpdatesSettings.svelte';
+  import AboutSettings from './AboutSettings.svelte';
   import WorktreesSettings from './WorktreesSettings.svelte';
 
   let { kernel, page }: { kernel: Kernel; page: string | undefined } = $props();
@@ -25,10 +25,11 @@
   const showAgents = $derived(conn.hello?.capabilities.includes('plugins') ?? false);
   const agentsCurrent = $derived(showAgents && page === 'agents');
   const generalCurrent = $derived(showGeneral && (page === undefined || page === 'general'));
-  const updatesCurrent = $derived(showGeneral && page === 'updates');
+  /** About took over Updates; `updates` still opens it (the status bar links there). */
+  const aboutCurrent = $derived(showGeneral && (page === 'about' || page === 'updates'));
   const worktreesCurrent = $derived(showGeneral && page === 'worktrees');
   const coreCurrent = $derived(
-    generalCurrent || updatesCurrent || worktreesCurrent || agentsCurrent
+    generalCurrent || aboutCurrent || worktreesCurrent || agentsCurrent
       ? undefined
       : page?.startsWith('core:')
         ? corePages.find((p) => `core:${p.id}` === page)
@@ -37,7 +38,7 @@
           : corePages[0],
   );
   const current = $derived(
-    generalCurrent || updatesCurrent || worktreesCurrent || agentsCurrent || coreCurrent
+    generalCurrent || aboutCurrent || worktreesCurrent || agentsCurrent || coreCurrent
       ? undefined
       : (pages.find((p) => p.contribution.id === page) ?? pages[0]),
   );
@@ -58,18 +59,6 @@
         </button>
         <button
           type="button"
-          class="nav-with-dot"
-          class:current={updatesCurrent}
-          aria-current={updatesCurrent ? 'page' : undefined}
-          onclick={() => (kernel.main = { kind: 'settings', page: 'updates' })}
-        >
-          <span>Updates</span>
-          {#if kernel.updates.hasAttention}
-            <span class="update-dot" aria-label="Update available"></span>
-          {/if}
-        </button>
-        <button
-          type="button"
           class:current={worktreesCurrent}
           aria-current={worktreesCurrent ? 'page' : undefined}
           onclick={() => (kernel.main = { kind: 'settings', page: 'worktrees' })}
@@ -87,6 +76,20 @@
           {p.contribution.title}
         </button>
       {/each}
+      {#if showGeneral}
+        <button
+          type="button"
+          class="nav-with-dot"
+          class:current={aboutCurrent}
+          aria-current={aboutCurrent ? 'page' : undefined}
+          onclick={() => (kernel.main = { kind: 'settings', page: 'about' })}
+        >
+          <span>About</span>
+          {#if kernel.updates.hasAttention}
+            <span class="update-dot" aria-label="Update available"></span>
+          {/if}
+        </button>
+      {/if}
     {/if}
     {#if showAgents || corePages.length}
       <span class="group-label">On {conn.label}</span>
@@ -116,8 +119,8 @@
     <div class="page-inner">
       {#if generalCurrent}
         <GeneralSettings {kernel} />
-      {:else if updatesCurrent}
-        <UpdatesSettings {kernel} />
+      {:else if aboutCurrent}
+        <AboutSettings {kernel} />
       {:else if worktreesCurrent}
         <WorktreesSettings {kernel} />
       {:else if agentsCurrent}

@@ -103,6 +103,9 @@ methods! {
         /// `core.activity`: summarises live agent turns and ready queued messages across
         /// all workspaces so updaters can wait for idle before stopping the core (since 0.10).
         CoreActivity = "core.activity" (Empty) -> CoreActivityResult;
+        /// `core.stats`: the core's resource use: memory, database size, active turns and
+        /// the processes it runs (since 0.14).
+        CoreStats = "core.stats" (Empty) -> CoreStatsResult;
         /// `core.shutdown`: stop the core; with `ifIdle: true`, refuses while agents are busy.
         CoreShutdown = "core.shutdown" (ShutdownParams) -> Empty;
         /// `provider.list`: available providers, from manifests, without activating any.
@@ -264,6 +267,24 @@ pub struct CoreActivityResult {
     pub ready_queued: u32,
     /// True when no turns are active and no ready queued messages are waiting.
     pub idle: bool,
+}
+
+/// Result of `core.stats`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct CoreStatsResult {
+    /// Resident memory of the core process in bytes; absent where the OS cannot say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_bytes: Option<u64>,
+    /// Size of the core's database in bytes, with its write-ahead log.
+    pub database_bytes: u64,
+    /// Turns running or awaiting approval, as in `core.activity`.
+    pub active_turns: u32,
+    /// Programs the core runs now, such as agent CLIs.
+    pub processes: u32,
+    /// Seconds since the core started.
+    pub uptime_seconds: u64,
 }
 
 /// Params of `core.shutdown`.

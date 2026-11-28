@@ -109,6 +109,16 @@ Decided in [ADR 0027](../decisions/0027-durable-queue-and-deferred-messages.md).
 - Deciding what runs next and every queue change happen one at a time per core, so a
   message sent while a turn ends either joins the queue the dispatcher reads or starts
   its own turn after `turn.ended`.
+- A **deferred message** (`thread.defer`) is an entry with a trigger: `at` a time, after
+  another thread's turn, after a command exits, or when a polled command passes. It
+  stays in the queue, skipped, until the trigger fires; then it gets a one-line trailer
+  saying why it woke and runs (or waits its turn if the thread is busy).
+- An `at` trigger may **repeat** (`repeat { cron, timeZone? }`, since 0.14). When it
+  fires, the kernel queues the same message again at the rule's next time after both
+  the time it was due and now, so a core that was down does not replay the runs it
+  missed. Removing the queued entry ends the series; so does archiving or deleting the
+  thread. Only clients set a repeat: plugins repeat work through schedules, which their
+  grant gates.
 
 `plugin.event` lets a plugin add its own event kinds without a protocol change. Clients
 that do not understand one skip it; a UI plugin can register a renderer for it.

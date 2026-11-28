@@ -1,0 +1,19 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "id": 30,
+    "method": "core.stats",
+    "params": {}
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 30,
+    "result": {
+      "memoryBytes": 16384000,
+      "databaseBytes": 4718592,
+      "activeTurns": 1,
+      "processes": 2,
+      "uptimeSeconds": 3725
+    }
+  }
+]

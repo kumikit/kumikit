@@ -58,6 +58,18 @@ test('M7 threads: find, slash menu, @ mentions, /later, /btw side thread, and ed
   await expect(queue).toContainText('check the build');
   await expect(queue).toContainText('In 15m');
 
+  // Schedule popover schedules a repeating deferred message and shows its rule in the queue.
+  await page.locator('main').getByRole('button', { name: 'Schedule', exact: true }).click();
+  const scheduleDialog = page.locator('main').getByRole('dialog', { name: 'Schedule a message' });
+  await expect(scheduleDialog).toBeVisible();
+  await scheduleDialog.getByLabel('Message').fill('daily standup check');
+  await scheduleDialog.getByRole('button', { name: 'Tomorrow 09:00' }).click();
+  await scheduleDialog.getByLabel('Repeat').selectOption('weekdays');
+  await scheduleDialog.getByRole('button', { name: 'Schedule', exact: true }).click();
+  await expect(scheduleDialog).toBeHidden();
+  await expect(queue).toContainText('daily standup check');
+  await expect(queue).toContainText('every weekday at 09:00');
+
   // `@` mention picker lists workspace files and inserts `@notes.md `.
   await composer.fill('Look at @not');
   const mentionMenu = page.getByRole('listbox', { name: 'Mention file' });

@@ -451,6 +451,17 @@ impl Conn {
                 let activity = k.activity().await.map_err(kernel_err)?;
                 reply::<m::CoreActivity>(activity)
             }
+            m::CoreStats::NAME => {
+                parse::<m::CoreStats>(params)?;
+                let stats = k.stats().await.map_err(kernel_err)?;
+                reply::<m::CoreStats>(m::CoreStatsResult {
+                    memory_bytes: crate::stats::memory_bytes(),
+                    database_bytes: stats.database_bytes,
+                    active_turns: stats.active_turns,
+                    processes: stats.processes,
+                    uptime_seconds: crate::stats::uptime_seconds(),
+                })
+            }
             m::CoreShutdown::NAME => {
                 let p = parse::<m::CoreShutdown>(params)?;
                 if p.if_idle == Some(true) {

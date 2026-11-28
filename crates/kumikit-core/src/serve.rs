@@ -62,6 +62,7 @@ pub async fn serve(
     on_ready: impl FnOnce(&Ready),
     shutdown: impl Future<Output = ()>,
 ) -> io::Result<()> {
+    crate::stats::mark_start();
     prepare_data_dir(&options.data_dir)?;
     // A second core on this data directory fails here, before it binds or touches the
     // database. Held until `serve` returns.

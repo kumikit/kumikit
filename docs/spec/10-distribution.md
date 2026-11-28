@@ -309,7 +309,7 @@ Kumikit publishes a signed `release.json` manifest (with a sibling `release.json
   pinned Kumikit release public key (overridable via `KUMIKIT_UPDATE_KEY`) before reading any
   asset URL or SHA-256 hash, and verify every downloaded installer or archive against its hash in
   the signed manifest.
-- **Desktop app (Settings → Updates).** Displays the build-stamped current version, checks for
+- **Desktop app (Settings → About).** Displays the build-stamped current version, checks for
   updates on demand, and downloads/installs verified updates (in-place on Linux AppImage, macOS
   `.app`, and Windows NSIS; downloads the verified package for system-managed `.deb`/`.rpm`
   installs). An opt-in **Automatic updates** setting (off by default) periodically checks and

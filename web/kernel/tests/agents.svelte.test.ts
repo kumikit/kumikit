@@ -51,7 +51,7 @@ function setup() {
   const core = new FakeCore();
   let installed: InstalledPlugin[] = [claude, cursor, git, backend];
   core.handle('core.hello', () => ({
-    protocol: '0.13',
+    protocol: '0.14',
     core: { version: '0', name: 'fake', os: 'linux' },
     plugins: [],
     capabilities: ['threads', 'plugins', 'registry', 'settings'],

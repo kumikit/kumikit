@@ -14,5 +14,6 @@ pub mod remote;
 pub mod rpc;
 pub mod serve;
 pub mod signing;
+pub mod stats;
 pub mod theme;
 pub mod transport;

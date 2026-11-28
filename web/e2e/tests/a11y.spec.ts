@@ -39,10 +39,20 @@ test('the main screens have no axe violations, light and dark', async ({ page, k
     await axe(page, `${theme}, model picker`);
     await page.keyboard.press('Escape');
     await expect(picker).toHaveCount(0);
+    // The schedule popover above the composer's clock button.
+    await page.getByRole('button', { name: 'Schedule', exact: true }).click();
+    const schedule = page.getByRole('dialog', { name: 'Schedule a message' });
+    await expect(schedule).toBeVisible();
+    await axe(page, `${theme}, schedule popover`);
+    await page.keyboard.press('Escape');
+    await expect(schedule).toHaveCount(0);
     await command(page, 'Manage plugins');
     await axe(page, `${theme}, plugins`);
     await command(page, 'Open settings');
     await axe(page, `${theme}, settings`);
+    await page.getByRole('navigation', { name: 'Settings pages' }).getByRole('button', { name: 'About' }).click();
+    await expect(page.getByRole('group', { name: /^Resource usage of/ }).first()).toContainText('Core memory');
+    await axe(page, `${theme}, about`);
     await command(page, 'Agents: install, remove and configure');
     await page.getByRole('listitem').filter({ hasText: 'test.recorded' }).getByText('Permissions', { exact: true }).click();
     await axe(page, `${theme}, agents`);

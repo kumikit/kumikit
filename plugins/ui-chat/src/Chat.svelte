@@ -27,6 +27,7 @@
   import BranchPicker from './BranchPicker.svelte';
   import PermissionModePicker from './PermissionModePicker.svelte';
   import QueuePanel from './QueuePanel.svelte';
+  import SchedulePopover from './SchedulePopover.svelte';
   import ChangesDialog from './ChangesDialog.svelte';
   import {
     activityLabel,
@@ -73,10 +74,7 @@
   let handoffMode = $state<HandoffMode>('transcript');
   let switching = $state(false);
   let showLater = $state(false);
-  let laterMode = $state<'minutes' | 'at' | 'after_command' | 'poll_command'>('minutes');
-  let laterMinutes = $state(15);
-  let laterTime = $state('');
-  let laterCmd = $state('');
+  let laterButton: HTMLButtonElement | undefined = $state();
   let nowMs = $state(Date.now());
   let slashIndex = $state(0);
   let mention = $state<MentionMatch | undefined>();
@@ -535,42 +533,17 @@
     return null;
   }
 
-  function scheduleLater() {
-    const message = text.trim();
-    const pending = attachments;
-    if ((!message && pending.length === 0) || archived) return;
-    let trigger: QueueTrigger | undefined;
-    if (laterMode === 'minutes') {
-      const mins = Math.max(1, Math.round(Number(laterMinutes) || 15));
-      trigger = { kind: 'at', time: new Date(Date.now() + mins * 60_000).toISOString() };
-    } else if (laterMode === 'at') {
-      const raw = laterTime.trim();
-      const hhmm = raw.match(/^(\d{1,2}):(\d{2})$/);
-      if (hhmm) {
-        const d = new Date();
-        d.setSeconds(0, 0);
-        d.setHours(Number(hhmm[1]), Number(hhmm[2]));
-        if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
-        trigger = { kind: 'at', time: d.toISOString() };
-      } else if (raw && !Number.isNaN(Date.parse(raw))) {
-        trigger = { kind: 'at', time: new Date(raw).toISOString() };
-      }
-    } else {
-      const argv = laterCmd.trim().split(/\s+/).filter(Boolean);
-      if (argv.length > 0) {
-        trigger =
-          laterMode === 'after_command'
-            ? { kind: 'after_command', argv, timeoutS: 600 }
-            : { kind: 'poll_command', argv, everyS: 30, maxTries: 20 };
-      }
+  /** Schedules a message from the popover. Scheduling the draft clears the composer and
+   * takes its attachments along; another message leaves the draft alone. */
+  function scheduleLater(message: string, trigger: QueueTrigger) {
+    if (archived) return;
+    const usesDraft = message === text.trim();
+    const pending = usesDraft ? attachments : [];
+    if (usesDraft) {
+      text = '';
+      attachments = [];
     }
-    if (!trigger) {
-      ctx.notify('Enter a valid time or command to schedule this message.', 'warning');
-      return;
-    }
-    text = '';
-    attachments = [];
-    showLater = false;
+    closeLater();
     const args: {
       address: ThreadAddress;
       text: string;
@@ -579,6 +552,18 @@
     } = { address, text: message, trigger };
     if (pending.length > 0) args.attachments = toProtocolAttachments(pending);
     void run('thread.defer', args);
+  }
+
+  function closeLater() {
+    showLater = false;
+    laterButton?.focus();
+  }
+
+  function onLaterPointer(e: PointerEvent) {
+    if (!showLater) return;
+    const wrap = laterButton?.parentElement;
+    const node = e.target instanceof Node ? e.target : null;
+    if (wrap && (!node || !wrap.contains(node))) showLater = false;
   }
 
   function assistantText(turn: import('@kumikit/ui-sdk').TurnView): string {
@@ -924,6 +909,8 @@
 
   const outcomeText: Record<string, string> = { done: '', cancelled: 'Cancelled', failed: 'Failed' };
 </script>
+
+<svelte:window onpointerdown={onLaterPointer} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="kk-chat" onkeydown={onPaneKey}>
@@ -1414,30 +1401,6 @@
         </div>
       </div>
     {/if}
-    {#if showLater}
-      <div class="later-bar" role="region" aria-label="Send later">
-        <select class="model-select" aria-label="Trigger type" bind:value={laterMode}>
-          <option value="minutes">In minutes</option>
-          <option value="at">At time (HH:MM)</option>
-          <option value="after_command">After command exits</option>
-          <option value="poll_command">When command passes</option>
-        </select>
-        {#if laterMode === 'minutes'}
-          <input class="later-input short" type="number" min="1" max="10080" aria-label="Minutes from now" bind:value={laterMinutes} />
-          <span class="later-unit">min</span>
-        {:else if laterMode === 'at'}
-          <input class="later-input" type="text" placeholder="14:30 or ISO time" aria-label="Target time" bind:value={laterTime} />
-        {:else}
-          <input class="later-input" type="text" placeholder="cargo test" aria-label="Command" bind:value={laterCmd} />
-        {/if}
-        <button type="button" class="handoff-btn primary" disabled={!canSend} onclick={scheduleLater}>
-          Schedule
-        </button>
-        <button type="button" class="handoff-btn" onclick={() => (showLater = false)}>
-          Cancel
-        </button>
-      </div>
-    {/if}
     <QueuePanel
       queue={view?.queue ?? []}
       hold={view?.queueHold}
@@ -1564,21 +1527,28 @@
               </svg>
             </button>
           {/if}
-          <button
-            type="button"
-            class="action-btn later"
-            class:active={showLater}
-            disabled={archived || !connReady}
-            aria-label="Send later"
-            aria-expanded={showLater}
-            title="Send later (or use /later)"
-            onclick={() => (showLater = !showLater)}
-          >
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="8" cy="8" r="5.5" />
-              <polyline points="8 4.8 8 8 10.4 9.4" />
-            </svg>
-          </button>
+          <span class="later-wrap">
+            <button
+              bind:this={laterButton}
+              type="button"
+              class="action-btn later"
+              class:active={showLater}
+              disabled={archived || !connReady}
+              aria-label="Schedule"
+              aria-haspopup="dialog"
+              aria-expanded={showLater}
+              title="Schedule a message: later, or on repeat (or use /later)"
+              onclick={() => (showLater = !showLater)}
+            >
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="8" cy="8" r="5.5" />
+                <polyline points="8 4.8 8 8 10.4 9.4" />
+              </svg>
+            </button>
+            {#if showLater}
+              <SchedulePopover draft={text} onschedule={scheduleLater} onclose={closeLater} />
+            {/if}
+          </span>
           {#if busy}
             <!-- While a turn runs, Stop takes Send's place; Enter still queues the draft. -->
             <button
@@ -2069,6 +2039,10 @@
   .action-btn.steer:disabled {
     opacity: 0.4;
     cursor: default;
+  }
+  .later-wrap {
+    position: relative;
+    display: inline-flex;
   }
   .action-btn.later {
     width: 30px;

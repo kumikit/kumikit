@@ -57,7 +57,11 @@
       },
       "thread": "01JCTH00000000000000000001",
       "trigger": {
-        "argv": ["cargo", "build", "--release"],
+        "argv": [
+          "cargo",
+          "build",
+          "--release"
+        ],
         "kind": "after_command",
         "timeoutS": 600
       }
@@ -73,10 +77,54 @@
       },
       "thread": "01JCTH00000000000000000001",
       "trigger": {
-        "argv": ["gh", "pr", "checks"],
+        "argv": [
+          "gh",
+          "pr",
+          "checks"
+        ],
         "everyS": 60,
         "kind": "poll_command",
         "maxTries": 10
+      }
+    }
+  },
+  {
+    "id": 29,
+    "jsonrpc": "2.0",
+    "method": "thread.defer",
+    "params": {
+      "input": {
+        "text": "daily standup notes"
+      },
+      "thread": "01JCTH00000000000000000001",
+      "trigger": {
+        "kind": "at",
+        "time": "2026-11-16T09:00:00.000Z",
+        "repeat": {
+          "cron": "0 9 * * 1-5",
+          "timeZone": "Europe/London"
+        }
+      }
+    }
+  },
+  {
+    "id": 29,
+    "jsonrpc": "2.0",
+    "result": {
+      "entry": {
+        "id": "01JCQE00000000000000000009",
+        "input": {
+          "text": "daily standup notes"
+        },
+        "trigger": {
+          "kind": "at",
+          "time": "2026-11-16T09:00:00.000Z",
+          "repeat": {
+            "cron": "0 9 * * 1-5",
+            "timeZone": "Europe/London"
+          }
+        },
+        "turn": "01JCTU00000000000000000009"
       }
     }
   }

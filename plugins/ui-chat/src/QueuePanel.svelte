@@ -5,6 +5,7 @@
 <script lang="ts">
   import { isComposing, type QueueEntry, type QueueHold, type QueueTrigger } from '@kumikit/ui-sdk';
   import { tick } from 'svelte';
+  import { repeatLabel } from './schedule';
 
   let {
     queue,
@@ -54,15 +55,20 @@
     switch (trigger.kind) {
       case 'at': {
         const target = Date.parse(trigger.time);
+        let when: string;
         if (!Number.isNaN(target)) {
           const diffMin = Math.round((target - currentMs) / 60_000);
-          if (diffMin <= 0) return 'Due now';
-          if (diffMin < 60) return `In ${diffMin}m`;
-          const hours = Math.floor(diffMin / 60);
-          const mins = diffMin % 60;
-          return mins > 0 ? `In ${hours}h ${mins}m` : `In ${hours}h`;
+          if (diffMin <= 0) when = 'Due now';
+          else if (diffMin < 60) when = `In ${diffMin}m`;
+          else {
+            const hours = Math.floor(diffMin / 60);
+            const mins = diffMin % 60;
+            when = mins > 0 ? `In ${hours}h ${mins}m` : `In ${hours}h`;
+          }
+        } else {
+          when = `At ${trigger.time}`;
         }
-        return `At ${trigger.time}`;
+        return trigger.repeat ? `${when} · ${repeatLabel(trigger.repeat)}` : when;
       }
       case 'after_turn':
         return `After thread ${trigger.thread.slice(0, 8)}${trigger.onlyOnSuccess ? ' (if ok)' : ''}`;
@@ -367,7 +373,7 @@
   }
   .trigger-chip {
     flex: none;
-    max-width: 220px;
+    max-width: 280px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

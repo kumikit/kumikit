@@ -34,7 +34,7 @@ const deadline = setTimeout(() => {
 }, 60_000);
 
 await new Promise((r) => c.once('connect', r));
-await call('core.hello', { protocol: '0.13', client: { name: 'template-check', version: '0' } });
+await call('core.hello', { protocol: '0.14', client: { name: 'template-check', version: '0' } });
 const { workspace: ws } = await call('workspace.open', { path: workspace });
 const { thread } = await call('thread.create', { workspace: ws.id, provider });
 // Title the thread so the kernel sends the user's message alone, without the first-turn title hint.
